@@ -33,7 +33,7 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
         .filter((t) => t.start_at)
         .map((t) => {
           const c = t.status === 'done' ? COLORS.done : COLORS[t.type]
-          const who = t.assignee_id ? userName(byId.get(t.assignee_id)) : ''
+          const who = t.assignee_ids.map((id) => userName(byId.get(id))).join(', ')
           return {
             id: t.id,
             title: `${t.key} ${t.title}${who ? ` · ${who}` : ''}`,
@@ -97,7 +97,7 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
               type: arg.allDay ? 'daily' : 'hourly',
               start_at: arg.start.toISOString(),
               end_at: arg.end.toISOString(),
-              assignee_id: assignee || null,
+              assignee_ids: assignee ? [assignee] : [],
             })
             arg.view.calendar.unselect()
           }}

@@ -76,7 +76,7 @@ export interface Task {
   type: TaskType
   status: Status
   priority: Priority
-  assignee_id: string | null
+  assignee_ids: string[]
   reporter_id: string | null
   start_at: string | null
   end_at: string | null
@@ -90,6 +90,9 @@ export interface Task {
   subtask_count: number
   subtask_done: number
   comment_count: number
+  /** Ids of tasks this one waits for, and how many of them aren't done. */
+  blocked_by: string[]
+  open_blockers: number
 }
 
 export interface Comment {
@@ -106,6 +109,9 @@ export interface TaskDetail extends Task {
   subtasks: Task[]
   /** Parent chain, outermost first. */
   ancestors: Task[]
+  /** Tasks this one waits for, and tasks waiting for it. */
+  waiting_for: Task[]
+  blocking: Task[]
 }
 
 export interface Workload {

@@ -16,9 +16,9 @@ import {
 } from 'date-fns'
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Crosshair, Plus, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
-import { Avatar, Button, FilterBar, Empty, TYPE_COLOR } from '../components/ui'
+import { AvatarStack, Button, FilterBar, Empty, TYPE_COLOR } from '../components/ui'
 import { defaultSpan, formatSchedule } from '../lib/dates'
-import { useTaskFilters, useTasks, useUpdateTask, useUsers } from '../lib/queries'
+import { useTaskFilters, useTasks, useUpdateTask } from '../lib/queries'
 import { defaultChildType, type Task } from '../lib/types'
 
 type Unit = 'hour' | '6h' | 'day' | 'week' | 'month' | 'year'
@@ -140,7 +140,6 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
   const { data: tasks = [], isLoading } = useTasks({ workspace_id: workspaceId, assignee_id: assignee, type })
   const update = useUpdateTask()
   const modal = useTaskModal()
-  const { byId: users } = useUsers()
   const now = useNow()
 
   const [zoomIdx, setZoomIdx] = useState(() => {
@@ -346,6 +345,25 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
   const nowX = x(now.getTime())
   const bodyH = rows.length * ROW_H
 
+  // Bar geometry per visible task (honouring an in-progress drag), used for
+  // dependency arrows.
+  const bars = new Map<string, { row: number; start: number; end: number; done: boolean }>()
+  rows.forEach(({ task: t }, row) => {
+    if (!t.start_at) return
+    const p = preview?.id === t.id ? preview : null
+    const start = p ? p.start : Date.parse(t.start_at)
+    const end = p ? p.end : t.end_at ? Date.parse(t.end_at) : defaultSpan(t.type, new Date(start)).end.getTime()
+    bars.set(t.id, { row, start, end, done: t.status === 'done' })
+  })
+  const arrows = rows.flatMap(({ task: t }) =>
+    t.blocked_by.flatMap((blockerId) => {
+      const from = bars.get(blockerId)
+      const to = bars.get(t.id)
+      if (!from || !to) return []
+      return [{ key: `${blockerId}>${t.id}`, from, to, conflict: !from.done && to.start < from.end }]
+    }),
+  )
+
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -432,6 +450,42 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
               {nowX >= 0 && nowX <= width && <div className="absolute top-0 h-full w-0.5 bg-red-500/70" style={{ left: nowX }} />}
             </div>
 
+            {/* Dependency arrows: from the end of the task waited for to the start of the waiting task. */}
+            {arrows.length > 0 && (
+              <svg className="pointer-events-none absolute z-[5]" style={{ left: LEFT, top: 48 }} width={width} height={bodyH}>
+                <defs>
+                  {(['ok', 'bad'] as const).map((k) => (
+                    <marker key={k} id={`dep-arrow-${k}`} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                      <path d="M0,0 L8,4 L0,8 z" fill={k === 'ok' ? '#64748b' : '#dc2626'} />
+                    </marker>
+                  ))}
+                </defs>
+                {arrows.map(({ key, from, to, conflict }) => {
+                  const x1 = x(from.end)
+                  const y1 = from.row * ROW_H + ROW_H / 2
+                  const x2 = x(to.start)
+                  const y2 = to.row * ROW_H + ROW_H / 2
+                  const gap = 10
+                  // Straight elbow when there's room; otherwise route between the rows.
+                  const d =
+                    x2 - x1 >= gap * 2
+                      ? `M${x1},${y1} H${x1 + gap} V${y2} H${x2}`
+                      : `M${x1},${y1} H${x1 + gap} V${(y1 + y2) / 2} H${x2 - gap} V${y2} H${x2}`
+                  return (
+                    <path
+                      key={key}
+                      d={d}
+                      fill="none"
+                      stroke={conflict ? '#dc2626' : '#94a3b8'}
+                      strokeWidth={1.5}
+                      strokeDasharray={conflict ? '4 3' : undefined}
+                      markerEnd={`url(#dep-arrow-${conflict ? 'bad' : 'ok'})`}
+                    />
+                  )
+                })}
+              </svg>
+            )}
+
             {/* Rows */}
             {rows.map(({ task: t, depth, rollup }) => {
               const p = preview?.id === t.id ? preview : null
@@ -439,7 +493,6 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
               const end = p ? p.end : t.end_at ? Date.parse(t.end_at) : start !== null ? defaultSpan(t.type, new Date(start)).end.getTime() : null
               const bx = start !== null ? x(start) : 0
               const bw = start !== null && end !== null ? Math.max(x(end) - bx, 6) : 0
-              const assignee = t.assignee_id ? users.get(t.assignee_id) : null
               const color = t.status === 'done' ? 'bg-emerald-500' : TYPE_COLOR[t.type]
               return (
                 <div key={t.id} className="group relative z-10 flex border-b border-slate-100 hover:bg-blue-50/40" style={{ height: ROW_H }}>
@@ -460,12 +513,12 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
                       <button
                         className="hidden rounded p-0.5 text-slate-400 hover:bg-slate-200 group-hover:block"
                         title={`Add ${defaultChildType(t.type)} task inside`}
-                        onClick={() => modal.createTask({ title: '', parent_id: t.id, type: defaultChildType(t.type), assignee_id: t.assignee_id })}
+                        onClick={() => modal.createTask({ title: '', parent_id: t.id, type: defaultChildType(t.type), assignee_ids: t.assignee_ids })}
                       >
                         <Plus size={14} />
                       </button>
                     )}
-                    <Avatar user={assignee} />
+                    <AvatarStack ids={t.assignee_ids} max={2} />
                   </div>
 
                   <div

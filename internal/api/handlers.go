@@ -59,13 +59,13 @@ func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tasks, err := a.store.ListTasks(r.Context(), store.TaskFilter{
-		WorkspaceID:  q.Get("workspace_id"),
-		AssigneeID: q.Get("assignee_id"),
-		ParentID:   q.Get("parent_id"),
-		TopLevel:   q.Get("top_level") == "true",
-		Types:      splitList(q.Get("type")),
-		From:       from,
-		To:         to,
+		WorkspaceID: q.Get("workspace_id"),
+		AssigneeID:  q.Get("assignee_id"),
+		ParentID:    q.Get("parent_id"),
+		TopLevel:    q.Get("top_level") == "true",
+		Types:       splitList(q.Get("type")),
+		From:        from,
+		To:          to,
 	})
 	respond(w, tasks, err)
 }
@@ -75,6 +75,9 @@ type taskDetail struct {
 	Subtasks []store.Task `json:"subtasks"`
 	// Ancestors lists the parent chain, outermost first.
 	Ancestors []store.Task `json:"ancestors"`
+	// WaitingFor are the tasks this one depends on; Blocking wait for it.
+	WaitingFor []store.Task `json:"waiting_for"`
+	Blocking   []store.Task `json:"blocking"`
 }
 
 func splitList(s string) []string {
@@ -102,8 +105,33 @@ func (a *API) getTask(w http.ResponseWriter, r *http.Request) {
 		d.Ancestors = append([]store.Task{p}, d.Ancestors...)
 		parent = p.ParentID
 	}
-	d.Subtasks, err = a.store.ListTasks(ctx, store.TaskFilter{ParentID: t.ID})
+	if d.Subtasks, err = a.store.ListTasks(ctx, store.TaskFilter{ParentID: t.ID}); err != nil {
+		respond(w, nil, err)
+		return
+	}
+	if d.WaitingFor, err = a.store.WaitingFor(ctx, t.ID); err != nil {
+		respond(w, nil, err)
+		return
+	}
+	d.Blocking, err = a.store.Blocking(ctx, t.ID)
 	respond(w, d, err)
+}
+
+func (a *API) addDependency(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		DependsOnID string `json:"depends_on_id"`
+	}
+	if err := decode(r, &in); err != nil {
+		respond(w, nil, err)
+		return
+	}
+	err := a.store.AddDependency(r.Context(), chi.URLParam(r, "id"), in.DependsOnID)
+	respondStatus(w, http.StatusCreated, map[string]bool{"added": true}, err)
+}
+
+func (a *API) removeDependency(w http.ResponseWriter, r *http.Request) {
+	err := a.store.RemoveDependency(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "dependsOnID"))
+	respond(w, map[string]bool{"removed": true}, err)
 }
 
 func (a *API) createTask(w http.ResponseWriter, r *http.Request) {

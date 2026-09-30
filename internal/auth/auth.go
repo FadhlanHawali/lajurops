@@ -35,12 +35,12 @@ func From(ctx context.Context) Principal {
 func UserFrom(ctx context.Context) store.User { return From(ctx).User }
 
 type Authenticator struct {
-	verifier *oidc.IDTokenVerifier
+	verifier  *oidc.IDTokenVerifier
 	clientID  string
 	adminRole string
 	disabled  bool
-	store    *store.Store
-	cache    sync.Map // sub -> cachedUser
+	store     *store.Store
+	cache     sync.Map // sub -> cachedUser
 }
 
 func New(ctx context.Context, cfg config.Config, st *store.Store) *Authenticator {

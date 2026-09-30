@@ -15,6 +15,10 @@ A self-hosted planner in the spirit of Jira/Trello, built for teams that mix
 
   A task can only contain smaller types (project → daily/hourly, daily → hourly).
   Daily and hourly tasks can also be **independent**, without a project.
+- **Multiple owners** per project/daily/hourly task
+- **Dependencies** between daily/hourly tasks ("Create VM" *waits for* "Create IP"): cycles are rejected,
+  blocked cards show what they wait for, and the timeline draws arrows (red when a task starts before
+  the task it waits for ends)
 - **Comments** on projects, daily and hourly tasks, written in **Markdown** (GitHub flavoured: checklists, tables, code blocks) with a formatting toolbar and preview; authors can edit/delete their own comments, admins can delete any
 - **Workload report**: per user, per week or month: hourly support hours, hourly/daily task counts, completion; drill down and export CSV
 - **Keycloak** sign-in (OIDC + PKCE) with an in-app sign-in screen
@@ -138,6 +142,7 @@ one build works in every environment.
 A task counts toward the week/month its **start** falls in (creation time if unscheduled),
 for its **assignee**. *Hourly support hours* = `actual_hours` when recorded, otherwise the
 scheduled duration (`end - start`). Project tasks are containers and are not counted.
+A task with several owners counts fully for each of them.
 
 ## API
 
@@ -149,10 +154,12 @@ GET    /api/me | /api/users
 GET    /api/workspaces          POST /api/workspaces
 GET    /api/workspaces/{id}     PATCH/DELETE /api/workspaces/{id}
 GET    /api/tasks?workspace_id=&assignee_id=&type=daily,hourly&top_level=&parent_id=&from=&to=
-POST   /api/tasks               { workspace_id | parent_id, title, type: project|daily|hourly, start_at, end_at, ... }
-GET    /api/tasks/{id}          includes subtasks and ancestors
+POST   /api/tasks               { workspace_id | parent_id, title, type: project|daily|hourly, assignee_ids: [], start_at, end_at, ... }
+GET    /api/tasks/{id}          includes subtasks, ancestors, waiting_for and blocking
 PATCH  /api/tasks/{id}          partial update (incl. type, parent_id; nesting is validated); null clears a field
 DELETE /api/tasks/{id}          also deletes everything inside it
+POST   /api/tasks/{id}/dependencies                 { depends_on_id }   (task {id} waits for it)
+DELETE /api/tasks/{id}/dependencies/{dependsOnId}
 GET    /api/tasks/{id}/comments   POST /api/tasks/{id}/comments { body }   (Markdown)
 PATCH  /api/comments/{id}       { body }   (author only)
 DELETE /api/comments/{id}       (author or planner-admin)

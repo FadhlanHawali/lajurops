@@ -73,7 +73,7 @@ export type TaskPatch = Partial<
     | 'type'
     | 'status'
     | 'priority'
-    | 'assignee_id'
+    | 'assignee_ids'
     | 'start_at'
     | 'end_at'
     | 'estimate_hours'
@@ -214,6 +214,29 @@ export function useCommentMutations(taskId: string) {
     }),
     remove: useMutation({
       mutationFn: (id: string) => api(`/comments/${id}`, { method: 'DELETE' }),
+      onSettled,
+    }),
+  }
+}
+
+// --- dependencies ---
+
+/** A dependency: `taskId` waits for `dependsOnId`. */
+export interface DependencyLink {
+  taskId: string
+  dependsOnId: string
+}
+
+export function useDependencyMutations() {
+  const qc = useQueryClient()
+  const onSettled = () => invalidateTaskData(qc)
+  return {
+    add: useMutation({
+      mutationFn: ({ taskId, dependsOnId }: DependencyLink) => api(`/tasks/${taskId}/dependencies`, { method: 'POST', body: { depends_on_id: dependsOnId } }),
+      onSettled,
+    }),
+    remove: useMutation({
+      mutationFn: ({ taskId, dependsOnId }: DependencyLink) => api(`/tasks/${taskId}/dependencies/${dependsOnId}`, { method: 'DELETE' }),
       onSettled,
     }),
   }

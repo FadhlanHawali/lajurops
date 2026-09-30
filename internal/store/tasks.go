@@ -14,8 +14,8 @@ import (
 
 type Task struct {
 	ID            string     `json:"id"`
-	WorkspaceID     string     `json:"workspace_id"`
-	WorkspaceKey    string     `json:"workspace_key"`
+	WorkspaceID   string     `json:"workspace_id"`
+	WorkspaceKey  string     `json:"workspace_key"`
 	ParentID      *string    `json:"parent_id"`
 	Number        int        `json:"number"`
 	Key           string     `json:"key"`
@@ -24,7 +24,7 @@ type Task struct {
 	Type          string     `json:"type"`
 	Status        string     `json:"status"`
 	Priority      string     `json:"priority"`
-	AssigneeID    *string    `json:"assignee_id"`
+	AssigneeIDs   []string   `json:"assignee_ids"`
 	ReporterID    *string    `json:"reporter_id"`
 	StartAt       *time.Time `json:"start_at"`
 	EndAt         *time.Time `json:"end_at"`
@@ -38,17 +38,21 @@ type Task struct {
 	SubtaskCount  int        `json:"subtask_count"`
 	SubtaskDone   int        `json:"subtask_done"`
 	CommentCount  int        `json:"comment_count"`
+	// BlockedBy lists the tasks this one waits for; OpenBlockers counts
+	// those not done yet.
+	BlockedBy    []string `json:"blocked_by"`
+	OpenBlockers int      `json:"open_blockers"`
 }
 
 type TaskInput struct {
-	WorkspaceID     string     `json:"workspace_id"`
+	WorkspaceID   string     `json:"workspace_id"`
 	ParentID      *string    `json:"parent_id"`
 	Title         string     `json:"title"`
 	Description   string     `json:"description"`
 	Type          string     `json:"type"`
 	Status        string     `json:"status"`
 	Priority      string     `json:"priority"`
-	AssigneeID    *string    `json:"assignee_id"`
+	AssigneeIDs   []string   `json:"assignee_ids"`
 	StartAt       *time.Time `json:"start_at"`
 	EndAt         *time.Time `json:"end_at"`
 	EstimateHours *float64   `json:"estimate_hours"`
@@ -57,11 +61,11 @@ type TaskInput struct {
 }
 
 type TaskFilter struct {
-	WorkspaceID  string
-	AssigneeID string
-	ParentID   string
-	TopLevel   bool
-	Types      []string
+	WorkspaceID string
+	AssigneeID  string
+	ParentID    string
+	TopLevel    bool
+	Types       []string
 	// From/To select tasks whose schedule overlaps [From, To).
 	From, To *time.Time
 }
@@ -74,12 +78,16 @@ var (
 
 const taskCols = `t.id::text, t.workspace_id::text, p.key, t.parent_id::text, t.number,
 	t.title, t.description, t.type, t.status, t.priority,
-	t.assignee_id::text, t.reporter_id::text, t.start_at, t.end_at,
+	(SELECT coalesce(array_agg(a.user_id::text ORDER BY a.assigned_at), '{}') FROM task_assignees a WHERE a.task_id = t.id),
+	t.reporter_id::text, t.start_at, t.end_at,
 	t.estimate_hours::float8, t.actual_hours::float8, t.progress, t.position,
 	t.completed_at, t.created_at, t.updated_at,
 	(SELECT count(*) FROM tasks s WHERE s.parent_id = t.id),
 	(SELECT count(*) FROM tasks s WHERE s.parent_id = t.id AND s.status = 'done'),
-	(SELECT count(*) FROM task_comments c WHERE c.task_id = t.id)`
+	(SELECT count(*) FROM task_comments c WHERE c.task_id = t.id),
+	(SELECT coalesce(array_agg(d.depends_on_id::text), '{}') FROM task_dependencies d WHERE d.task_id = t.id),
+	(SELECT count(*) FROM task_dependencies d JOIN tasks b ON b.id = d.depends_on_id
+	  WHERE d.task_id = t.id AND b.status <> 'done')`
 
 const taskFrom = ` FROM tasks t JOIN workspaces p ON p.id = t.workspace_id`
 
@@ -87,9 +95,10 @@ func scanTask(row pgx.Row) (Task, error) {
 	var t Task
 	err := row.Scan(&t.ID, &t.WorkspaceID, &t.WorkspaceKey, &t.ParentID, &t.Number,
 		&t.Title, &t.Description, &t.Type, &t.Status, &t.Priority,
-		&t.AssigneeID, &t.ReporterID, &t.StartAt, &t.EndAt,
+		&t.AssigneeIDs, &t.ReporterID, &t.StartAt, &t.EndAt,
 		&t.EstimateHours, &t.ActualHours, &t.Progress, &t.Position,
-		&t.CompletedAt, &t.CreatedAt, &t.UpdatedAt, &t.SubtaskCount, &t.SubtaskDone, &t.CommentCount)
+		&t.CompletedAt, &t.CreatedAt, &t.UpdatedAt, &t.SubtaskCount, &t.SubtaskDone, &t.CommentCount,
+		&t.BlockedBy, &t.OpenBlockers)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
 	}
@@ -108,7 +117,7 @@ func (s *Store) ListTasks(ctx context.Context, f TaskFilter) ([]Task, error) {
 		add("t.workspace_id = $%d", f.WorkspaceID)
 	}
 	if f.AssigneeID != "" {
-		add("t.assignee_id = $%d", f.AssigneeID)
+		add("EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = $%d)", f.AssigneeID)
 	}
 	if f.ParentID != "" {
 		add("t.parent_id = $%d", f.ParentID)
@@ -208,17 +217,20 @@ func (s *Store) CreateTask(ctx context.Context, in TaskInput, reporterID string)
 	var id string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO tasks (workspace_id, parent_id, number, title, description, type, status, priority,
-		                   assignee_id, reporter_id, start_at, end_at, estimate_hours, actual_hours, progress,
+		                   reporter_id, start_at, end_at, estimate_hours, actual_hours, progress,
 		                   position, completed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
 		        (SELECT coalesce(max(position), 0) + 1 FROM tasks WHERE workspace_id = $1 AND status = $7),
 		        CASE WHEN $7 = 'done' THEN now() END)
 		RETURNING id::text`,
 		in.WorkspaceID, in.ParentID, number, in.Title, in.Description, in.Type, in.Status, in.Priority,
-		emptyToNil(in.AssigneeID), nullString(reporterID), in.StartAt, in.EndAt, in.EstimateHours, in.ActualHours, in.Progress,
+		nullString(reporterID), in.StartAt, in.EndAt, in.EstimateHours, in.ActualHours, in.Progress,
 	).Scan(&id)
 	if err != nil {
 		return Task{}, mapConstraintErr(err)
+	}
+	if err := setAssignees(ctx, tx, id, in.AssigneeIDs); err != nil {
+		return Task{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Task{}, err
@@ -238,6 +250,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 	// Type and parent changes must keep the project > daily > hourly nesting.
 	var newType *string
 	var newParent **string
+	var assignees *[]string
 
 	for k, raw := range patch {
 		switch k {
@@ -281,12 +294,12 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 			}
 			set("status", v)
 			sets = append(sets, fmt.Sprintf("completed_at = CASE WHEN $%d = 'done' THEN coalesce(completed_at, now()) END", len(args)))
-		case "assignee_id":
-			var v *string
+		case "assignee_ids":
+			var v []string
 			if err := json.Unmarshal(raw, &v); err != nil {
-				return Task{}, invalid("assignee_id must be a string or null")
+				return Task{}, invalid("assignee_ids must be a list of user ids")
 			}
-			set("assignee_id", emptyToNil(v))
+			assignees = &v
 		case "start_at", "end_at":
 			var v *time.Time
 			if err := json.Unmarshal(raw, &v); err != nil {
@@ -315,7 +328,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 			return Task{}, invalid("field " + k + " cannot be updated")
 		}
 	}
-	if len(sets) == 0 {
+	if len(sets) == 0 && assignees == nil {
 		return s.GetTask(ctx, id)
 	}
 
@@ -332,13 +345,19 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 	}
 
 	args = append(args, id)
-	q := fmt.Sprintf(`UPDATE tasks SET %s, updated_at = now() WHERE id = $%d`, strings.Join(sets, ", "), len(args))
+	sets = append(sets, "updated_at = now()")
+	q := fmt.Sprintf(`UPDATE tasks SET %s WHERE id = $%d`, strings.Join(sets, ", "), len(args))
 	tag, err := tx.Exec(ctx, q, args...)
 	if err != nil {
 		return Task{}, mapConstraintErr(err)
 	}
 	if tag.RowsAffected() == 0 {
 		return Task{}, ErrNotFound
+	}
+	if assignees != nil {
+		if err := setAssignees(ctx, tx, id, *assignees); err != nil {
+			return Task{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Task{}, err
@@ -402,6 +421,16 @@ func validateMove(ctx context.Context, tx pgx.Tx, id string, newType *string, ne
 		}
 	}
 
+	if typ == "project" && curType != "project" {
+		var deps int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM task_dependencies WHERE task_id = $1 OR depends_on_id = $1`, id).Scan(&deps); err != nil {
+			return err
+		}
+		if deps > 0 {
+			return invalid("remove this task's dependencies before turning it into a project")
+		}
+	}
+
 	// Existing children must still fit under the (possibly new) type.
 	var maxChildRank int
 	err = tx.QueryRow(ctx, `
@@ -462,4 +491,26 @@ func emptyToNil(s *string) *string {
 		return nil
 	}
 	return s
+}
+
+// setAssignees replaces a task's owners, keeping the original assignment time
+// of owners who stay.
+func setAssignees(ctx context.Context, tx pgx.Tx, taskID string, userIDs []string) error {
+	ids := make([]string, 0, len(userIDs))
+	seen := map[string]bool{}
+	for _, u := range userIDs {
+		if u = strings.TrimSpace(u); u != "" && !seen[u] {
+			seen[u] = true
+			ids = append(ids, u)
+		}
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM task_assignees WHERE task_id = $1 AND NOT (user_id::text = ANY($2))`, taskID, ids); err != nil {
+		return err
+	}
+	for _, u := range ids {
+		if _, err := tx.Exec(ctx, `INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, taskID, u); err != nil {
+			return mapConstraintErr(err)
+		}
+	}
+	return nil
 }

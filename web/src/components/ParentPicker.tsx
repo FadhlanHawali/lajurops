@@ -8,7 +8,7 @@ import { StatusPill, TYPE_COLOR } from './ui'
 const MAX_RESULTS = 30
 
 /** Ranks a task against a query: key prefix > title prefix > word prefix > substring. */
-function score(t: Task, q: string): number {
+export function matchScore(t: Task, q: string): number {
   const key = t.key.toLowerCase()
   const title = t.title.toLowerCase()
   if (key === q) return 100
@@ -61,7 +61,7 @@ export function ParentPicker({
       return projects
     }
     return allowed
-      .map((c) => ({ c, s: score(c, q) }))
+      .map((c) => ({ c, s: matchScore(c, q) }))
       .filter((r) => r.s > 0)
       .sort((a, b) => b.s - a.s || openFirst(a.c, b.c) || Number(a.c.type !== 'project') - Number(b.c.type !== 'project') || a.c.title.localeCompare(b.c.title))
       .map((r) => r.c)

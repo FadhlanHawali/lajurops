@@ -53,6 +53,9 @@ func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *k
 			r.Patch("/tasks/{id}", a.updateTask)
 			r.Delete("/tasks/{id}", a.deleteTask)
 
+			r.Post("/tasks/{id}/dependencies", a.addDependency)
+			r.Delete("/tasks/{id}/dependencies/{dependsOnID}", a.removeDependency)
+
 			r.Get("/tasks/{id}/comments", a.listComments)
 			r.Post("/tasks/{id}/comments", a.createComment)
 			r.Patch("/comments/{id}", a.updateComment)

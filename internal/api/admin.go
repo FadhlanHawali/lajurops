@@ -36,14 +36,14 @@ func (a *API) adminOnly(next http.Handler) http.Handler {
 }
 
 type adminUser struct {
-	ID              string    `json:"id"`
-	Username        string    `json:"username"`
-	Email           string    `json:"email"`
-	FirstName       string    `json:"first_name"`
-	LastName        string    `json:"last_name"`
-	Enabled         bool      `json:"enabled"`
-	EmailVerified   bool      `json:"email_verified"`
-	IsAdmin         bool      `json:"is_admin"`
+	ID              string     `json:"id"`
+	Username        string     `json:"username"`
+	Email           string     `json:"email"`
+	FirstName       string     `json:"first_name"`
+	LastName        string     `json:"last_name"`
+	Enabled         bool       `json:"enabled"`
+	EmailVerified   bool       `json:"email_verified"`
+	IsAdmin         bool       `json:"is_admin"`
 	RequiredActions []string   `json:"required_actions"`
 	CreatedAt       *time.Time `json:"created_at"` // nil for imported users
 }

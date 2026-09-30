@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { FolderKanban, MessageSquare, Plus } from 'lucide-react'
+import { FolderKanban, Hourglass, MessageSquare, Plus } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
-import { Avatar, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
+import { AvatarStack, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
 import { formatSchedule } from '../lib/dates'
-import { useTaskFilters, useTasks, useUpdateTask, useUsers } from '../lib/queries'
+import { useTaskFilters, useTasks, useUpdateTask } from '../lib/queries'
 import { STATUSES, type Status, type Task } from '../lib/types'
 
 export default function Board({ workspaceId }: { workspaceId: string }) {
@@ -23,7 +23,7 @@ export default function Board({ workspaceId }: { workspaceId: string }) {
   const tasks = all.filter(
     (t) =>
       (type ? t.type === type : t.type !== 'project') &&
-      (!assignee || t.assignee_id === assignee) &&
+      (!assignee || t.assignee_ids.includes(assignee)) &&
       (!projectFilter || (projectFilter === 'none' ? !projectOf(t) : projectOf(t)?.id === projectFilter)),
   )
   const update = useUpdateTask()
@@ -97,6 +97,7 @@ export default function Board({ workspaceId }: { workspaceId: string }) {
                       task={t}
                       project={projectOf(t)}
                       parent={t.parent_id ? byId.get(t.parent_id) : undefined}
+                      openBlockers={t.blocked_by.map((id) => byId.get(id)).filter((b): b is Task => !!b && b.status !== 'done')}
                       onOpen={() => modal.openTask(t.id)}
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/task-id', t.id)
@@ -129,18 +130,19 @@ function Card({
   task: t,
   project,
   parent,
+  openBlockers,
   onOpen,
   ...drag
 }: {
   task: Task
   project?: Task
   parent?: Task
+  openBlockers: Task[]
   onOpen: () => void
   onDragStart: (e: React.DragEvent<HTMLDivElement>) => void
   onDragOver: (e: React.DragEvent<HTMLDivElement>) => void
   onDragEnd: () => void
 }) {
-  const { byId } = useUsers()
   return (
     <div
       data-card
@@ -149,6 +151,14 @@ function Card({
       onClick={onOpen}
       className="cursor-pointer rounded-md border border-slate-200 bg-white p-2.5 shadow-sm transition hover:border-blue-300 hover:shadow"
     >
+      {openBlockers.length > 0 && t.status !== 'done' && (
+        <p
+          className="mb-1 flex items-center gap-1 truncate rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800"
+          title={`Waiting for: ${openBlockers.map((b) => `${b.key} ${b.title}`).join(', ')}`}
+        >
+          <Hourglass size={11} className="shrink-0" /> Waiting for {openBlockers.map((b) => b.key).join(', ')}
+        </p>
+      )}
       {project && (
         <p className="mb-1 flex items-center gap-1 truncate text-[11px] font-medium text-amber-700" title={`Project ${project.key}: ${project.title}`}>
           <FolderKanban size={11} className="shrink-0" /> <span className="truncate">{project.title}</span>
@@ -177,7 +187,7 @@ function Card({
             </span>
           )}
           <PriorityIcon priority={t.priority} />
-          <Avatar user={t.assignee_id ? byId.get(t.assignee_id) : null} />
+          <AvatarStack ids={t.assignee_ids} />
         </span>
       </div>
     </div>

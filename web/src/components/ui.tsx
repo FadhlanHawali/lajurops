@@ -114,27 +114,26 @@ export function Field({ label, children, className }: { label: string; children:
   )
 }
 
-export function UserSelect({
-  value,
-  onChange,
-  className,
-  allowEmpty = 'Unassigned',
-}: {
-  value: string
-  onChange: (id: string) => void
-  className?: string
-  allowEmpty?: string
-}) {
-  const { users } = useUsers()
+/** Overlapping avatars for a task's owners, collapsing extras into "+N". */
+export function AvatarStack({ ids, max = 3, size = 'sm' }: { ids: string[]; max?: number; size?: 'sm' | 'md' }) {
+  const { byId } = useUsers()
+  if (ids.length === 0) return <Avatar user={null} size={size} />
+  const shown = ids.slice(0, max)
+  const extra = ids.length - shown.length
+  const names = ids.map((id) => userName(byId.get(id))).join(', ')
   return (
-    <select className={clsx(inputCls, className)} value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">{allowEmpty}</option>
-      {users.map((u) => (
-        <option key={u.id} value={u.id}>
-          {userName(u)}
-        </option>
+    <span className="flex shrink-0 -space-x-1.5" title={names}>
+      {shown.map((id) => (
+        <span key={id} className="rounded-full ring-2 ring-white">
+          <Avatar user={byId.get(id)} size={size} />
+        </span>
       ))}
-    </select>
+      {extra > 0 && (
+        <span className={clsx('inline-flex items-center justify-center rounded-full bg-slate-200 font-semibold text-slate-600 ring-2 ring-white', size === 'sm' ? 'h-6 w-6 text-[10px]' : 'h-8 w-8 text-xs')}>
+          +{extra}
+        </span>
+      )}
+    </span>
   )
 }
 

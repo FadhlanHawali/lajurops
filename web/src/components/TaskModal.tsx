@@ -3,12 +3,14 @@ import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
 import { ChevronRight, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { fromInput, toInput } from '../lib/dates'
-import { useCreateTask, useDeleteTask, useTask, useTasks, useUpdateTask, useUsers, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
+import { useCreateTask, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
 import { canContain, defaultChildType, PRIORITIES, STATUSES, TASK_TYPES, type Priority, type Status, type Task, type TaskType } from '../lib/types'
 import { Comments } from './Comments'
 import { DateRangeField, HourlyScheduleField } from './DateTimePicker'
 import { ParentPicker } from './ParentPicker'
-import { Avatar, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge, UserSelect } from './ui'
+import { Dependencies } from './Dependencies'
+import { MultiUserPicker } from './UserPicker'
+import { AvatarStack, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge } from './ui'
 
 type ModalState = { mode: 'edit'; id: string } | { mode: 'create'; defaults: TaskCreate } | null
 
@@ -61,7 +63,18 @@ function EditTask({ id, onClose, onOpen }: { id: string; onClose: () => void; on
       </div>
     )
   if (error || !data) return <div className="p-8 text-red-600">Could not load task: {String(error)}</div>
-  return <TaskForm key={data.updated_at} task={data} children_={data.subtasks} ancestors={data.ancestors} onClose={onClose} onOpen={onOpen} />
+  return (
+    <TaskForm
+      key={data.updated_at}
+      task={data}
+      children_={data.subtasks}
+      ancestors={data.ancestors}
+      waitingFor={data.waiting_for}
+      blocking={data.blocking}
+      onClose={onClose}
+      onOpen={onOpen}
+    />
+  )
 }
 
 interface FormState {
@@ -71,7 +84,7 @@ interface FormState {
   parent_id: string
   status: Status
   priority: Priority
-  assignee_id: string
+  assignee_ids: string[]
   start: string
   end: string
   estimate_hours: string
@@ -88,7 +101,7 @@ function initialForm(t: Partial<Task> | TaskCreate): FormState {
     parent_id: t.parent_id ?? '',
     status: t.status ?? 'todo',
     priority: t.priority ?? 'medium',
-    assignee_id: t.assignee_id ?? '',
+    assignee_ids: t.assignee_ids ?? [],
     start: toInput(t.start_at ?? null, type),
     end: toInput(t.end_at ?? null, type, true),
     estimate_hours: t.estimate_hours?.toString() ?? '',
@@ -121,6 +134,8 @@ function TaskForm({
   initial,
   children_: childTasks = [],
   ancestors = [],
+  waitingFor = [],
+  blocking = [],
   onClose,
   onOpen,
   onSaved,
@@ -129,6 +144,8 @@ function TaskForm({
   initial?: TaskCreate
   children_?: Task[]
   ancestors?: Task[]
+  waitingFor?: Task[]
+  blocking?: Task[]
   onClose: () => void
   onOpen?: (id: string) => void
   onSaved?: (t: Task) => void
@@ -145,6 +162,8 @@ function TaskForm({
 
   // Possible parents: project and daily tasks in the same workspace.
   const { data: containers = [] } = useTasks({ workspace_id: workspaceId, type: 'project,daily' }, !!workspaceId)
+  // Daily/hourly tasks that this one could wait for.
+  const { data: workTasks = [] } = useTasks({ workspace_id: workspaceId, type: 'daily,hourly' }, !!task && task.type !== 'project')
   const parent = containers.find((c) => c.id === f.parent_id) ?? ancestors[ancestors.length - 1]
   // A type is allowed if the parent can hold it and it can hold the existing children.
   const typeAllowed = (t: TaskType) =>
@@ -168,7 +187,7 @@ function TaskForm({
       parent_id: f.parent_id || null,
       status: f.status,
       priority: f.priority,
-      assignee_id: f.assignee_id || null,
+      assignee_ids: f.assignee_ids,
       start_at: startIso,
       end_at: endIso ?? (startIso && dateBased ? fromInput(f.start, f.type, true) : null),
       estimate_hours: num(f.estimate_hours),
@@ -244,6 +263,7 @@ function TaskForm({
             <textarea className={clsx(inputCls, 'min-h-32')} value={f.description} onChange={(e) => up('description', e.target.value)} placeholder="Add details, links, runbook steps…" />
           </Field>
 
+          {task && task.type !== 'project' && <Dependencies task={task} waitingFor={waitingFor} blocking={blocking} candidates={workTasks} onOpen={onOpen!} />}
           {task && task.type !== 'hourly' && <ChildTasks parent={task} items={childTasks} onOpen={onOpen!} />}
           {task && (
             <div className="border-t border-slate-100 pt-4">
@@ -319,8 +339,8 @@ function TaskForm({
               </select>
             </Field>
           </div>
-          <Field label={f.type === 'project' ? 'Owner' : 'Assignee'}>
-            <UserSelect value={f.assignee_id} onChange={(v) => up('assignee_id', v)} />
+          <Field label={f.type === 'project' ? 'Owners' : 'Assignees'}>
+            <MultiUserPicker value={f.assignee_ids} onChange={(ids) => up('assignee_ids', ids)} />
           </Field>
           {dateBased ? (
             <Field label={f.type === 'project' ? 'Timeline' : 'Start → due date'}>
@@ -367,7 +387,6 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
   const [type, setType] = useState<TaskType>(defaultChildType(parent.type))
   const create = useCreateTask()
   const update = useUpdateTask()
-  const { byId } = useUsers()
   const done = items.filter((s) => s.status === 'done').length
   const allowed = useMemo(() => TASK_TYPES.filter((t) => canContain(parent.type, t.id)), [parent.type])
 
@@ -377,7 +396,7 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
       title: title.trim(),
       parent_id: parent.id,
       type,
-      assignee_id: parent.assignee_id,
+      assignee_ids: parent.assignee_ids,
       priority: parent.priority,
     })
     setTitle('')
@@ -415,7 +434,7 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
             )}
             <TypeBadge type={s.type} />
             <PriorityIcon priority={s.priority} />
-            <Avatar user={s.assignee_id ? byId.get(s.assignee_id) : null} />
+            <AvatarStack ids={s.assignee_ids} />
           </li>
         ))}
         <li className="flex items-center gap-2 px-2 py-1.5">
