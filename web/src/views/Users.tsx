@@ -385,38 +385,46 @@ function PurgeDialog({ user, onClose }: { user: RemovedUser; onClose: () => void
   return (
     <Modal title={`Remove ${name} from the planner`} onClose={onClose}>
       <div className="space-y-3 p-5 text-sm">
-        <p className="text-slate-600">
-          {name}'s Keycloak account no longer exists. Choose what happens to the {total} task{total === 1 ? '' : 's'} assigned to them.
-        </p>
-        <label className={clsx('flex cursor-pointer gap-3 rounded-lg border p-3', !deleteTasks ? 'border-blue-500 bg-blue-50/50 ring-1 ring-blue-500' : 'border-slate-200')}>
-          <input type="radio" className="mt-1" checked={!deleteTasks} onChange={() => setDeleteTasks(false)} />
-          <span>
-            <span className="block font-medium text-slate-800">Keep their tasks</span>
-            <span className="block text-xs text-slate-500">Remove {name} from {total} task{total === 1 ? '' : 's'}; the tasks stay, unassigned where nobody else is on them.</span>
-          </span>
-        </label>
-        <label className={clsx('flex cursor-pointer gap-3 rounded-lg border p-3', deleteTasks ? 'border-red-500 bg-red-50/50 ring-1 ring-red-500' : 'border-slate-200')}>
-          <input type="radio" className="mt-1" checked={deleteTasks} onChange={() => setDeleteTasks(true)} />
-          <span>
-            <span className="block font-medium text-slate-800">Delete their tasks</span>
-            <span className="block text-xs text-slate-500">
-              Permanently delete the <b>{user.sole_tasks}</b> task{user.sole_tasks === 1 ? '' : 's'} only {name} owns (with everything inside them).
-              {user.shared_tasks > 0 && (
-                <>
-                  {' '}
-                  The other <b>{user.shared_tasks}</b> are shared with someone or contain someone else's work, so they're only unassigned.
-                </>
-              )}
-            </span>
-          </span>
-        </label>
+        {total === 0 ? (
+          <p className="text-slate-600">{name}'s Keycloak account no longer exists and they have no tasks in the planner. Remove them from the planner?</p>
+        ) : (
+          <p className="text-slate-600">
+            {name}'s Keycloak account no longer exists. Choose what happens to the {total} task{total === 1 ? '' : 's'} assigned to them.
+          </p>
+        )}
+        {total > 0 && (
+          <>
+            <label className={clsx('flex cursor-pointer gap-3 rounded-lg border p-3', !deleteTasks ? 'border-blue-500 bg-blue-50/50 ring-1 ring-blue-500' : 'border-slate-200')}>
+              <input type="radio" className="mt-1" checked={!deleteTasks} onChange={() => setDeleteTasks(false)} />
+              <span>
+                <span className="block font-medium text-slate-800">Keep their tasks</span>
+                <span className="block text-xs text-slate-500">Remove {name} from {total} task{total === 1 ? '' : 's'}; the tasks stay, unassigned where nobody else is on them.</span>
+              </span>
+            </label>
+            <label className={clsx('flex cursor-pointer gap-3 rounded-lg border p-3', deleteTasks ? 'border-red-500 bg-red-50/50 ring-1 ring-red-500' : 'border-slate-200')}>
+              <input type="radio" className="mt-1" checked={deleteTasks} onChange={() => setDeleteTasks(true)} />
+              <span>
+                <span className="block font-medium text-slate-800">Delete their tasks</span>
+                <span className="block text-xs text-slate-500">
+                  Permanently delete the <b>{user.sole_tasks}</b> task{user.sole_tasks === 1 ? '' : 's'} only {name} owns (with everything inside them).
+                  {user.shared_tasks > 0 && (
+                    <>
+                      {' '}
+                      The other <b>{user.shared_tasks}</b> are shared with someone or contain someone else's work, so they're only unassigned.
+                    </>
+                  )}
+                </span>
+              </span>
+            </label>
+          </>
+        )}
         {user.comments > 0 && <p className="text-xs text-slate-500">Their {user.comments} comment{user.comments === 1 ? '' : 's'} stay, shown as by a deleted user.</p>}
         {purge.error && <p className="text-sm text-red-600">{purge.error.message}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button variant={deleteTasks ? 'danger' : 'primary'} onClick={submit} disabled={purge.isPending}>
             {purge.isPending && <Loader2 size={14} className="animate-spin" />}
-            {deleteTasks ? `Remove user and delete ${user.sole_tasks} task${user.sole_tasks === 1 ? '' : 's'}` : 'Remove user, keep tasks'}
+            {total === 0 ? 'Remove user' : deleteTasks ? `Remove user and delete ${user.sole_tasks} task${user.sole_tasks === 1 ? '' : 's'}` : 'Remove user, keep tasks'}
           </Button>
         </div>
       </div>
