@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
-import { ArrowLeft, ChevronRight, Hourglass, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ChevronRight, Hourglass, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { fromInput, toInput } from '../lib/dates'
 import { saveEnvironments, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
 import { canContain, defaultChildType, PRIORITIES, PROJECT_KINDS, STATUSES, TASK_TYPES, type Priority, type ProjectKind, type Status, type EnvironmentDraft, type Task, type TaskType } from '../lib/types'
@@ -519,9 +519,7 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
       <div>
         {header}
         <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
-          {items.map((s) => (
-            <ChildRow key={s.id} task={s} onOpen={onOpen} />
-          ))}
+          <RowsWithDoneCollapsed items={items} row={(s) => <ChildRow key={s.id} task={s} onOpen={onOpen} />} />
           <AddChildRow parent={parent} environmentId={parent.type === 'daily' ? parent.environment_id : null} />
         </ul>
       </div>
@@ -573,19 +571,22 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
                   overGroup === sec.id ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-400/30' : 'border-slate-200',
                 )}
               >
-                {list.map((s) => (
-                  <ChildRow
-                    key={s.id}
-                    task={s}
-                    onOpen={onOpen}
-                    dragging={dragId === s.id}
-                    onDragStart={() => setDragId(s.id)}
-                    onDragEnd={() => {
-                      setDragId(null)
-                      setOverGroup(null)
-                    }}
-                  />
-                ))}
+                <RowsWithDoneCollapsed
+                  items={list}
+                  row={(s) => (
+                    <ChildRow
+                      key={s.id}
+                      task={s}
+                      onOpen={onOpen}
+                      dragging={dragId === s.id}
+                      onDragStart={() => setDragId(s.id)}
+                      onDragEnd={() => {
+                        setDragId(null)
+                        setOverGroup(null)
+                      }}
+                    />
+                  )}
+                />
                 <AddChildRow parent={parent} environmentId={sec.id || null} environmentName={sec.id ? sec.name : undefined} compact />
               </ul>
             </section>
@@ -594,6 +595,33 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
       </div>
       <p className="mt-2 text-[11px] text-slate-400">Drag a task to another environment to move it.</p>
     </div>
+  )
+}
+
+/** Open tasks first; finished ones fold into a "N done" row that expands on click. */
+function RowsWithDoneCollapsed({ items, row }: { items: Task[]; row: (t: Task) => ReactNode }) {
+  const [showDone, setShowDone] = useState(false)
+  const open = items.filter((t) => t.status !== 'done')
+  const done = items.filter((t) => t.status === 'done')
+  return (
+    <>
+      {open.map(row)}
+      {done.length > 0 && (
+        <li>
+          <button
+            type="button"
+            onClick={() => setShowDone((v) => !v)}
+            aria-expanded={showDone}
+            className="flex w-full items-center gap-1.5 bg-slate-50/70 px-2 py-1 text-left text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <ChevronRight size={13} className={clsx('transition-transform', showDone && 'rotate-90')} />
+            <CheckCircle2 size={13} className="text-emerald-500" />
+            {done.length} done
+          </button>
+        </li>
+      )}
+      {showDone && done.map(row)}
+    </>
   )
 }
 
