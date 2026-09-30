@@ -526,7 +526,7 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
                       <button
                         className="hidden rounded p-0.5 text-slate-400 hover:bg-slate-200 group-hover:block"
                         title={`Add ${defaultChildType(t.type)} task inside`}
-                        onClick={() => modal.createTask({ title: '', parent_id: t.id, type: defaultChildType(t.type), assignee_ids: t.assignee_ids })}
+                        onClick={() => modal.createTask({ title: '', parent_id: t.id, type: defaultChildType(t.type) })}
                       >
                         <Plus size={14} />
                       </button>

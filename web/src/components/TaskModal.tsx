@@ -600,7 +600,7 @@ function AddChildRow({ parent, environmentId, environmentName, compact }: { pare
       title: title.trim(),
       parent_id: parent.id,
       type,
-      assignee_ids: parent.assignee_ids,
+      assignee_ids: [], // assign people explicitly; don't copy the parent's owners
       priority: parent.priority,
       environment_id: environmentId,
     })
