@@ -69,6 +69,7 @@ export type TaskPatch = Partial<
     Task,
     | 'title'
     | 'parent_id'
+    | 'project_kind'
     | 'description'
     | 'type'
     | 'status'

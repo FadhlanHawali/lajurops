@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { CornerDownLeft, FolderKanban, Link2Off, Search } from 'lucide-react'
 import { canContain, type Task, type TaskType } from '../lib/types'
 import { Popover, TriggerButton } from './Popover'
-import { StatusPill, TYPE_COLOR } from './ui'
+import { StatusPill, taskColor } from './ui'
 
 const MAX_RESULTS = 30
 
@@ -148,13 +148,18 @@ export function ParentPicker({
             const project = c.type === 'daily' ? projectOf(c) : undefined
             return (
               <Row key={c.id} index={i + 1} active={active} setActive={setActive} onPick={() => pick(c.id)} selected={c.id === value}>
-                <span className={clsx('h-2 w-2 shrink-0', TYPE_COLOR[c.type], c.type === 'project' ? 'rounded-sm' : 'rounded-full')} />
+                <span className={clsx('h-2 w-2 shrink-0', taskColor(c), c.type === 'project' ? 'rounded-sm' : 'rounded-full')} />
                 <span className="w-16 shrink-0 text-xs font-medium text-slate-400">{c.key}</span>
                 <span className="min-w-0 flex-1">
                   <span className={clsx('block truncate', c.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-800')}>{c.title}</span>
                   {project && <span className="block truncate text-[11px] text-slate-400">in {project.title}</span>}
                 </span>
                 {c.type === 'daily' && <span className="shrink-0 text-[10px] font-medium text-sky-700 uppercase">Daily</span>}
+                {c.project_kind && (
+                  <span className={clsx('shrink-0 text-[10px] font-medium uppercase', c.project_kind === 'long' ? 'text-amber-700' : 'text-orange-600')}>
+                    {c.project_kind}
+                  </span>
+                )}
                 {c.status === 'done' && <StatusPill status="done" />}
               </Row>
             )

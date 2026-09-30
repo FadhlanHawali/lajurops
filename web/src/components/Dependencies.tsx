@@ -6,7 +6,7 @@ import { useDependencyMutations } from '../lib/queries'
 import type { Task } from '../lib/types'
 import { matchScore } from './ParentPicker'
 import { Popover } from './Popover'
-import { StatusPill, TYPE_COLOR, TypeBadge } from './ui'
+import { StatusPill, taskColor, TypeBadge } from './ui'
 
 /**
  * "Waiting for" and "Blocking" lists for a daily/hourly task, e.g.
@@ -152,7 +152,7 @@ function DependencyList({
                   <AlertTriangle size={12} /> {conflictText}
                 </span>
               )}
-              <TypeBadge type={t.type} />
+              <TypeBadge type={t.type} kind={t.project_kind} />
               <StatusPill status={t.status} />
               <button className="rounded p-0.5 text-slate-300 opacity-0 group-hover:opacity-100 hover:bg-slate-200 hover:text-slate-600" title="Remove dependency" onClick={() => onRemove(t)}>
                 <X size={14} />
@@ -243,7 +243,7 @@ function TaskSearch({ label, options, suggestions, onPick }: { label: string; op
               onClick={() => pick(t)}
               className={clsx('flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm', i === active && 'bg-blue-50')}
             >
-              <span className={clsx('h-2 w-2 shrink-0 rounded-full', TYPE_COLOR[t.type])} />
+              <span className={clsx('h-2 w-2 shrink-0 rounded-full', taskColor(t))} />
               <span className="w-16 shrink-0 text-xs font-medium text-slate-400">{t.key}</span>
               <span className="min-w-0 flex-1">
                 <span className={clsx('block truncate', t.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-800')}>{t.title}</span>

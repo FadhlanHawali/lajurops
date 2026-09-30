@@ -1,4 +1,10 @@
 export type TaskType = 'project' | 'daily' | 'hourly'
+export type ProjectKind = 'long' | 'short'
+
+export const PROJECT_KINDS: { id: ProjectKind; label: string; hint: string }[] = [
+  { id: 'long', label: 'Long project', hint: 'Runs a quarter or more.' },
+  { id: 'short', label: 'Short project', hint: 'Comes in on short notice; done in about a month.' },
+]
 
 /** Task types, biggest first. A task can only contain smaller types. */
 export const TASK_TYPES: { id: TaskType; label: string; hint: string }[] = [
@@ -74,6 +80,8 @@ export interface Task {
   title: string
   description: string
   type: TaskType
+  /** 'long' or 'short' for projects, null for daily/hourly tasks. */
+  project_kind: ProjectKind | null
   status: Status
   priority: Priority
   assignee_ids: string[]

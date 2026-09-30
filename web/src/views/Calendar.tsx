@@ -13,6 +13,7 @@ import type { Task } from '../lib/types'
 
 const COLORS = {
   project: { bg: '#f59e0b', border: '#d97706' },
+  shortProject: { bg: '#fb923c', border: '#f97316' },
   hourly: { bg: '#8b5cf6', border: '#7c3aed' },
   daily: { bg: '#0ea5e9', border: '#0284c7' },
   done: { bg: '#10b981', border: '#059669' },
@@ -32,7 +33,7 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
       tasks
         .filter((t) => t.start_at)
         .map((t) => {
-          const c = t.status === 'done' ? COLORS.done : COLORS[t.type]
+          const c = t.status === 'done' ? COLORS.done : t.project_kind === 'short' ? COLORS.shortProject : COLORS[t.type]
           const who = t.assignee_ids.map((id) => userName(byId.get(id))).join(', ')
           return {
             id: t.id,

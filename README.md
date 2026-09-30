@@ -9,7 +9,9 @@ A self-hosted planner in the spirit of Jira/Trello, built for teams that mix
 - **Calendar**: month/week/day/agenda views; drag, resize, or select a slot to create
 - **Workspaces** (e.g. a team) hold all tasks; task keys look like `OPS-12`
 - **Three task types**, nested **Project → Daily → Hourly**:
-  - `project`: the big picture; groups daily and hourly tasks (shown as a summary bar on the timeline)
+  - `project`: the big picture; groups daily and hourly tasks (shown as a summary bar on the timeline).
+    Each project is either **long** (a quarter or more) or **short** (short notice, about a month);
+    the dialog suggests switching when the timeline doesn't match
   - `daily`: requests and deliverables, scheduled by whole days (start date → due date)
   - `hourly`: implementation / deployment / support, with exact start and end times (snapped to 15 min on the hour zoom)
 
@@ -154,7 +156,7 @@ GET    /api/me | /api/users
 GET    /api/workspaces          POST /api/workspaces
 GET    /api/workspaces/{id}     PATCH/DELETE /api/workspaces/{id}
 GET    /api/tasks?workspace_id=&assignee_id=&type=daily,hourly&top_level=&parent_id=&from=&to=
-POST   /api/tasks               { workspace_id | parent_id, title, type: project|daily|hourly, assignee_ids: [], start_at, end_at, ... }
+POST   /api/tasks               { workspace_id | parent_id, title, type: project|daily|hourly, project_kind: long|short, assignee_ids: [], start_at, end_at, ... }
 GET    /api/tasks/{id}          includes subtasks, ancestors, waiting_for and blocking
 PATCH  /api/tasks/{id}          partial update (incl. type, parent_id; nesting is validated); null clears a field
 DELETE /api/tasks/{id}          also deletes everything inside it

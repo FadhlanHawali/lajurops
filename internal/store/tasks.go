@@ -13,15 +13,17 @@ import (
 )
 
 type Task struct {
-	ID            string     `json:"id"`
-	WorkspaceID   string     `json:"workspace_id"`
-	WorkspaceKey  string     `json:"workspace_key"`
-	ParentID      *string    `json:"parent_id"`
-	Number        int        `json:"number"`
-	Key           string     `json:"key"`
-	Title         string     `json:"title"`
-	Description   string     `json:"description"`
-	Type          string     `json:"type"`
+	ID           string  `json:"id"`
+	WorkspaceID  string  `json:"workspace_id"`
+	WorkspaceKey string  `json:"workspace_key"`
+	ParentID     *string `json:"parent_id"`
+	Number       int     `json:"number"`
+	Key          string  `json:"key"`
+	Title        string  `json:"title"`
+	Description  string  `json:"description"`
+	Type         string  `json:"type"`
+	// ProjectKind is "long" or "short" for project tasks, nil otherwise.
+	ProjectKind   *string    `json:"project_kind"`
 	Status        string     `json:"status"`
 	Priority      string     `json:"priority"`
 	AssigneeIDs   []string   `json:"assignee_ids"`
@@ -45,11 +47,13 @@ type Task struct {
 }
 
 type TaskInput struct {
-	WorkspaceID   string     `json:"workspace_id"`
-	ParentID      *string    `json:"parent_id"`
-	Title         string     `json:"title"`
-	Description   string     `json:"description"`
-	Type          string     `json:"type"`
+	WorkspaceID string  `json:"workspace_id"`
+	ParentID    *string `json:"parent_id"`
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
+	Type        string  `json:"type"`
+	// ProjectKind is "long" or "short" for project tasks, nil otherwise.
+	ProjectKind   *string    `json:"project_kind"`
 	Status        string     `json:"status"`
 	Priority      string     `json:"priority"`
 	AssigneeIDs   []string   `json:"assignee_ids"`
@@ -72,12 +76,13 @@ type TaskFilter struct {
 
 var (
 	taskTypes     = set("project", "daily", "hourly")
+	projectKinds  = set("long", "short")
 	taskStatuses  = set("todo", "in_progress", "in_review", "done")
 	taskPriorites = set("low", "medium", "high", "urgent")
 )
 
 const taskCols = `t.id::text, t.workspace_id::text, p.key, t.parent_id::text, t.number,
-	t.title, t.description, t.type, t.status, t.priority,
+	t.title, t.description, t.type, t.project_kind, t.status, t.priority,
 	(SELECT coalesce(array_agg(a.user_id::text ORDER BY a.assigned_at), '{}') FROM task_assignees a WHERE a.task_id = t.id),
 	t.reporter_id::text, t.start_at, t.end_at,
 	t.estimate_hours::float8, t.actual_hours::float8, t.progress, t.position,
@@ -94,7 +99,7 @@ const taskFrom = ` FROM tasks t JOIN workspaces p ON p.id = t.workspace_id`
 func scanTask(row pgx.Row) (Task, error) {
 	var t Task
 	err := row.Scan(&t.ID, &t.WorkspaceID, &t.WorkspaceKey, &t.ParentID, &t.Number,
-		&t.Title, &t.Description, &t.Type, &t.Status, &t.Priority,
+		&t.Title, &t.Description, &t.Type, &t.ProjectKind, &t.Status, &t.Priority,
 		&t.AssigneeIDs, &t.ReporterID, &t.StartAt, &t.EndAt,
 		&t.EstimateHours, &t.ActualHours, &t.Progress, &t.Position,
 		&t.CompletedAt, &t.CreatedAt, &t.UpdatedAt, &t.SubtaskCount, &t.SubtaskDone, &t.CommentCount,
@@ -178,6 +183,18 @@ func (s *Store) CreateTask(ctx context.Context, in TaskInput, reporterID string)
 	case in.Progress < 0 || in.Progress > 100:
 		return Task{}, invalid("progress must be between 0 and 100")
 	}
+	if in.Type == "project" {
+		if in.ProjectKind == nil || *in.ProjectKind == "" {
+			in.ProjectKind = ptr("short")
+		}
+		if !projectKinds[*in.ProjectKind] {
+			return Task{}, invalid("project_kind must be long or short")
+		}
+	} else if in.ProjectKind != nil && *in.ProjectKind != "" {
+		return Task{}, invalid("only project tasks have a project_kind")
+	} else {
+		in.ProjectKind = nil
+	}
 
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -217,14 +234,14 @@ func (s *Store) CreateTask(ctx context.Context, in TaskInput, reporterID string)
 	var id string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO tasks (workspace_id, parent_id, number, title, description, type, status, priority,
-		                   reporter_id, start_at, end_at, estimate_hours, actual_hours, progress,
+		                   reporter_id, start_at, end_at, estimate_hours, actual_hours, progress, project_kind,
 		                   position, completed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
 		        (SELECT coalesce(max(position), 0) + 1 FROM tasks WHERE workspace_id = $1 AND status = $7),
 		        CASE WHEN $7 = 'done' THEN now() END)
 		RETURNING id::text`,
 		in.WorkspaceID, in.ParentID, number, in.Title, in.Description, in.Type, in.Status, in.Priority,
-		nullString(reporterID), in.StartAt, in.EndAt, in.EstimateHours, in.ActualHours, in.Progress,
+		nullString(reporterID), in.StartAt, in.EndAt, in.EstimateHours, in.ActualHours, in.Progress, in.ProjectKind,
 	).Scan(&id)
 	if err != nil {
 		return Task{}, mapConstraintErr(err)
@@ -251,6 +268,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 	var newType *string
 	var newParent **string
 	var assignees *[]string
+	var newKind *string
 
 	for k, raw := range patch {
 		switch k {
@@ -273,6 +291,12 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 			}
 			newType = &v
 			set("type", v)
+		case "project_kind":
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil || !projectKinds[v] {
+				return Task{}, invalid("project_kind must be long or short")
+			}
+			newKind = &v
 		case "parent_id":
 			var v *string
 			if err := json.Unmarshal(raw, &v); err != nil {
@@ -327,6 +351,18 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 		default:
 			return Task{}, invalid("field " + k + " cannot be updated")
 		}
+	}
+	// Keep project_kind in step with the type: projects always have one.
+	switch {
+	case newType != nil && *newType != "project":
+		if newKind != nil {
+			return Task{}, invalid("only project tasks have a project_kind")
+		}
+		sets = append(sets, "project_kind = NULL")
+	case newKind != nil:
+		set("project_kind", *newKind)
+	case newType != nil:
+		sets = append(sets, "project_kind = coalesce(project_kind, 'short')")
 	}
 	if len(sets) == 0 && assignees == nil {
 		return s.GetTask(ctx, id)
@@ -461,6 +497,9 @@ func mapConstraintErr(err error) error {
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 		case "23514": // check_violation
+			if pgErr.ConstraintName == "tasks_project_kind_matches_type" {
+				return invalid("only project tasks have a project kind (long or short)")
+			}
 			return invalid("end must not be before start")
 		case "23503": // foreign_key_violation
 			return invalid("referenced user or task does not exist")
@@ -514,3 +553,5 @@ func setAssignees(ctx context.Context, tx pgx.Tx, taskID string, userIDs []strin
 	}
 	return nil
 }
+
+func ptr[T any](v T) *T { return &v }

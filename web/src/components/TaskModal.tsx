@@ -4,7 +4,7 @@ import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
 import { ChevronRight, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { fromInput, toInput } from '../lib/dates'
 import { useCreateTask, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
-import { canContain, defaultChildType, PRIORITIES, STATUSES, TASK_TYPES, type Priority, type Status, type Task, type TaskType } from '../lib/types'
+import { canContain, defaultChildType, PRIORITIES, PROJECT_KINDS, STATUSES, TASK_TYPES, type Priority, type ProjectKind, type Status, type Task, type TaskType } from '../lib/types'
 import { Comments } from './Comments'
 import { DateRangeField, HourlyScheduleField } from './DateTimePicker'
 import { ParentPicker } from './ParentPicker'
@@ -81,6 +81,7 @@ interface FormState {
   title: string
   description: string
   type: TaskType
+  project_kind: ProjectKind
   parent_id: string
   status: Status
   priority: Priority
@@ -98,6 +99,7 @@ function initialForm(t: Partial<Task> | TaskCreate): FormState {
     title: t.title ?? '',
     description: t.description ?? '',
     type,
+    project_kind: t.project_kind ?? 'short',
     parent_id: t.parent_id ?? '',
     status: t.status ?? 'todo',
     priority: t.priority ?? 'medium',
@@ -184,6 +186,7 @@ function TaskForm({
       title: f.title.trim(),
       description: f.description,
       type: f.type,
+      ...(f.type === 'project' ? { project_kind: f.project_kind } : {}),
       parent_id: f.parent_id || null,
       status: f.status,
       priority: f.priority,
@@ -236,7 +239,7 @@ function TaskForm({
           </span>
         ))}
         <span className="font-medium text-slate-700">{task ? task.key : `New ${typeInfo.label.toLowerCase()} task`}</span>
-        {task && <TypeBadge type={task.type} />}
+        {task && <TypeBadge type={task.type} kind={task.project_kind} />}
         {task && <StatusPill status={task.status} />}
         <div className="ml-auto flex items-center gap-1">
           {task && (
@@ -305,8 +308,9 @@ function TaskForm({
                 </button>
               ))}
             </div>
-            <p className="mt-1 text-[11px] text-slate-400">{typeInfo.hint}</p>
+            {f.type !== 'project' && <p className="mt-1 text-[11px] text-slate-400">{typeInfo.hint}</p>}
           </Field>
+          {f.type === 'project' && <ProjectKindField value={f.project_kind} onChange={(k) => up('project_kind', k)} days={durationMin / 1440} />}
           {f.type !== 'project' && (
             <Field label={f.type === 'daily' ? 'Part of project' : 'Part of project / daily task'}>
               <ParentPicker
@@ -432,7 +436,7 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
                 {s.subtask_done}/{s.subtask_count}
               </span>
             )}
-            <TypeBadge type={s.type} />
+            <TypeBadge type={s.type} kind={s.project_kind} />
             <PriorityIcon priority={s.priority} />
             <AvatarStack ids={s.assignee_ids} />
           </li>
@@ -457,6 +461,42 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
           />
         </li>
       </ul>
+    </div>
+  )
+}
+
+const QUARTER_DAYS = 90
+const MONTH_DAYS = 31
+
+/** Long vs short project, with a nudge when the timeline doesn't fit the choice. */
+function ProjectKindField({ value, onChange, days }: { value: ProjectKind; onChange: (k: ProjectKind) => void; days: number }) {
+  const suggest: ProjectKind | null = value === 'short' && days > QUARTER_DAYS ? 'long' : value === 'long' && days > 0 && days < MONTH_DAYS ? 'short' : null
+  return (
+    <div className="-mt-1 space-y-1.5">
+      <div className="grid grid-cols-2 gap-2">
+        {PROJECT_KINDS.map((k) => (
+          <button
+            key={k.id}
+            type="button"
+            onClick={() => onChange(k.id)}
+            className={clsx(
+              'rounded-md border px-2 py-1.5 text-left transition',
+              value === k.id ? (k.id === 'long' ? 'border-amber-500 bg-amber-50 ring-1 ring-amber-500' : 'border-orange-400 bg-orange-50 ring-1 ring-orange-400') : 'border-slate-200 hover:border-slate-300',
+            )}
+          >
+            <span className="block text-xs font-semibold text-slate-800">{k.label}</span>
+            <span className="block text-[10px] leading-tight text-slate-500">{k.hint}</span>
+          </button>
+        ))}
+      </div>
+      {suggest && (
+        <p className="text-[11px] text-amber-700">
+          This timeline is {suggest === 'long' ? 'longer than a quarter' : 'shorter than a month'}.{' '}
+          <button type="button" className="font-semibold underline" onClick={() => onChange(suggest)}>
+            Make it a {suggest} project
+          </button>
+        </p>
+      )}
     </div>
   )
 }

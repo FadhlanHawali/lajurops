@@ -54,11 +54,20 @@ export default function Board({ workspaceId }: { workspaceId: string }) {
         <select className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
           <option value="">All projects</option>
           <option value="none">Independent tasks</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.key} · {p.title}
-            </option>
-          ))}
+          {(['long', 'short'] as const).map((kind) => {
+            const list = projects.filter((p) => p.project_kind === kind)
+            return (
+              list.length > 0 && (
+                <optgroup key={kind} label={kind === 'long' ? 'Long projects' : 'Short projects'}>
+                  {list.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.key} · {p.title}
+                    </option>
+                  ))}
+                </optgroup>
+              )
+            )
+          })}
         </select>
       </FilterBar>
 
@@ -160,7 +169,10 @@ function Card({
         </p>
       )}
       {project && (
-        <p className="mb-1 flex items-center gap-1 truncate text-[11px] font-medium text-amber-700" title={`Project ${project.key}: ${project.title}`}>
+        <p
+          className={clsx('mb-1 flex items-center gap-1 truncate text-[11px] font-medium', project.project_kind === 'short' ? 'text-orange-600' : 'text-amber-700')}
+          title={`${project.project_kind === 'short' ? 'Short' : 'Long'} project ${project.key}: ${project.title}`}
+        >
           <FolderKanban size={11} className="shrink-0" /> <span className="truncate">{project.title}</span>
           {parent && parent.id !== project.id && <span className="truncate text-slate-400">› {parent.key}</span>}
         </p>
@@ -178,7 +190,7 @@ function Card({
         </div>
       )}
       <div className="mt-2 flex items-center gap-2">
-        <TypeBadge type={t.type} />
+        <TypeBadge type={t.type} kind={t.project_kind} />
         <span className="text-[11px] font-medium text-slate-500">{t.key}</span>
         <span className="ml-auto flex items-center gap-1.5">
           {t.comment_count > 0 && (

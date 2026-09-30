@@ -16,7 +16,7 @@ import {
 } from 'date-fns'
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Crosshair, Plus, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
-import { AvatarStack, Button, FilterBar, Empty, TYPE_COLOR } from '../components/ui'
+import { AvatarStack, Button, FilterBar, Empty, taskColor } from '../components/ui'
 import { defaultSpan, formatSchedule } from '../lib/dates'
 import { useTaskFilters, useTasks, useUpdateTask } from '../lib/queries'
 import { defaultChildType, type Task } from '../lib/types'
@@ -493,7 +493,7 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
               const end = p ? p.end : t.end_at ? Date.parse(t.end_at) : start !== null ? defaultSpan(t.type, new Date(start)).end.getTime() : null
               const bx = start !== null ? x(start) : 0
               const bw = start !== null && end !== null ? Math.max(x(end) - bx, 6) : 0
-              const color = t.status === 'done' ? 'bg-emerald-500' : TYPE_COLOR[t.type]
+              const color = t.status === 'done' ? 'bg-emerald-500' : taskColor(t)
               return (
                 <div key={t.id} className="group relative z-10 flex border-b border-slate-100 hover:bg-blue-50/40" style={{ height: ROW_H }}>
                   <div className="sticky left-0 z-20 flex shrink-0 items-center gap-1.5 border-r border-slate-200 bg-white pr-2 group-hover:bg-blue-50" style={{ width: LEFT, paddingLeft: 8 + depth * 20 }}>
@@ -504,8 +504,19 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
                     ) : (
                       <span className="w-[18px]" />
                     )}
-                    <span className={clsx('h-2 w-2 shrink-0', TYPE_COLOR[t.type], t.type === 'project' ? 'rounded-sm' : 'rounded-full')} title={t.type} />
+                    <span className={clsx('h-2 w-2 shrink-0', taskColor(t), t.type === 'project' ? 'rounded-sm' : 'rounded-full')} title={t.type} />
                     <span className="shrink-0 text-[11px] font-medium text-slate-400">{t.key}</span>
+                    {t.project_kind && (
+                      <span
+                        className={clsx(
+                          'shrink-0 rounded px-1 text-[9px] font-bold tracking-wide uppercase',
+                          t.project_kind === 'long' ? 'bg-amber-100 text-amber-800' : 'bg-orange-100 text-orange-700',
+                        )}
+                        title={t.project_kind === 'long' ? 'Long project (a quarter or more)' : 'Short project (about a month)'}
+                      >
+                        {t.project_kind}
+                      </span>
+                    )}
                     <button className={clsx('min-w-0 flex-1 truncate text-left text-sm', t.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-700', t.type === 'project' && 'font-semibold')} onClick={() => modal.openTask(t.id)} title={t.title}>
                       {t.title}
                     </button>
@@ -530,7 +541,10 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
                     {start === null && rollup ? (
                       // Summary bar: spans the tasks inside; set the project's own dates to move it.
                       <button
-                        className="absolute top-[10px] h-3 rounded-sm border-2 border-amber-500 bg-amber-100/70"
+                        className={clsx(
+                          'absolute top-[10px] h-3 rounded-sm border-2',
+                          t.project_kind === 'short' ? 'border-orange-400 bg-orange-100/70' : 'border-amber-500 bg-amber-100/70',
+                        )}
                         style={{ left: x(rollup.start), width: Math.max(x(rollup.end) - x(rollup.start), 6) }}
                         title={`${t.key} · ${t.title}
 Spans its tasks: ${formatSchedule({ type: 'daily', start_at: new Date(rollup.start).toISOString(), end_at: new Date(rollup.end).toISOString() })}`}

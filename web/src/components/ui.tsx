@@ -1,8 +1,8 @@
 import clsx from 'clsx'
-import { ArrowDown, ArrowUp, ChevronsUp, Clock, Equal, CalendarDays, FolderKanban } from 'lucide-react'
+import { ArrowDown, ArrowUp, CalendarRange, ChevronsUp, Clock, Equal, CalendarDays, FolderKanban, Zap } from 'lucide-react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { useMe, useTaskFilters, useUsers } from '../lib/queries'
-import type { Priority, Status, TaskType, User } from '../lib/types'
+import type { Priority, ProjectKind, Status, TaskType, User } from '../lib/types'
 import { statusLabel } from '../lib/types'
 
 export const userName = (u?: Pick<User, 'display_name' | 'username'> | null) =>
@@ -40,11 +40,20 @@ const TYPE_STYLE: Record<TaskType, { icon: typeof Clock; label: string; cls: str
   hourly: { icon: Clock, label: 'Hourly', cls: 'bg-violet-100 text-violet-700' },
 }
 
+const KIND_STYLE: Record<ProjectKind, { icon: typeof Clock; label: string; cls: string }> = {
+  long: { icon: CalendarRange, label: 'Long project', cls: 'bg-amber-100 text-amber-800' },
+  short: { icon: Zap, label: 'Short project', cls: 'bg-orange-100 text-orange-700' },
+}
+
 /** Solid colour per type, used for dots and Gantt bars. */
 export const TYPE_COLOR: Record<TaskType, string> = { project: 'bg-amber-500', daily: 'bg-sky-500', hourly: 'bg-violet-500' }
 
-export function TypeBadge({ type, className }: { type: TaskType; className?: string }) {
-  const s = TYPE_STYLE[type]
+/** Colour for a task; long and short projects are told apart. */
+export const taskColor = (t: { type: TaskType; project_kind?: ProjectKind | null }) =>
+  t.type === 'project' && t.project_kind === 'short' ? 'bg-orange-400' : TYPE_COLOR[t.type]
+
+export function TypeBadge({ type, kind, className }: { type: TaskType; kind?: ProjectKind | null; className?: string }) {
+  const s = type === 'project' && kind ? KIND_STYLE[kind] : TYPE_STYLE[type]
   return (
     <span className={clsx('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium', s.cls, className)}>
       <s.icon size={11} /> {s.label}
