@@ -53,6 +53,9 @@ func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *k
 			r.Patch("/tasks/{id}", a.updateTask)
 			r.Delete("/tasks/{id}", a.deleteTask)
 
+			r.Get("/tasks/{id}/environments", a.listEnvironments)
+			r.Put("/tasks/{id}/environments", a.setEnvironments)
+
 			r.Post("/tasks/{id}/dependencies", a.addDependency)
 			r.Delete("/tasks/{id}/dependencies/{dependsOnID}", a.removeDependency)
 

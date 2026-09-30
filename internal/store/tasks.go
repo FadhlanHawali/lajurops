@@ -44,6 +44,10 @@ type Task struct {
 	// those not done yet.
 	BlockedBy    []string `json:"blocked_by"`
 	OpenBlockers int      `json:"open_blockers"`
+	// Environment the task is done in (daily/hourly tasks inside a project).
+	EnvironmentID    *string `json:"environment_id"`
+	EnvironmentName  *string `json:"environment_name"`
+	EnvironmentColor *string `json:"environment_color"`
 }
 
 type TaskInput struct {
@@ -62,6 +66,7 @@ type TaskInput struct {
 	EstimateHours *float64   `json:"estimate_hours"`
 	ActualHours   *float64   `json:"actual_hours"`
 	Progress      int        `json:"progress"`
+	EnvironmentID *string    `json:"environment_id"`
 }
 
 type TaskFilter struct {
@@ -92,9 +97,11 @@ const taskCols = `t.id::text, t.workspace_id::text, p.key, t.parent_id::text, t.
 	(SELECT count(*) FROM task_comments c WHERE c.task_id = t.id),
 	(SELECT coalesce(array_agg(d.depends_on_id::text), '{}') FROM task_dependencies d WHERE d.task_id = t.id),
 	(SELECT count(*) FROM task_dependencies d JOIN tasks b ON b.id = d.depends_on_id
-	  WHERE d.task_id = t.id AND b.status <> 'done')`
+	  WHERE d.task_id = t.id AND b.status <> 'done'),
+	t.environment_id::text, e.name, e.color`
 
-const taskFrom = ` FROM tasks t JOIN workspaces p ON p.id = t.workspace_id`
+const taskFrom = ` FROM tasks t JOIN workspaces p ON p.id = t.workspace_id
+	LEFT JOIN project_environments e ON e.id = t.environment_id`
 
 func scanTask(row pgx.Row) (Task, error) {
 	var t Task
@@ -103,7 +110,7 @@ func scanTask(row pgx.Row) (Task, error) {
 		&t.AssigneeIDs, &t.ReporterID, &t.StartAt, &t.EndAt,
 		&t.EstimateHours, &t.ActualHours, &t.Progress, &t.Position,
 		&t.CompletedAt, &t.CreatedAt, &t.UpdatedAt, &t.SubtaskCount, &t.SubtaskDone, &t.CommentCount,
-		&t.BlockedBy, &t.OpenBlockers)
+		&t.BlockedBy, &t.OpenBlockers, &t.EnvironmentID, &t.EnvironmentName, &t.EnvironmentColor)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
 	}
@@ -249,6 +256,14 @@ func (s *Store) CreateTask(ctx context.Context, in TaskInput, reporterID string)
 	if err := setAssignees(ctx, tx, id, in.AssigneeIDs); err != nil {
 		return Task{}, err
 	}
+	if env := emptyToNil(in.EnvironmentID); env != nil {
+		if err := checkEnvironment(ctx, tx, in.Type, in.ParentID, *env); err != nil {
+			return Task{}, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE tasks SET environment_id = $2 WHERE id = $1`, id, *env); err != nil {
+			return Task{}, mapConstraintErr(err)
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Task{}, err
 	}
@@ -269,6 +284,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 	var newParent **string
 	var assignees *[]string
 	var newKind *string
+	var newEnv **string
 
 	for k, raw := range patch {
 		switch k {
@@ -291,6 +307,13 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 			}
 			newType = &v
 			set("type", v)
+		case "environment_id":
+			var v *string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return Task{}, invalid("environment_id must be a string or null")
+			}
+			v = emptyToNil(v)
+			newEnv = &v
 		case "project_kind":
 			var v string
 			if err := json.Unmarshal(raw, &v); err != nil || !projectKinds[v] {
@@ -364,7 +387,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 	case newType != nil:
 		sets = append(sets, "project_kind = coalesce(project_kind, 'short')")
 	}
-	if len(sets) == 0 && assignees == nil {
+	if len(sets) == 0 && assignees == nil && newEnv == nil {
 		return s.GetTask(ctx, id)
 	}
 
@@ -392,6 +415,11 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 	}
 	if assignees != nil {
 		if err := setAssignees(ctx, tx, id, *assignees); err != nil {
+			return Task{}, err
+		}
+	}
+	if newType != nil || newParent != nil || newEnv != nil {
+		if err := syncEnvironment(ctx, tx, id, newParent != nil || newType != nil, newEnv); err != nil {
 			return Task{}, err
 		}
 	}
@@ -555,3 +583,55 @@ func setAssignees(ctx context.Context, tx pgx.Tx, taskID string, userIDs []strin
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// syncEnvironment runs after a task's type/parent changed or an environment
+// was chosen. Moving under another project clears environments (on the task
+// and everything inside it) that don't belong there; a task that stops being
+// a project loses its environment list.
+func syncEnvironment(ctx context.Context, tx pgx.Tx, id string, moved bool, newEnv **string) error {
+	var typ string
+	var parent *string
+	if err := tx.QueryRow(ctx, `SELECT type, parent_id::text FROM tasks WHERE id = $1`, id).Scan(&typ, &parent); err != nil {
+		return mapConstraintErr(err)
+	}
+	if typ != "project" {
+		if _, err := tx.Exec(ctx, `DELETE FROM project_environments WHERE project_id = $1`, id); err != nil {
+			return err
+		}
+	}
+	if moved {
+		root := ""
+		if typ == "project" {
+			root = id
+		} else if r, err := rootProject(ctx, tx, parent); err != nil {
+			return err
+		} else {
+			root = r
+		}
+		_, err := tx.Exec(ctx, `
+			WITH RECURSIVE sub(id) AS (
+				SELECT $1::uuid
+				UNION
+				SELECT t.id FROM tasks t JOIN sub ON t.parent_id = sub.id
+			)
+			UPDATE tasks SET environment_id = NULL
+			WHERE id IN (SELECT id FROM sub)
+			  AND environment_id IS NOT NULL
+			  AND (type = 'project' OR environment_id NOT IN (SELECT id FROM project_environments WHERE project_id::text = $2))`,
+			id, root)
+		if err != nil {
+			return err
+		}
+	}
+	if newEnv != nil {
+		if *newEnv != nil {
+			if err := checkEnvironment(ctx, tx, typ, parent, **newEnv); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(ctx, `UPDATE tasks SET environment_id = $2 WHERE id = $1`, id, *newEnv); err != nil {
+			return mapConstraintErr(err)
+		}
+	}
+	return nil
+}

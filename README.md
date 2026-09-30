@@ -18,6 +18,9 @@ A self-hosted planner in the spirit of Jira/Trello, built for teams that mix
   A task can only contain smaller types (project → daily/hourly, daily → hourly).
   Daily and hourly tasks can also be **independent**, without a project.
 - **Multiple owners** per project/daily/hourly task
+- **Environments** per project (e.g. Dev → SIT → UAT → Pilot → Production, ordered and colour-coded);
+  daily/hourly tasks in the project say which environment they're done in, shown on cards, the timeline
+  and calendar, with an environment filter on the board
 - **Dependencies** between daily/hourly tasks ("Create VM" *waits for* "Create IP"): cycles are rejected,
   blocked cards show what they wait for, and the timeline draws arrows (red when a task starts before
   the task it waits for ends)
@@ -156,10 +159,12 @@ GET    /api/me | /api/users
 GET    /api/workspaces          POST /api/workspaces
 GET    /api/workspaces/{id}     PATCH/DELETE /api/workspaces/{id}
 GET    /api/tasks?workspace_id=&assignee_id=&type=daily,hourly&top_level=&parent_id=&from=&to=
-POST   /api/tasks               { workspace_id | parent_id, title, type: project|daily|hourly, project_kind: long|short, assignee_ids: [], start_at, end_at, ... }
+POST   /api/tasks               { workspace_id | parent_id, title, type: project|daily|hourly, project_kind: long|short, assignee_ids: [], environment_id, start_at, end_at, ... }
 GET    /api/tasks/{id}          includes subtasks, ancestors, waiting_for and blocking
 PATCH  /api/tasks/{id}          partial update (incl. type, parent_id; nesting is validated); null clears a field
 DELETE /api/tasks/{id}          also deletes everything inside it
+GET    /api/tasks/{id}/environments                 a project's environments (with task counts)
+PUT    /api/tasks/{id}/environments                 [{ id?, name, color }]  replaces the list, in order
 POST   /api/tasks/{id}/dependencies                 { depends_on_id }   (task {id} waits for it)
 DELETE /api/tasks/{id}/dependencies/{dependsOnId}
 GET    /api/tasks/{id}/comments   POST /api/tasks/{id}/comments { body }   (Markdown)

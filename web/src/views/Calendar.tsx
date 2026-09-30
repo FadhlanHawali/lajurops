@@ -37,7 +37,7 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
           const who = t.assignee_ids.map((id) => userName(byId.get(id))).join(', ')
           return {
             id: t.id,
-            title: `${t.key} ${t.title}${who ? ` · ${who}` : ''}`,
+            title: `${t.environment_name ? `[${t.environment_name}] ` : ''}${t.key} ${t.title}${who ? ` · ${who}` : ''}`,
             start: t.start_at!,
             end: t.end_at ?? undefined,
             allDay: t.type !== 'hourly',

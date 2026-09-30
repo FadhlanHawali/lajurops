@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { addMonths, addWeeks, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns'
 import { ChevronDown, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
+import { EnvBadge } from '../components/Environments'
 import { Avatar, Button, Empty, StatusPill, TypeBadge, userName } from '../components/ui'
 import { formatSchedule, hoursBetween } from '../lib/dates'
 import { useWorkspaces, useUsers, useWorkload, useWorkloadTasks } from '../lib/queries'
@@ -189,6 +190,7 @@ function UserTasks({ userId, from, to, workspaceId }: { userId: string; from: st
           <TypeBadge type={t.type} kind={t.project_kind} />
           <span className="w-20 shrink-0 text-xs font-medium text-slate-500">{t.key}</span>
           <span className="min-w-0 flex-1 truncate">{t.title}</span>
+          {t.environment_name && <EnvBadge name={t.environment_name} color={t.environment_color} />}
           <span className="text-xs text-slate-500">{formatSchedule(t)}</span>
           {t.type === 'hourly' && <span className="w-14 text-right text-xs font-medium tabular-nums">{fmtH(t.actual_hours ?? hoursBetween(t.start_at, t.end_at))}</span>}
           <StatusPill status={t.status} />

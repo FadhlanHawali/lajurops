@@ -1,14 +1,15 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
 import { ChevronRight, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { fromInput, toInput } from '../lib/dates'
-import { useCreateTask, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
-import { canContain, defaultChildType, PRIORITIES, PROJECT_KINDS, STATUSES, TASK_TYPES, type Priority, type ProjectKind, type Status, type Task, type TaskType } from '../lib/types'
+import { saveEnvironments, useCreateTask, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
+import { canContain, defaultChildType, PRIORITIES, PROJECT_KINDS, STATUSES, TASK_TYPES, type Priority, type ProjectKind, type Status, type EnvironmentDraft, type Task, type TaskType } from '../lib/types'
 import { Comments } from './Comments'
 import { DateRangeField, HourlyScheduleField } from './DateTimePicker'
 import { ParentPicker } from './ParentPicker'
 import { Dependencies } from './Dependencies'
+import { EnvironmentListEditor, EnvironmentPicker, ProjectEnvironments } from './Environments'
 import { MultiUserPicker } from './UserPicker'
 import { AvatarStack, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge } from './ui'
 
@@ -82,6 +83,7 @@ interface FormState {
   description: string
   type: TaskType
   project_kind: ProjectKind
+  environment_id: string
   parent_id: string
   status: Status
   priority: Priority
@@ -100,6 +102,7 @@ function initialForm(t: Partial<Task> | TaskCreate): FormState {
     description: t.description ?? '',
     type,
     project_kind: t.project_kind ?? 'short',
+    environment_id: t.environment_id ?? '',
     parent_id: t.parent_id ?? '',
     status: t.status ?? 'todo',
     priority: t.priority ?? 'medium',
@@ -164,6 +167,27 @@ function TaskForm({
 
   // Possible parents: project and daily tasks in the same workspace.
   const { data: containers = [] } = useTasks({ workspace_id: workspaceId, type: 'project,daily' }, !!workspaceId)
+
+  // The project this task sits under (directly or via its daily parent);
+  // environments come from it.
+  const rootProjectId = useMemo(() => {
+    const known = new Map([...ancestors, ...containers].map((c) => [c.id, c]))
+    let id = f.parent_id
+    for (let i = 0; i < 3 && id; i++) {
+      const c = known.get(id)
+      if (!c) return undefined
+      if (c.type === 'project') return c.id
+      id = c.parent_id ?? ''
+    }
+    return undefined
+  }, [f.parent_id, containers, ancestors])
+  // Moving to another project drops an environment that belonged to the old one.
+  const prevRoot = useRef(rootProjectId)
+  useEffect(() => {
+    if (prevRoot.current && rootProjectId !== prevRoot.current) setF((s) => ({ ...s, environment_id: '' }))
+    if (rootProjectId || !f.parent_id) prevRoot.current = rootProjectId
+  }, [rootProjectId, f.parent_id])
+  const [envDrafts, setEnvDrafts] = useState<EnvironmentDraft[]>([])
   // Daily/hourly tasks that this one could wait for.
   const { data: workTasks = [] } = useTasks({ workspace_id: workspaceId, type: 'daily,hourly' }, !!task && task.type !== 'project')
   const parent = containers.find((c) => c.id === f.parent_id) ?? ancestors[ancestors.length - 1]
@@ -186,7 +210,7 @@ function TaskForm({
       title: f.title.trim(),
       description: f.description,
       type: f.type,
-      ...(f.type === 'project' ? { project_kind: f.project_kind } : {}),
+      ...(f.type === 'project' ? { project_kind: f.project_kind } : { environment_id: f.environment_id || null }),
       parent_id: f.parent_id || null,
       status: f.status,
       priority: f.priority,
@@ -203,6 +227,7 @@ function TaskForm({
         onClose()
       } else {
         const t = await create.mutateAsync({ ...initial, ...patch, title: patch.title!, workspace_id: workspaceId || undefined })
+        if (t.type === 'project' && envDrafts.length) await saveEnvironments(t.id, envDrafts)
         onSaved?.(t)
       }
     } catch (e) {
@@ -266,6 +291,13 @@ function TaskForm({
             <textarea className={clsx(inputCls, 'min-h-32')} value={f.description} onChange={(e) => up('description', e.target.value)} placeholder="Add details, links, runbook steps…" />
           </Field>
 
+          {task?.type === 'project' && <ProjectEnvironments projectId={task.id} />}
+          {!task && f.type === 'project' && (
+            <section>
+              <h3 className="mb-2 text-sm font-semibold text-slate-700">Environments</h3>
+              <EnvironmentListEditor items={envDrafts} onChange={setEnvDrafts} />
+            </section>
+          )}
           {task && task.type !== 'project' && <Dependencies task={task} waitingFor={waitingFor} blocking={blocking} candidates={workTasks} onOpen={onOpen!} />}
           {task && task.type !== 'hourly' && <ChildTasks parent={task} items={childTasks} onOpen={onOpen!} />}
           {task && (
@@ -321,6 +353,11 @@ function TaskForm({
                 excludeId={task?.id}
                 disabled={!workspaceId}
               />
+            </Field>
+          )}
+          {f.type !== 'project' && (
+            <Field label="Environment">
+              <EnvironmentPicker projectId={rootProjectId} value={f.environment_id} onChange={(id) => up('environment_id', id)} />
             </Field>
           )}
           <div className="grid grid-cols-2 gap-2">
@@ -402,6 +439,8 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
       type,
       assignee_ids: parent.assignee_ids,
       priority: parent.priority,
+      // Hourly work under a daily task usually happens in the same environment.
+      environment_id: parent.type === 'daily' ? parent.environment_id : null,
     })
     setTitle('')
   }

@@ -101,6 +101,29 @@ export interface Task {
   /** Ids of tasks this one waits for, and how many of them aren't done. */
   blocked_by: string[]
   open_blockers: number
+  /** Environment (from the task's project) the work is done in. */
+  environment_id: string | null
+  environment_name: string | null
+  environment_color: EnvColor | null
+}
+
+export type EnvColor = 'slate' | 'green' | 'blue' | 'amber' | 'violet' | 'red' | 'teal' | 'pink'
+
+export interface Environment {
+  id: string
+  project_id: string
+  name: string
+  color: EnvColor
+  position: number
+  task_count: number
+}
+
+/** An environment being edited; id is empty until saved. */
+export interface EnvironmentDraft {
+  id: string
+  name: string
+  color: EnvColor
+  task_count?: number
 }
 
 export interface Comment {

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { AdminUser, AdminUserInput, Comment, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, Comment, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -70,6 +70,7 @@ export type TaskPatch = Partial<
     | 'title'
     | 'parent_id'
     | 'project_kind'
+    | 'environment_id'
     | 'description'
     | 'type'
     | 'status'
@@ -241,4 +242,28 @@ export function useDependencyMutations() {
       onSettled,
     }),
   }
+}
+
+// --- project environments ---
+
+export const useEnvironments = (projectId: string | undefined) =>
+  useQuery({
+    queryKey: ['environments', projectId],
+    queryFn: () => api<Environment[]>(`/tasks/${projectId}/environments`),
+    enabled: !!projectId,
+  })
+
+export const saveEnvironments = (projectId: string, list: EnvironmentDraft[]) =>
+  api<Environment[]>(`/tasks/${projectId}/environments`, { method: 'PUT', body: list.map(({ id, name, color }) => ({ id, name, color })) })
+
+export function useSetEnvironments(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (list: EnvironmentDraft[]) => saveEnvironments(projectId, list),
+    onSuccess: (data) => qc.setQueryData(['environments', projectId], data),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['environments', projectId] })
+      invalidateTaskData(qc) // tasks may have lost a deleted environment
+    },
+  })
 }

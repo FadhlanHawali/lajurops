@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { FolderKanban, Hourglass, MessageSquare, Plus } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
+import { EnvBadge } from '../components/Environments'
 import { AvatarStack, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
 import { formatSchedule } from '../lib/dates'
 import { useTaskFilters, useTasks, useUpdateTask } from '../lib/queries'
@@ -10,6 +11,7 @@ import { STATUSES, type Status, type Task } from '../lib/types'
 export default function Board({ workspaceId }: { workspaceId: string }) {
   const { assignee, type } = useTaskFilters()
   const [projectFilter, setProjectFilter] = useState('') // '' = all, 'none' = independent, else project id
+  const [envFilter, setEnvFilter] = useState('') // environment name, matched across projects
   // Load every type so cards can show which project they belong to.
   const { data: all = [], isLoading } = useTasks({ workspace_id: workspaceId })
   const byId = useMemo(() => new Map(all.map((t) => [t.id, t])), [all])
@@ -19,12 +21,19 @@ export default function Board({ workspaceId }: { workspaceId: string }) {
     }
   }
   const projects = all.filter((t) => t.type === 'project')
+  // Environment names in use (e.g. "UAT"), de-duplicated across projects.
+  const envNames = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const t of all) if (t.environment_name && !m.has(t.environment_name.toLowerCase())) m.set(t.environment_name.toLowerCase(), t.environment_name)
+    return [...m.values()]
+  }, [all])
   // Projects are containers; the board shows the daily/hourly work unless filtered for.
   const tasks = all.filter(
     (t) =>
       (type ? t.type === type : t.type !== 'project') &&
       (!assignee || t.assignee_ids.includes(assignee)) &&
-      (!projectFilter || (projectFilter === 'none' ? !projectOf(t) : projectOf(t)?.id === projectFilter)),
+      (!projectFilter || (projectFilter === 'none' ? !projectOf(t) : projectOf(t)?.id === projectFilter)) &&
+      (!envFilter || (envFilter === 'none' ? !t.environment_name : t.environment_name?.toLowerCase() === envFilter)),
   )
   const update = useUpdateTask()
   const modal = useTaskModal()
@@ -69,6 +78,17 @@ export default function Board({ workspaceId }: { workspaceId: string }) {
             )
           })}
         </select>
+        {envNames.length > 0 && (
+          <select className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm" value={envFilter} onChange={(e) => setEnvFilter(e.target.value)}>
+            <option value="">All environments</option>
+            <option value="none">No environment</option>
+            {envNames.map((n) => (
+              <option key={n.toLowerCase()} value={n.toLowerCase()}>
+                {n}
+              </option>
+            ))}
+          </select>
+        )}
       </FilterBar>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-x-auto md:grid-cols-4">
@@ -177,7 +197,10 @@ function Card({
           {parent && parent.id !== project.id && <span className="truncate text-slate-400">› {parent.key}</span>}
         </p>
       )}
-      <p className={clsx('text-sm leading-snug text-slate-800', t.status === 'done' && 'text-slate-400 line-through')}>{t.title}</p>
+      <p className={clsx('text-sm leading-snug text-slate-800', t.status === 'done' && 'text-slate-400 line-through')}>
+        {t.environment_name && <EnvBadge name={t.environment_name} color={t.environment_color} size="xs" className="mr-1 align-[1px]" />}
+        {t.title}
+      </p>
       <p className="mt-1 text-[11px] text-slate-500">{formatSchedule(t)}</p>
       {t.subtask_count > 0 && (
         <div className="mt-2 flex items-center gap-2">

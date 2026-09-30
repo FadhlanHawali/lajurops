@@ -16,6 +16,7 @@ import {
 } from 'date-fns'
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Crosshair, Plus, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
+import { EnvBadge } from '../components/Environments'
 import { AvatarStack, Button, FilterBar, Empty, taskColor } from '../components/ui'
 import { defaultSpan, formatSchedule } from '../lib/dates'
 import { useTaskFilters, useTasks, useUpdateTask } from '../lib/queries'
@@ -506,6 +507,7 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
                     )}
                     <span className={clsx('h-2 w-2 shrink-0', taskColor(t), t.type === 'project' ? 'rounded-sm' : 'rounded-full')} title={t.type} />
                     <span className="shrink-0 text-[11px] font-medium text-slate-400">{t.key}</span>
+                    {t.environment_name && <EnvBadge name={t.environment_name} color={t.environment_color} size="xs" />}
                     {t.project_kind && (
                       <span
                         className={clsx(
