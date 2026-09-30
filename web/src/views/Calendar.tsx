@@ -1,0 +1,106 @@
+import { useMemo, useState } from 'react'
+import FullCalendar from '@fullcalendar/react'
+import dayGridPlugin from '@fullcalendar/daygrid'
+import timeGridPlugin from '@fullcalendar/timegrid'
+import interactionPlugin from '@fullcalendar/interaction'
+import listPlugin from '@fullcalendar/list'
+import type { EventInput, EventDropArg, DatesSetArg } from '@fullcalendar/core'
+import type { EventResizeDoneArg } from '@fullcalendar/interaction'
+import { useTaskModal } from '../components/TaskModal'
+import { FilterBar, userName } from '../components/ui'
+import { useTaskFilters, useTasks, useUpdateTask, useUsers } from '../lib/queries'
+import type { Task } from '../lib/types'
+
+const COLORS = {
+  hourly: { bg: '#8b5cf6', border: '#7c3aed' },
+  daily: { bg: '#0ea5e9', border: '#0284c7' },
+  done: { bg: '#10b981', border: '#059669' },
+}
+
+export default function Calendar({ projectId }: { projectId?: string }) {
+  const { assignee, type } = useTaskFilters()
+  const [range, setRange] = useState<{ from: string; to: string } | null>(null)
+  const { data: tasks = [] } = useTasks({ project_id: projectId, assignee_id: assignee, type, ...range }, !!range)
+  const update = useUpdateTask()
+  const modal = useTaskModal()
+  const { byId } = useUsers()
+
+  const events = useMemo<EventInput[]>(
+    () =>
+      tasks
+        .filter((t) => t.start_at)
+        .map((t) => {
+          const c = t.status === 'done' ? COLORS.done : COLORS[t.type]
+          const who = t.assignee_id ? userName(byId.get(t.assignee_id)) : ''
+          return {
+            id: t.id,
+            title: `${t.key} ${t.title}${who ? ` · ${who}` : ''}`,
+            start: t.start_at!,
+            end: t.end_at ?? undefined,
+            allDay: t.type === 'daily',
+            backgroundColor: c.bg,
+            borderColor: c.border,
+            classNames: t.status === 'done' ? ['opacity-60'] : [],
+            extendedProps: { task: t },
+          }
+        }),
+    [tasks, byId],
+  )
+
+  // Dropping into the all-day row turns a task daily; into the time grid, hourly.
+  const persist = (arg: EventDropArg | EventResizeDoneArg) => {
+    const ev = arg.event
+    const task = ev.extendedProps.task as Task
+    const start = ev.start!
+    let end = ev.end
+    if (!end) end = new Date(start.getTime() + (ev.allDay ? 86_400_000 : 2 * 3_600_000))
+    update.mutate(
+      {
+        id: task.id,
+        patch: { start_at: start.toISOString(), end_at: end.toISOString(), type: ev.allDay ? 'daily' : 'hourly' },
+      },
+      { onError: () => arg.revert() },
+    )
+  }
+
+  return (
+    <div className="flex h-full flex-col gap-3">
+      <FilterBar />
+      <div className="planner-calendar min-h-0 flex-1 rounded-lg border border-slate-200 bg-white p-3">
+        <FullCalendar
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin]}
+          initialView="timeGridWeek"
+          headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' }}
+          buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day', list: 'Agenda' }}
+          height="100%"
+          firstDay={1}
+          nowIndicator
+          editable
+          selectable
+          selectMirror
+          dayMaxEvents={4}
+          slotDuration="00:30:00"
+          scrollTime="07:00:00"
+          eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
+          slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
+          events={events}
+          datesSet={(arg: DatesSetArg) => setRange({ from: arg.start.toISOString(), to: arg.end.toISOString() })}
+          eventClick={(arg) => modal.openTask(arg.event.id)}
+          eventDrop={persist}
+          eventResize={persist}
+          select={(arg) => {
+            modal.createTask({
+              title: '',
+              project_id: projectId,
+              type: arg.allDay ? 'daily' : 'hourly',
+              start_at: arg.start.toISOString(),
+              end_at: arg.end.toISOString(),
+              assignee_id: assignee || null,
+            })
+            arg.view.calendar.unselect()
+          }}
+        />
+      </div>
+    </div>
+  )
+}
