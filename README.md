@@ -7,10 +7,14 @@ A self-hosted planner in the spirit of Jira/Trello, built for teams that mix
 - **Board**: Kanban (To Do → In Progress → In Review → Done) with drag & drop
 - **Timeline (Gantt)**: zoom from **month → week → day → 6 hours → hour**; drag to reschedule, drag edges to resize, Ctrl+scroll to zoom
 - **Calendar**: month/week/day/agenda views; drag, resize, or select a slot to create
-- **Tasks with subtasks** (one level, like Jira), keys like `OPS-12`
-- **Two task types**
-  - `hourly`: exact start/end timestamps, snapped to 15 min on the hour zoom
-  - `daily`: whole days (start date → due date)
+- **Workspaces** (e.g. a team) hold all tasks; task keys look like `OPS-12`
+- **Three task types**, nested **Project → Daily → Hourly**:
+  - `project`: the big picture; groups daily and hourly tasks (shown as a summary bar on the timeline)
+  - `daily`: requests and deliverables, scheduled by whole days (start date → due date)
+  - `hourly`: implementation / deployment / support, with exact start and end times (snapped to 15 min on the hour zoom)
+
+  A task can only contain smaller types (project → daily/hourly, daily → hourly).
+  Daily and hourly tasks can also be **independent**, without a project.
 - **Workload report**: per user, per week or month: hourly support hours, hourly/daily task counts, completion; drill down and export CSV
 - **Keycloak** sign-in (OIDC + PKCE) with an in-app sign-in screen
 - **User management** for admins: create, edit, disable, delete users, reset passwords and grant the admin role (via the Keycloak Admin API)
@@ -32,7 +36,7 @@ cmd/open-planner/     main: config, DB, HTTP server
 internal/api/         REST handlers (/api/...)
 internal/auth/        Keycloak JWT verification middleware (+ admin role)
 internal/keycloak/    Keycloak Admin REST API client (user management)
-internal/store/       SQL queries (projects, tasks, users, reports)
+internal/store/       SQL queries (workspaces, tasks, users, reports)
 internal/db/          pool + embedded SQL migrations
 web/                  React app; web/dist is embedded into the binary
 deploy/keycloak/      realm import (client + demo users)
@@ -132,7 +136,7 @@ one build works in every environment.
 
 A task counts toward the week/month its **start** falls in (creation time if unscheduled),
 for its **assignee**. *Hourly support hours* = `actual_hours` when recorded, otherwise the
-scheduled duration (`end - start`). Subtasks count as tasks of their own.
+scheduled duration (`end - start`). Project tasks are containers and are not counted.
 
 ## API
 
@@ -141,15 +145,15 @@ All endpoints except `/api/config` and `/healthz` require `Authorization: Bearer
 ```
 GET    /api/config                         runtime config for the SPA
 GET    /api/me | /api/users
-GET    /api/projects            POST /api/projects
-GET    /api/projects/{id}       PATCH/DELETE /api/projects/{id}
-GET    /api/tasks?project_id=&assignee_id=&type=&top_level=&parent_id=&from=&to=
-POST   /api/tasks               { project_id | parent_id, title, type, start_at, end_at, ... }
-GET    /api/tasks/{id}          includes subtasks / parent
-PATCH  /api/tasks/{id}          partial update; null clears a field
-DELETE /api/tasks/{id}          also deletes subtasks
-GET    /api/reports/workload?from=&to=&project_id=
-GET    /api/reports/workload/{userId}/tasks?from=&to=&project_id=
+GET    /api/workspaces          POST /api/workspaces
+GET    /api/workspaces/{id}     PATCH/DELETE /api/workspaces/{id}
+GET    /api/tasks?workspace_id=&assignee_id=&type=daily,hourly&top_level=&parent_id=&from=&to=
+POST   /api/tasks               { workspace_id | parent_id, title, type: project|daily|hourly, start_at, end_at, ... }
+GET    /api/tasks/{id}          includes subtasks and ancestors
+PATCH  /api/tasks/{id}          partial update (incl. type, parent_id; nesting is validated); null clears a field
+DELETE /api/tasks/{id}          also deletes everything inside it
+GET    /api/reports/workload?from=&to=&workspace_id=
+GET    /api/reports/workload/{userId}/tasks?from=&to=&workspace_id=
 
 # planner-admin only
 GET    /api/admin/users?search=&first=&max=

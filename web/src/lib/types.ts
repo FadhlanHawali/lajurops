@@ -1,4 +1,19 @@
-export type TaskType = 'hourly' | 'daily'
+export type TaskType = 'project' | 'daily' | 'hourly'
+
+/** Task types, biggest first. A task can only contain smaller types. */
+export const TASK_TYPES: { id: TaskType; label: string; hint: string }[] = [
+  { id: 'project', label: 'Project', hint: 'The big picture — groups daily and hourly tasks.' },
+  { id: 'daily', label: 'Daily', hint: 'Requests & deliverables — scheduled by date.' },
+  { id: 'hourly', label: 'Hourly', hint: 'Implementation, deployment, support — scheduled by the hour.' },
+]
+
+const RANK: Record<TaskType, number> = { project: 3, daily: 2, hourly: 1 }
+
+/** Whether a task of type `parent` may contain a task of type `child`. */
+export const canContain = (parent: TaskType, child: TaskType) => RANK[child] < RANK[parent]
+
+/** The type a new child task gets by default. */
+export const defaultChildType = (parent: TaskType): TaskType => (parent === 'project' ? 'daily' : 'hourly')
 export type Status = 'todo' | 'in_progress' | 'in_review' | 'done'
 export type Priority = 'low' | 'medium' | 'high' | 'urgent'
 
@@ -40,7 +55,7 @@ export interface AdminUserInput {
   temporary_password?: boolean
 }
 
-export interface Project {
+export interface Workspace {
   id: string
   key: string
   name: string
@@ -51,8 +66,8 @@ export interface Project {
 
 export interface Task {
   id: string
-  project_id: string
-  project_key: string
+  workspace_id: string
+  workspace_key: string
   parent_id: string | null
   number: number
   key: string
@@ -78,7 +93,8 @@ export interface Task {
 
 export interface TaskDetail extends Task {
   subtasks: Task[]
-  parent: Task | null
+  /** Parent chain, outermost first. */
+  ancestors: Task[]
 }
 
 export interface Workload {

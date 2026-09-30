@@ -5,7 +5,7 @@ import { BarChart3, CalendarDays, FolderKanban, GanttChart, KanbanSquare, LogOut
 import { TaskModalProvider, useTaskModal } from './components/TaskModal'
 import { Avatar, Button, Field, inputCls, userName } from './components/ui'
 import { accountUrl, authEnabled, logout } from './lib/auth'
-import { useCreateProject, useDeleteProject, useMe, useProject, useProjects } from './lib/queries'
+import { useCreateWorkspace, useDeleteWorkspace, useMe, useWorkspace, useWorkspaces } from './lib/queries'
 import Board from './views/Board'
 import Calendar from './views/Calendar'
 import Gantt from './views/Gantt'
@@ -20,12 +20,12 @@ export default function App() {
         <main className="min-w-0 flex-1 overflow-hidden">
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/p/:projectId" element={<Navigate to="board" replace />} />
-            <Route path="/p/:projectId/:view" element={<ProjectPage />} />
+            <Route path="/w/:workspaceId" element={<Navigate to="board" replace />} />
+            <Route path="/w/:workspaceId/:view" element={<WorkspacePage />} />
             <Route
               path="/calendar"
               element={
-                <Page title="Calendar" subtitle="Tasks across all projects">
+                <Page title="Calendar" subtitle="Tasks across all workspaces">
                   <Calendar />
                 </Page>
               }
@@ -59,7 +59,7 @@ export default function App() {
 }
 
 function Sidebar() {
-  const { data: projects = [] } = useProjects()
+  const { data: workspaces = [] } = useWorkspaces()
   const { data: me } = useMe()
   const [creating, setCreating] = useState(false)
   const link = ({ isActive }: { isActive: boolean }) =>
@@ -84,13 +84,13 @@ function Sidebar() {
           </NavLink>
         )}
         <div className="flex items-center justify-between px-2.5 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-          Projects
-          <button className="rounded p-0.5 hover:bg-slate-800 hover:text-white" title="New project" onClick={() => setCreating(true)}>
+          Workspaces
+          <button className="rounded p-0.5 hover:bg-slate-800 hover:text-white" title="New workspace" onClick={() => setCreating(true)}>
             <Plus size={14} />
           </button>
         </div>
-        {projects.map((p) => (
-          <NavLink key={p.id} to={`/p/${p.id}/board`} className={({ isActive }) => link({ isActive: isActive || location.pathname.startsWith(`/p/${p.id}/`) })}>
+        {workspaces.map((p) => (
+          <NavLink key={p.id} to={`/w/${p.id}/board`} className={({ isActive }) => link({ isActive: isActive || location.pathname.startsWith(`/w/${p.id}/`) })}>
             <FolderKanban size={16} />
             <span className="min-w-0 flex-1 truncate">{p.name}</span>
             <span className="text-[10px] text-slate-500">{p.key}</span>
@@ -116,7 +116,7 @@ function Sidebar() {
           )}
         </div>
       )}
-      {creating && <NewProjectDialog onClose={() => setCreating(false)} />}
+      {creating && <NewWorkspaceDialog onClose={() => setCreating(false)} />}
     </aside>
   )
 }
@@ -142,40 +142,40 @@ const VIEWS = [
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
 ]
 
-function ProjectPage() {
-  const { projectId = '', view = 'board' } = useParams()
-  const { data: project, error } = useProject(projectId)
-  const del = useDeleteProject()
+function WorkspacePage() {
+  const { workspaceId = '', view = 'board' } = useParams()
+  const { data: workspace, error } = useWorkspace(workspaceId)
+  const del = useDeleteWorkspace()
   const navigate = useNavigate()
   const modal = useTaskModal()
   if (error) return <Navigate to="/" replace />
 
   return (
     <Page
-      title={project ? project.name : '…'}
-      subtitle={project ? `${project.key} · ${project.task_count} tasks` : undefined}
+      title={workspace ? workspace.name : '…'}
+      subtitle={workspace ? `${workspace.key} · ${workspace.task_count} tasks` : undefined}
       actions={
         <>
           <nav className="flex rounded-md border border-slate-300 bg-slate-50 p-0.5 text-sm">
             {VIEWS.map((v) => (
               <NavLink
                 key={v.id}
-                to={`/p/${projectId}/${v.id}${location.search}`}
+                to={`/w/${workspaceId}/${v.id}${location.search}`}
                 className={({ isActive }) => clsx('flex items-center gap-1.5 rounded px-3 py-1', isActive ? 'bg-white font-medium shadow-sm' : 'text-slate-600 hover:text-slate-900')}
               >
                 <v.icon size={14} /> {v.label}
               </NavLink>
             ))}
           </nav>
-          <Button variant="primary" onClick={() => modal.createTask({ title: '', project_id: projectId })}>
+          <Button variant="primary" onClick={() => modal.createTask({ title: '', workspace_id: workspaceId })}>
             <Plus size={14} /> Create
           </Button>
           <Button
             variant="ghost"
-            title="Delete project"
+            title="Delete workspace"
             onClick={async () => {
-              if (project && confirm(`Delete project ${project.name} and all ${project.task_count} tasks? This cannot be undone.`)) {
-                await del.mutateAsync(project.id)
+              if (workspace && confirm(`Delete workspace ${workspace.name} and all ${workspace.task_count} tasks? This cannot be undone.`)) {
+                await del.mutateAsync(workspace.id)
                 navigate('/')
               }
             }}
@@ -185,43 +185,43 @@ function ProjectPage() {
         </>
       }
     >
-      {view === 'timeline' ? <Gantt projectId={projectId} /> : view === 'calendar' ? <Calendar projectId={projectId} /> : <Board projectId={projectId} />}
+      {view === 'timeline' ? <Gantt workspaceId={workspaceId} /> : view === 'calendar' ? <Calendar workspaceId={workspaceId} /> : <Board workspaceId={workspaceId} />}
     </Page>
   )
 }
 
 function Home() {
-  const { data: projects, isLoading } = useProjects()
+  const { data: workspaces, isLoading } = useWorkspaces()
   if (isLoading) return null
-  if (projects?.length) return <Navigate to={`/p/${projects[0].id}/board`} replace />
+  if (workspaces?.length) return <Navigate to={`/w/${workspaces[0].id}/board`} replace />
   return (
     <div className="flex h-full items-center justify-center p-6">
       <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="text-xl font-semibold">Welcome to Open Planner</h1>
-        <p className="mt-1 mb-4 text-sm text-slate-500">Create your first project to start planning tasks.</p>
-        <NewProjectForm />
+        <p className="mt-1 mb-4 text-sm text-slate-500">Create your first workspace to start planning tasks.</p>
+        <NewWorkspaceForm />
       </div>
     </div>
   )
 }
 
-function NewProjectDialog({ onClose }: { onClose: () => void }) {
+function NewWorkspaceDialog({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 p-4 pt-[15vh]" onMouseDown={onClose}>
       <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
-        <h2 className="mb-4 text-lg font-semibold">New project</h2>
-        <NewProjectForm onDone={onClose} />
+        <h2 className="mb-4 text-lg font-semibold">New workspace</h2>
+        <NewWorkspaceForm onDone={onClose} />
       </div>
     </div>
   )
 }
 
-function NewProjectForm({ onDone }: { onDone?: () => void }) {
+function NewWorkspaceForm({ onDone }: { onDone?: () => void }) {
   const [name, setName] = useState('')
   const [key, setKey] = useState('')
   const [keyTouched, setKeyTouched] = useState(false)
   const [description, setDescription] = useState('')
-  const create = useCreateProject()
+  const create = useCreateWorkspace()
   const navigate = useNavigate()
 
   const suggestKey = (n: string) =>
@@ -235,7 +235,7 @@ function NewProjectForm({ onDone }: { onDone?: () => void }) {
     e.preventDefault()
     const p = await create.mutateAsync({ name, key, description })
     onDone?.()
-    navigate(`/p/${p.id}/board`)
+    navigate(`/w/${p.id}/board`)
   }
 
   return (
@@ -273,7 +273,7 @@ function NewProjectForm({ onDone }: { onDone?: () => void }) {
           </Button>
         )}
         <Button variant="primary" type="submit" disabled={!name || !key || create.isPending}>
-          Create project
+          Create workspace
         </Button>
       </div>
     </form>

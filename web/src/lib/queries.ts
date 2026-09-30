@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { AdminUser, AdminUserInput, Me, Project, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -18,15 +18,15 @@ export function useUsers() {
   return { ...q, users: active, byId }
 }
 
-export const useProjects = () => useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
+export const useWorkspaces = () => useQuery({ queryKey: ['workspaces'], queryFn: () => api<Workspace[]>('/workspaces') })
 
-export const useProject = (id: string | undefined) =>
-  useQuery({ queryKey: ['projects', id], queryFn: () => api<Project>(`/projects/${id}`), enabled: !!id })
+export const useWorkspace = (id: string | undefined) =>
+  useQuery({ queryKey: ['workspaces', id], queryFn: () => api<Workspace>(`/workspaces/${id}`), enabled: !!id })
 
 export interface TaskQuery {
-  project_id?: string
+  workspace_id?: string
   assignee_id?: string
-  type?: TaskType | ''
+  type?: string
   top_level?: boolean
   from?: string
   to?: string
@@ -42,24 +42,24 @@ export const useTasks = (query: TaskQuery, enabled = true) =>
 export const useTask = (id: string | null) =>
   useQuery({ queryKey: ['task', id], queryFn: () => api<TaskDetail>(`/tasks/${id}`), enabled: !!id })
 
-export const useWorkload = (from: string, to: string, projectId: string) =>
+export const useWorkload = (from: string, to: string, workspaceId: string) =>
   useQuery({
-    queryKey: ['workload', from, to, projectId],
-    queryFn: () => api<Workload[]>('/reports/workload', { query: { from, to, project_id: projectId } }),
+    queryKey: ['workload', from, to, workspaceId],
+    queryFn: () => api<Workload[]>('/reports/workload', { query: { from, to, workspace_id: workspaceId } }),
   })
 
-export const useWorkloadTasks = (userId: string | null, from: string, to: string, projectId: string) =>
+export const useWorkloadTasks = (userId: string | null, from: string, to: string, workspaceId: string) =>
   useQuery({
-    queryKey: ['workload-tasks', userId, from, to, projectId],
+    queryKey: ['workload-tasks', userId, from, to, workspaceId],
     queryFn: () =>
-      api<Task[]>(`/reports/workload/${userId}/tasks`, { query: { from, to, project_id: projectId } }),
+      api<Task[]>(`/reports/workload/${userId}/tasks`, { query: { from, to, workspace_id: workspaceId } }),
     enabled: !!userId,
   })
 
 function invalidateTaskData(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: ['tasks'] })
   qc.invalidateQueries({ queryKey: ['task'] })
-  qc.invalidateQueries({ queryKey: ['projects'] })
+  qc.invalidateQueries({ queryKey: ['workspaces'] })
   qc.invalidateQueries({ queryKey: ['workload'] })
   qc.invalidateQueries({ queryKey: ['workload-tasks'] })
 }
@@ -68,6 +68,7 @@ export type TaskPatch = Partial<
   Pick<
     Task,
     | 'title'
+    | 'parent_id'
     | 'description'
     | 'type'
     | 'status'
@@ -103,7 +104,7 @@ export function useUpdateTask() {
   })
 }
 
-export type TaskCreate = TaskPatch & { title: string; project_id?: string; parent_id?: string | null }
+export type TaskCreate = TaskPatch & { title: string; workspace_id?: string; parent_id?: string | null }
 
 export function useCreateTask() {
   const qc = useQueryClient()
@@ -121,19 +122,19 @@ export function useDeleteTask() {
   })
 }
 
-export function useCreateProject() {
+export function useCreateWorkspace() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: { key: string; name: string; description: string }) =>
-      api<Project>('/projects', { method: 'POST', body: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+      api<Workspace>('/workspaces', { method: 'POST', body: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['workspaces'] }),
   })
 }
 
-export function useDeleteProject() {
+export function useDeleteWorkspace() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => api(`/projects/${id}`, { method: 'DELETE' }),
+    mutationFn: (id: string) => api(`/workspaces/${id}`, { method: 'DELETE' }),
     onSuccess: () => invalidateTaskData(qc),
   })
 }

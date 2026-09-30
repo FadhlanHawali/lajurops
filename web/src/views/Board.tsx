@@ -1,16 +1,31 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { ListTree, Plus } from 'lucide-react'
+import { FolderKanban, Plus } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
 import { Avatar, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
 import { formatSchedule } from '../lib/dates'
 import { useTaskFilters, useTasks, useUpdateTask, useUsers } from '../lib/queries'
 import { STATUSES, type Status, type Task } from '../lib/types'
 
-export default function Board({ projectId }: { projectId: string }) {
+export default function Board({ workspaceId }: { workspaceId: string }) {
   const { assignee, type } = useTaskFilters()
-  const [showSubtasks, setShowSubtasks] = useState(false)
-  const { data: tasks = [], isLoading } = useTasks({ project_id: projectId, assignee_id: assignee, type, top_level: !showSubtasks })
+  const [projectFilter, setProjectFilter] = useState('') // '' = all, 'none' = independent, else project id
+  // Load every type so cards can show which project they belong to.
+  const { data: all = [], isLoading } = useTasks({ workspace_id: workspaceId })
+  const byId = useMemo(() => new Map(all.map((t) => [t.id, t])), [all])
+  const projectOf = (t: Task): Task | undefined => {
+    for (let p = t.parent_id ? byId.get(t.parent_id) : undefined; p; p = p.parent_id ? byId.get(p.parent_id) : undefined) {
+      if (p.type === 'project') return p
+    }
+  }
+  const projects = all.filter((t) => t.type === 'project')
+  // Projects are containers; the board shows the daily/hourly work unless filtered for.
+  const tasks = all.filter(
+    (t) =>
+      (type ? t.type === type : t.type !== 'project') &&
+      (!assignee || t.assignee_id === assignee) &&
+      (!projectFilter || (projectFilter === 'none' ? !projectOf(t) : projectOf(t)?.id === projectFilter)),
+  )
   const update = useUpdateTask()
   const modal = useTaskModal()
   const [drag, setDrag] = useState<{ id: string; status: Status; index: number } | null>(null)
@@ -36,12 +51,15 @@ export default function Board({ projectId }: { projectId: string }) {
   return (
     <div className="flex h-full flex-col gap-3">
       <FilterBar>
-        <button
-          onClick={() => setShowSubtasks((v) => !v)}
-          className={clsx('inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-sm', showSubtasks ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-600')}
-        >
-          <ListTree size={14} /> Subtasks as cards
-        </button>
+        <select className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
+          <option value="">All projects</option>
+          <option value="none">Independent tasks</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.key} · {p.title}
+            </option>
+          ))}
+        </select>
       </FilterBar>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-x-auto md:grid-cols-4">
@@ -66,7 +84,7 @@ export default function Board({ projectId }: { projectId: string }) {
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {col.label} <span className="ml-1 text-slate-400">{items.length}</span>
                 </span>
-                <button className="rounded p-1 text-slate-500 hover:bg-slate-200" title="Create task" onClick={() => modal.createTask({ title: '', project_id: projectId, status: col.id })}>
+                <button className="rounded p-1 text-slate-500 hover:bg-slate-200" title="Create task" onClick={() => modal.createTask({ title: '', workspace_id: workspaceId, status: col.id })}>
                   <Plus size={14} />
                 </button>
               </div>
@@ -77,6 +95,8 @@ export default function Board({ projectId }: { projectId: string }) {
                     {drag?.status === col.id && drag.index === i && <DropMarker />}
                     <Card
                       task={t}
+                      project={projectOf(t)}
+                      parent={t.parent_id ? byId.get(t.parent_id) : undefined}
                       onOpen={() => modal.openTask(t.id)}
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/task-id', t.id)
@@ -107,10 +127,14 @@ const DropMarker = () => <div className="my-1 h-1 rounded bg-blue-500" />
 
 function Card({
   task: t,
+  project,
+  parent,
   onOpen,
   ...drag
 }: {
   task: Task
+  project?: Task
+  parent?: Task
   onOpen: () => void
   onDragStart: (e: React.DragEvent<HTMLDivElement>) => void
   onDragOver: (e: React.DragEvent<HTMLDivElement>) => void
@@ -125,6 +149,12 @@ function Card({
       onClick={onOpen}
       className="cursor-pointer rounded-md border border-slate-200 bg-white p-2.5 shadow-sm transition hover:border-blue-300 hover:shadow"
     >
+      {project && (
+        <p className="mb-1 flex items-center gap-1 truncate text-[11px] font-medium text-amber-700" title={`Project ${project.key}: ${project.title}`}>
+          <FolderKanban size={11} className="shrink-0" /> <span className="truncate">{project.title}</span>
+          {parent && parent.id !== project.id && <span className="truncate text-slate-400">› {parent.key}</span>}
+        </p>
+      )}
       <p className={clsx('text-sm leading-snug text-slate-800', t.status === 'done' && 'text-slate-400 line-through')}>{t.title}</p>
       <p className="mt-1 text-[11px] text-slate-500">{formatSchedule(t)}</p>
       {t.subtask_count > 0 && (
@@ -140,7 +170,6 @@ function Card({
       <div className="mt-2 flex items-center gap-2">
         <TypeBadge type={t.type} />
         <span className="text-[11px] font-medium text-slate-500">{t.key}</span>
-        {t.parent_id && <span className="text-[10px] uppercase text-slate-400">subtask</span>}
         <span className="ml-auto flex items-center gap-1.5">
           <PriorityIcon priority={t.priority} />
           <Avatar user={t.assignee_id ? byId.get(t.assignee_id) : null} />

@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-// Workload summarises one user's assigned work in a period. A task counts
+// Workload summarises one user's assigned daily and hourly work in a period
+// (project tasks are containers and are not counted). A task counts
 // toward the period its start_at falls in (created_at when unscheduled).
 // Hourly hours use actual_hours when recorded, otherwise the scheduled
 // duration (end_at - start_at).
@@ -23,7 +24,7 @@ type Workload struct {
 	LoggedHours  float64 `json:"logged_hours"`
 }
 
-func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, projectID string) ([]Workload, error) {
+func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, workspaceID string) ([]Workload, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT u.id::text, u.username, u.display_name, u.email,
 		       count(t.id),
@@ -40,10 +41,11 @@ func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, projectI
 		       ON t.assignee_id = u.id
 		      AND coalesce(t.start_at, t.created_at) >= $1
 		      AND coalesce(t.start_at, t.created_at) <  $2
-		      AND ($3 = '' OR t.project_id::text = $3)
+		      AND ($3 = '' OR t.workspace_id::text = $3)
+		      AND t.type <> 'project'
 		GROUP BY u.id
 		ORDER BY 8 DESC, 5 DESC, lower(u.username)`,
-		from, to, projectID)
+		from, to, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -62,13 +64,14 @@ func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, projectI
 }
 
 // WorkloadTasks lists the tasks counted for a user in WorkloadReport.
-func (s *Store) WorkloadTasks(ctx context.Context, userID string, from, to time.Time, projectID string) ([]Task, error) {
+func (s *Store) WorkloadTasks(ctx context.Context, userID string, from, to time.Time, workspaceID string) ([]Task, error) {
 	rows, err := s.db.Query(ctx, `SELECT `+taskCols+taskFrom+`
 		WHERE t.assignee_id = $1
 		  AND coalesce(t.start_at, t.created_at) >= $2
 		  AND coalesce(t.start_at, t.created_at) <  $3
-		  AND ($4 = '' OR t.project_id::text = $4)
-		ORDER BY coalesce(t.start_at, t.created_at)`, userID, from, to, projectID)
+		  AND ($4 = '' OR t.workspace_id::text = $4)
+		  AND t.type <> 'project'
+		ORDER BY coalesce(t.start_at, t.created_at)`, userID, from, to, workspaceID)
 	if err != nil {
 		return nil, err
 	}

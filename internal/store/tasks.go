@@ -14,8 +14,8 @@ import (
 
 type Task struct {
 	ID            string     `json:"id"`
-	ProjectID     string     `json:"project_id"`
-	ProjectKey    string     `json:"project_key"`
+	WorkspaceID     string     `json:"workspace_id"`
+	WorkspaceKey    string     `json:"workspace_key"`
 	ParentID      *string    `json:"parent_id"`
 	Number        int        `json:"number"`
 	Key           string     `json:"key"`
@@ -40,7 +40,7 @@ type Task struct {
 }
 
 type TaskInput struct {
-	ProjectID     string     `json:"project_id"`
+	WorkspaceID     string     `json:"workspace_id"`
 	ParentID      *string    `json:"parent_id"`
 	Title         string     `json:"title"`
 	Description   string     `json:"description"`
@@ -56,22 +56,22 @@ type TaskInput struct {
 }
 
 type TaskFilter struct {
-	ProjectID  string
+	WorkspaceID  string
 	AssigneeID string
 	ParentID   string
 	TopLevel   bool
-	Type       string
+	Types      []string
 	// From/To select tasks whose schedule overlaps [From, To).
 	From, To *time.Time
 }
 
 var (
-	taskTypes     = set("hourly", "daily")
+	taskTypes     = set("project", "daily", "hourly")
 	taskStatuses  = set("todo", "in_progress", "in_review", "done")
 	taskPriorites = set("low", "medium", "high", "urgent")
 )
 
-const taskCols = `t.id::text, t.project_id::text, p.key, t.parent_id::text, t.number,
+const taskCols = `t.id::text, t.workspace_id::text, p.key, t.parent_id::text, t.number,
 	t.title, t.description, t.type, t.status, t.priority,
 	t.assignee_id::text, t.reporter_id::text, t.start_at, t.end_at,
 	t.estimate_hours::float8, t.actual_hours::float8, t.progress, t.position,
@@ -79,11 +79,11 @@ const taskCols = `t.id::text, t.project_id::text, p.key, t.parent_id::text, t.nu
 	(SELECT count(*) FROM tasks s WHERE s.parent_id = t.id),
 	(SELECT count(*) FROM tasks s WHERE s.parent_id = t.id AND s.status = 'done')`
 
-const taskFrom = ` FROM tasks t JOIN projects p ON p.id = t.project_id`
+const taskFrom = ` FROM tasks t JOIN workspaces p ON p.id = t.workspace_id`
 
 func scanTask(row pgx.Row) (Task, error) {
 	var t Task
-	err := row.Scan(&t.ID, &t.ProjectID, &t.ProjectKey, &t.ParentID, &t.Number,
+	err := row.Scan(&t.ID, &t.WorkspaceID, &t.WorkspaceKey, &t.ParentID, &t.Number,
 		&t.Title, &t.Description, &t.Type, &t.Status, &t.Priority,
 		&t.AssigneeID, &t.ReporterID, &t.StartAt, &t.EndAt,
 		&t.EstimateHours, &t.ActualHours, &t.Progress, &t.Position,
@@ -91,7 +91,7 @@ func scanTask(row pgx.Row) (Task, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
 	}
-	t.Key = fmt.Sprintf("%s-%d", t.ProjectKey, t.Number)
+	t.Key = fmt.Sprintf("%s-%d", t.WorkspaceKey, t.Number)
 	return t, err
 }
 
@@ -102,8 +102,8 @@ func (s *Store) ListTasks(ctx context.Context, f TaskFilter) ([]Task, error) {
 		args = append(args, v)
 		where = append(where, fmt.Sprintf(cond, len(args)))
 	}
-	if f.ProjectID != "" {
-		add("t.project_id = $%d", f.ProjectID)
+	if f.WorkspaceID != "" {
+		add("t.workspace_id = $%d", f.WorkspaceID)
 	}
 	if f.AssigneeID != "" {
 		add("t.assignee_id = $%d", f.AssigneeID)
@@ -114,8 +114,8 @@ func (s *Store) ListTasks(ctx context.Context, f TaskFilter) ([]Task, error) {
 	if f.TopLevel {
 		where = append(where, "t.parent_id IS NULL")
 	}
-	if f.Type != "" {
-		add("t.type = $%d", f.Type)
+	if len(f.Types) > 0 {
+		add("t.type = ANY($%d)", f.Types)
 	}
 	if f.To != nil {
 		add("t.start_at < $%d", *f.To)
@@ -159,7 +159,7 @@ func (s *Store) CreateTask(ctx context.Context, in TaskInput, reporterID string)
 	case in.Title == "":
 		return Task{}, invalid("title is required")
 	case !taskTypes[in.Type]:
-		return Task{}, invalid("type must be hourly or daily")
+		return Task{}, invalid("type must be project, daily or hourly")
 	case !taskStatuses[in.Status]:
 		return Task{}, invalid("invalid status")
 	case !taskPriorites[in.Priority]:
@@ -174,46 +174,45 @@ func (s *Store) CreateTask(ctx context.Context, in TaskInput, reporterID string)
 	}
 	defer tx.Rollback(ctx)
 
-	// Subtasks live in their parent's project, and only one level deep (like Jira).
+	// Child tasks live in their parent's workspace.
 	if in.ParentID != nil && *in.ParentID != "" {
-		var parentProject string
-		var grandParent *string
-		err := tx.QueryRow(ctx, `SELECT project_id::text, parent_id::text FROM tasks WHERE id = $1`, *in.ParentID).
-			Scan(&parentProject, &grandParent)
+		var parentWorkspace, parentType string
+		err := tx.QueryRow(ctx, `SELECT workspace_id::text, type FROM tasks WHERE id = $1`, *in.ParentID).
+			Scan(&parentWorkspace, &parentType)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Task{}, invalid("parent task not found")
 		} else if err != nil {
+			return Task{}, mapConstraintErr(err)
+		}
+		if err := checkNesting(parentType, in.Type); err != nil {
 			return Task{}, err
 		}
-		if grandParent != nil {
-			return Task{}, invalid("subtasks cannot have their own subtasks")
-		}
-		in.ProjectID = parentProject
+		in.WorkspaceID = parentWorkspace
 	} else {
 		in.ParentID = nil
 	}
-	if in.ProjectID == "" {
-		return Task{}, invalid("project_id is required")
+	if in.WorkspaceID == "" {
+		return Task{}, invalid("workspace_id is required")
 	}
 
 	var number int
-	err = tx.QueryRow(ctx, `UPDATE projects SET task_seq = task_seq + 1 WHERE id = $1 RETURNING task_seq`, in.ProjectID).Scan(&number)
+	err = tx.QueryRow(ctx, `UPDATE workspaces SET task_seq = task_seq + 1 WHERE id = $1 RETURNING task_seq`, in.WorkspaceID).Scan(&number)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Task{}, invalid("project not found")
+		return Task{}, invalid("workspace not found")
 	} else if err != nil {
 		return Task{}, err
 	}
 
 	var id string
 	err = tx.QueryRow(ctx, `
-		INSERT INTO tasks (project_id, parent_id, number, title, description, type, status, priority,
+		INSERT INTO tasks (workspace_id, parent_id, number, title, description, type, status, priority,
 		                   assignee_id, reporter_id, start_at, end_at, estimate_hours, actual_hours, progress,
 		                   position, completed_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-		        (SELECT coalesce(max(position), 0) + 1 FROM tasks WHERE project_id = $1 AND status = $7),
+		        (SELECT coalesce(max(position), 0) + 1 FROM tasks WHERE workspace_id = $1 AND status = $7),
 		        CASE WHEN $7 = 'done' THEN now() END)
 		RETURNING id::text`,
-		in.ProjectID, in.ParentID, number, in.Title, in.Description, in.Type, in.Status, in.Priority,
+		in.WorkspaceID, in.ParentID, number, in.Title, in.Description, in.Type, in.Status, in.Priority,
 		emptyToNil(in.AssigneeID), nullString(reporterID), in.StartAt, in.EndAt, in.EstimateHours, in.ActualHours, in.Progress,
 	).Scan(&id)
 	if err != nil {
@@ -234,6 +233,9 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 		args = append(args, v)
 		sets = append(sets, fmt.Sprintf("%s = $%d", col, len(args)))
 	}
+	// Type and parent changes must keep the project > daily > hourly nesting.
+	var newType *string
+	var newParent **string
 
 	for k, raw := range patch {
 		switch k {
@@ -249,16 +251,27 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 				return Task{}, invalid("description must be a string")
 			}
 			set("description", v)
-		case "type", "priority":
+		case "type":
 			var v string
-			valid := taskTypes
-			if k == "priority" {
-				valid = taskPriorites
+			if err := json.Unmarshal(raw, &v); err != nil || !taskTypes[v] {
+				return Task{}, invalid("type must be project, daily or hourly")
 			}
-			if err := json.Unmarshal(raw, &v); err != nil || !valid[v] {
-				return Task{}, invalid("invalid " + k)
+			newType = &v
+			set("type", v)
+		case "parent_id":
+			var v *string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return Task{}, invalid("parent_id must be a string or null")
 			}
-			set(k, v)
+			v = emptyToNil(v)
+			newParent = &v
+			set("parent_id", v)
+		case "priority":
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil || !taskPriorites[v] {
+				return Task{}, invalid("invalid priority")
+			}
+			set("priority", v)
 		case "status":
 			var v string
 			if err := json.Unmarshal(raw, &v); err != nil || !taskStatuses[v] {
@@ -304,16 +317,101 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 		return s.GetTask(ctx, id)
 	}
 
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	if newType != nil || newParent != nil {
+		if err := validateMove(ctx, tx, id, newType, newParent); err != nil {
+			return Task{}, err
+		}
+	}
+
 	args = append(args, id)
 	q := fmt.Sprintf(`UPDATE tasks SET %s, updated_at = now() WHERE id = $%d`, strings.Join(sets, ", "), len(args))
-	tag, err := s.db.Exec(ctx, q, args...)
+	tag, err := tx.Exec(ctx, q, args...)
 	if err != nil {
 		return Task{}, mapConstraintErr(err)
 	}
 	if tag.RowsAffected() == 0 {
 		return Task{}, ErrNotFound
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return Task{}, err
+	}
 	return s.GetTask(ctx, id)
+}
+
+// typeRank orders task types; a child must rank strictly below its parent.
+var typeRank = map[string]int{"project": 3, "daily": 2, "hourly": 1}
+
+// nestingRule explains what each type may contain.
+var nestingRule = map[string]string{
+	"project": "a project can contain daily and hourly tasks",
+	"daily":   "a daily task can only contain hourly tasks",
+	"hourly":  "hourly tasks cannot contain other tasks",
+}
+
+func checkNesting(parentType, childType string) error {
+	if typeRank[childType] >= typeRank[parentType] {
+		return invalid(nestingRule[parentType])
+	}
+	return nil
+}
+
+// validateMove checks a type and/or parent change against the task's current
+// parent and children. It locks the task row for the rest of the transaction.
+func validateMove(ctx context.Context, tx pgx.Tx, id string, newType *string, newParent **string) error {
+	var curType, workspaceID string
+	var curParent *string
+	err := tx.QueryRow(ctx, `SELECT type, parent_id::text, workspace_id::text FROM tasks WHERE id = $1 FOR UPDATE`, id).
+		Scan(&curType, &curParent, &workspaceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return mapConstraintErr(err)
+	}
+	typ, parent := curType, curParent
+	if newType != nil {
+		typ = *newType
+	}
+	if newParent != nil {
+		parent = *newParent
+	}
+
+	if parent != nil {
+		if *parent == id {
+			return invalid("a task cannot be its own parent")
+		}
+		var parentType, parentWorkspace string
+		err := tx.QueryRow(ctx, `SELECT type, workspace_id::text FROM tasks WHERE id = $1`, *parent).Scan(&parentType, &parentWorkspace)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return invalid("parent task not found")
+		} else if err != nil {
+			return mapConstraintErr(err)
+		}
+		if parentWorkspace != workspaceID {
+			return invalid("parent task must be in the same workspace")
+		}
+		if err := checkNesting(parentType, typ); err != nil {
+			return err
+		}
+	}
+
+	// Existing children must still fit under the (possibly new) type.
+	var maxChildRank int
+	err = tx.QueryRow(ctx, `
+		SELECT coalesce(max(CASE type WHEN 'project' THEN 3 WHEN 'daily' THEN 2 ELSE 1 END), 0)
+		FROM tasks WHERE parent_id = $1`, id).Scan(&maxChildRank)
+	if err != nil {
+		return err
+	}
+	if maxChildRank >= typeRank[typ] {
+		return invalid(fmt.Sprintf("cannot change the type to %s: %s", typ, nestingRule[typ]))
+	}
+	return nil
 }
 
 func (s *Store) DeleteTask(ctx context.Context, id string) error {

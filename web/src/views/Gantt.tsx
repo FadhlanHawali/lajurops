@@ -16,10 +16,10 @@ import {
 } from 'date-fns'
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Crosshair, Plus, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
-import { Avatar, Button, FilterBar, Empty } from '../components/ui'
+import { Avatar, Button, FilterBar, Empty, TYPE_COLOR } from '../components/ui'
 import { defaultSpan, formatSchedule } from '../lib/dates'
 import { useTaskFilters, useTasks, useUpdateTask, useUsers } from '../lib/queries'
-import type { Task } from '../lib/types'
+import { defaultChildType, type Task } from '../lib/types'
 
 type Unit = 'hour' | '6h' | 'day' | 'week' | 'month' | 'year'
 
@@ -121,6 +121,8 @@ function useNow(intervalMs = 60_000) {
 interface Row {
   task: Task
   depth: number
+  /** For tasks without their own dates: the span of everything inside them. */
+  rollup?: { start: number; end: number }
 }
 
 interface DragState {
@@ -133,9 +135,9 @@ interface DragState {
   moved: boolean
 }
 
-export default function Gantt({ projectId }: { projectId: string }) {
+export default function Gantt({ workspaceId }: { workspaceId: string }) {
   const { assignee, type } = useTaskFilters()
-  const { data: tasks = [], isLoading } = useTasks({ project_id: projectId, assignee_id: assignee, type })
+  const { data: tasks = [], isLoading } = useTasks({ workspace_id: workspaceId, assignee_id: assignee, type })
   const update = useUpdateTask()
   const modal = useTaskModal()
   const { byId: users } = useUsers()
@@ -176,11 +178,25 @@ export default function Gantt({ projectId }: { projectId: string }) {
     const byStart = (a: Task, b: Task) =>
       (a.start_at ? Date.parse(a.start_at) : Infinity) - (b.start_at ? Date.parse(b.start_at) : Infinity) || a.number - b.number
     top.sort(byStart)
-    const out: Row[] = []
-    for (const t of top) {
-      out.push({ task: t, depth: 0 })
-      if (!collapsed.has(t.id)) for (const c of (children.get(t.id) ?? []).sort(byStart)) out.push({ task: c, depth: 1 })
+
+    // Span of a task's scheduled descendants, used to draw unscheduled projects.
+    const span = (t: Task): { start: number; end: number } | undefined => {
+      let r: { start: number; end: number } | undefined
+      for (const c of children.get(t.id) ?? []) {
+        const own = c.start_at
+          ? { start: Date.parse(c.start_at), end: c.end_at ? Date.parse(c.end_at) : defaultSpan(c.type, new Date(c.start_at)).end.getTime() }
+          : span(c)
+        if (own) r = r ? { start: Math.min(r.start, own.start), end: Math.max(r.end, own.end) } : own
+      }
+      return r
     }
+
+    const out: Row[] = []
+    const walk = (t: Task, depth: number) => {
+      out.push({ task: t, depth, rollup: t.start_at ? undefined : span(t) })
+      if (!collapsed.has(t.id)) for (const c of (children.get(t.id) ?? []).sort(byStart)) walk(c, depth + 1)
+    }
+    top.forEach((t) => walk(t, 0))
     return out
   }, [tasks, collapsed])
 
@@ -273,7 +289,7 @@ export default function Gantt({ projectId }: { projectId: string }) {
     e.currentTarget.setPointerCapture(e.pointerId)
     const s0 = Date.parse(t.start_at)
     const e0 = t.end_at ? Date.parse(t.end_at) : defaultSpan(t.type, new Date(s0)).end.getTime()
-    dragRef.current = { id: t.id, mode, x0: e.clientX, s0, e0, snapMin: t.type === 'daily' ? 1440 : zoom.snapMin, moved: false }
+    dragRef.current = { id: t.id, mode, x0: e.clientX, s0, e0, snapMin: t.type !== 'hourly' ? 1440 : zoom.snapMin, moved: false }
   }
 
   const onBarPointerMove = (e: ReactPointerEvent) => {
@@ -314,7 +330,7 @@ export default function Gantt({ projectId }: { projectId: string }) {
   }
 
   const scheduleAt = (t: Task, clientX: number) => {
-    const at = new Date(snap(timeAt(clientX), t.type === 'daily' ? 1440 : zoom.snapMin))
+    const at = new Date(snap(timeAt(clientX), t.type !== 'hourly' ? 1440 : zoom.snapMin))
     const { start, end } = defaultSpan(t.type, at)
     update.mutate({ id: t.id, patch: { start_at: start.toISOString(), end_at: end.toISOString() } })
   }
@@ -358,7 +374,7 @@ export default function Gantt({ projectId }: { projectId: string }) {
           >
             {collapsed.size ? <ChevronsUpDown size={16} /> : <ChevronsDownUp size={16} />}
           </Button>
-          <Button variant="primary" onClick={() => modal.createTask({ title: '', project_id: projectId })}>
+          <Button variant="primary" onClick={() => modal.createTask({ title: '', workspace_id: workspaceId })}>
             <Plus size={14} /> Task
           </Button>
         </div>
@@ -417,34 +433,34 @@ export default function Gantt({ projectId }: { projectId: string }) {
             </div>
 
             {/* Rows */}
-            {rows.map(({ task: t, depth }) => {
+            {rows.map(({ task: t, depth, rollup }) => {
               const p = preview?.id === t.id ? preview : null
               const start = p ? p.start : t.start_at ? Date.parse(t.start_at) : null
               const end = p ? p.end : t.end_at ? Date.parse(t.end_at) : start !== null ? defaultSpan(t.type, new Date(start)).end.getTime() : null
               const bx = start !== null ? x(start) : 0
               const bw = start !== null && end !== null ? Math.max(x(end) - bx, 6) : 0
               const assignee = t.assignee_id ? users.get(t.assignee_id) : null
-              const color = t.status === 'done' ? 'bg-emerald-500' : t.type === 'hourly' ? 'bg-violet-500' : 'bg-sky-500'
+              const color = t.status === 'done' ? 'bg-emerald-500' : TYPE_COLOR[t.type]
               return (
                 <div key={t.id} className="group relative z-10 flex border-b border-slate-100 hover:bg-blue-50/40" style={{ height: ROW_H }}>
                   <div className="sticky left-0 z-20 flex shrink-0 items-center gap-1.5 border-r border-slate-200 bg-white pr-2 group-hover:bg-blue-50" style={{ width: LEFT, paddingLeft: 8 + depth * 20 }}>
-                    {depth === 0 && hasChildren.has(t.id) ? (
+                    {hasChildren.has(t.id) ? (
                       <button className="rounded p-0.5 text-slate-400 hover:bg-slate-200" onClick={() => toggle(t.id)}>
                         {collapsed.has(t.id) ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                       </button>
                     ) : (
                       <span className="w-[18px]" />
                     )}
-                    <span className={clsx('h-2 w-2 shrink-0 rounded-full', t.type === 'hourly' ? 'bg-violet-500' : 'bg-sky-500')} title={t.type} />
+                    <span className={clsx('h-2 w-2 shrink-0', TYPE_COLOR[t.type], t.type === 'project' ? 'rounded-sm' : 'rounded-full')} title={t.type} />
                     <span className="shrink-0 text-[11px] font-medium text-slate-400">{t.key}</span>
-                    <button className={clsx('min-w-0 flex-1 truncate text-left text-sm', t.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-700')} onClick={() => modal.openTask(t.id)} title={t.title}>
+                    <button className={clsx('min-w-0 flex-1 truncate text-left text-sm', t.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-700', t.type === 'project' && 'font-semibold')} onClick={() => modal.openTask(t.id)} title={t.title}>
                       {t.title}
                     </button>
-                    {depth === 0 && !t.parent_id && (
+                    {t.type !== 'hourly' && (
                       <button
                         className="hidden rounded p-0.5 text-slate-400 hover:bg-slate-200 group-hover:block"
-                        title="Add subtask"
-                        onClick={() => modal.createTask({ title: '', parent_id: t.id, type: t.type, assignee_id: t.assignee_id })}
+                        title={`Add ${defaultChildType(t.type)} task inside`}
+                        onClick={() => modal.createTask({ title: '', parent_id: t.id, type: defaultChildType(t.type), assignee_id: t.assignee_id })}
                       >
                         <Plus size={14} />
                       </button>
@@ -455,10 +471,19 @@ export default function Gantt({ projectId }: { projectId: string }) {
                   <div
                     className="relative"
                     style={{ width }}
-                    onClick={(e) => !t.start_at && scheduleAt(t, e.clientX)}
-                    title={t.start_at ? undefined : 'Click to schedule'}
+                    onClick={(e) => !t.start_at && !rollup && scheduleAt(t, e.clientX)}
+                    title={t.start_at || rollup ? undefined : 'Click to schedule'}
                   >
-                    {start !== null ? (
+                    {start === null && rollup ? (
+                      // Summary bar: spans the tasks inside; set the project's own dates to move it.
+                      <button
+                        className="absolute top-[10px] h-3 rounded-sm border-2 border-amber-500 bg-amber-100/70"
+                        style={{ left: x(rollup.start), width: Math.max(x(rollup.end) - x(rollup.start), 6) }}
+                        title={`${t.key} · ${t.title}
+Spans its tasks: ${formatSchedule({ type: 'daily', start_at: new Date(rollup.start).toISOString(), end_at: new Date(rollup.end).toISOString() })}`}
+                        onClick={() => modal.openTask(t.id)}
+                      />
+                    ) : start !== null ? (
                       <div
                         className={clsx(
                           'absolute flex cursor-grab items-center overflow-visible rounded shadow-sm active:cursor-grabbing',

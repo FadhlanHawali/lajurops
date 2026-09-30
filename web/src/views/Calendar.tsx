@@ -12,15 +12,17 @@ import { useTaskFilters, useTasks, useUpdateTask, useUsers } from '../lib/querie
 import type { Task } from '../lib/types'
 
 const COLORS = {
+  project: { bg: '#f59e0b', border: '#d97706' },
   hourly: { bg: '#8b5cf6', border: '#7c3aed' },
   daily: { bg: '#0ea5e9', border: '#0284c7' },
   done: { bg: '#10b981', border: '#059669' },
 }
 
-export default function Calendar({ projectId }: { projectId?: string }) {
+export default function Calendar({ workspaceId }: { workspaceId?: string }) {
   const { assignee, type } = useTaskFilters()
   const [range, setRange] = useState<{ from: string; to: string } | null>(null)
-  const { data: tasks = [] } = useTasks({ project_id: projectId, assignee_id: assignee, type, ...range }, !!range)
+  // Projects span weeks and would bury the actual work; show them only when filtered for.
+  const { data: tasks = [] } = useTasks({ workspace_id: workspaceId, assignee_id: assignee, type: type || 'daily,hourly', ...range }, !!range)
   const update = useUpdateTask()
   const modal = useTaskModal()
   const { byId } = useUsers()
@@ -37,7 +39,7 @@ export default function Calendar({ projectId }: { projectId?: string }) {
             title: `${t.key} ${t.title}${who ? ` · ${who}` : ''}`,
             start: t.start_at!,
             end: t.end_at ?? undefined,
-            allDay: t.type === 'daily',
+            allDay: t.type !== 'hourly',
             backgroundColor: c.bg,
             borderColor: c.border,
             classNames: t.status === 'done' ? ['opacity-60'] : [],
@@ -91,7 +93,7 @@ export default function Calendar({ projectId }: { projectId?: string }) {
           select={(arg) => {
             modal.createTask({
               title: '',
-              project_id: projectId,
+              workspace_id: workspaceId,
               type: arg.allDay ? 'daily' : 'hourly',
               start_at: arg.start.toISOString(),
               end_at: arg.end.toISOString(),

@@ -41,11 +41,11 @@ func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *k
 			r.Get("/me", a.getMe)
 			r.Get("/users", a.listUsers)
 
-			r.Get("/projects", a.listProjects)
-			r.Post("/projects", a.createProject)
-			r.Get("/projects/{id}", a.getProject)
-			r.Patch("/projects/{id}", a.updateProject)
-			r.Delete("/projects/{id}", a.deleteProject)
+			r.Get("/workspaces", a.listWorkspaces)
+			r.Post("/workspaces", a.createWorkspace)
+			r.Get("/workspaces/{id}", a.getWorkspace)
+			r.Patch("/workspaces/{id}", a.updateWorkspace)
+			r.Delete("/workspaces/{id}", a.deleteWorkspace)
 
 			r.Get("/tasks", a.listTasks)
 			r.Post("/tasks", a.createTask)

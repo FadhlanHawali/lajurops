@@ -5,7 +5,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
 import { Avatar, Button, Empty, StatusPill, TypeBadge, userName } from '../components/ui'
 import { formatSchedule, hoursBetween } from '../lib/dates'
-import { useProjects, useUsers, useWorkload, useWorkloadTasks } from '../lib/queries'
+import { useWorkspaces, useUsers, useWorkload, useWorkloadTasks } from '../lib/queries'
 import type { Workload } from '../lib/types'
 
 type Period = 'week' | 'month'
@@ -15,9 +15,9 @@ const fmtH = (h: number) => (Math.round(h * 10) / 10).toLocaleString() + 'h'
 export default function Reports() {
   const [period, setPeriod] = useState<Period>('week')
   const [anchor, setAnchor] = useState(() => new Date())
-  const [projectId, setProjectId] = useState('')
+  const [workspaceId, setWorkspaceId] = useState('')
   const [open, setOpen] = useState<string | null>(null)
-  const { data: projects = [] } = useProjects()
+  const { data: workspaces = [] } = useWorkspaces()
 
   const { from, to, label } = useMemo(() => {
     if (period === 'week') {
@@ -31,7 +31,7 @@ export default function Reports() {
   const fromIso = from.toISOString()
   const toIso = to.toISOString()
 
-  const { data: rows = [], isLoading } = useWorkload(fromIso, toIso, projectId)
+  const { data: rows = [], isLoading } = useWorkload(fromIso, toIso, workspaceId)
   const active = rows.filter((r) => r.total_tasks > 0)
   const totals = rows.reduce(
     (a, r) => ({ hourly: a.hourly + r.hourly_tasks, hours: a.hours + r.hourly_hours, daily: a.daily + r.daily_tasks, done: a.done + r.done_tasks, total: a.total + r.total_tasks }),
@@ -73,9 +73,9 @@ export default function Reports() {
           <ChevronRight size={16} />
         </Button>
         <Button onClick={() => setAnchor(new Date())}>This {period}</Button>
-        <select className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-          <option value="">All projects</option>
-          {projects.map((p) => (
+        <select className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm" value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
+          <option value="">All workspaces</option>
+          {workspaces.map((p) => (
             <option key={p.id} value={p.id}>
               {p.key} · {p.name}
             </option>
@@ -116,7 +116,7 @@ export default function Reports() {
                   {open === r.user_id && (
                     <tr>
                       <td colSpan={7} className="bg-slate-50 px-4 py-3">
-                        <UserTasks userId={r.user_id} from={fromIso} to={toIso} projectId={projectId} />
+                        <UserTasks userId={r.user_id} from={fromIso} to={toIso} workspaceId={workspaceId} />
                       </td>
                     </tr>
                   )}
@@ -177,8 +177,8 @@ function UserRow({ r, maxHours, open, onToggle }: { r: Workload; maxHours: numbe
   )
 }
 
-function UserTasks({ userId, from, to, projectId }: { userId: string; from: string; to: string; projectId: string }) {
-  const { data = [], isLoading } = useWorkloadTasks(userId, from, to, projectId)
+function UserTasks({ userId, from, to, workspaceId }: { userId: string; from: string; to: string; workspaceId: string }) {
+  const { data = [], isLoading } = useWorkloadTasks(userId, from, to, workspaceId)
   const modal = useTaskModal()
   if (isLoading) return <div className="text-sm text-slate-400">Loading…</div>
   if (!data.length) return <div className="text-sm text-slate-500">No tasks in this period.</div>

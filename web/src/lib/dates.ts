@@ -9,7 +9,7 @@ import type { Task, TaskType } from './types'
 export function toInput(iso: string | null, type: TaskType, isEnd = false): string {
   if (!iso) return ''
   let d = new Date(iso)
-  if (type === 'daily') {
+  if (type !== 'hourly') {
     if (isEnd) d = subDays(d, 1)
     return format(d, 'yyyy-MM-dd')
   }
@@ -19,7 +19,7 @@ export function toInput(iso: string | null, type: TaskType, isEnd = false): stri
 /** Parses an input value back into an ISO timestamp. */
 export function fromInput(value: string, type: TaskType, isEnd = false): string | null {
   if (!value) return null
-  if (type === 'daily') {
+  if (type !== 'hourly') {
     const [y, m, d] = value.split('-').map(Number)
     let date = new Date(y, m - 1, d)
     if (isEnd) date = addDays(date, 1)
@@ -31,7 +31,7 @@ export function fromInput(value: string, type: TaskType, isEnd = false): string 
 
 /** Default schedule when a task is placed at `at` without explicit bounds. */
 export function defaultSpan(type: TaskType, at: Date): { start: Date; end: Date } {
-  if (type === 'daily') {
+  if (type !== 'hourly') {
     const start = startOfDay(at)
     return { start, end: addDays(start, 1) }
   }
@@ -49,7 +49,7 @@ export function formatDuration(minutes: number): string {
 export function formatSchedule(t: Pick<Task, 'type' | 'start_at' | 'end_at'>): string {
   if (!t.start_at) return 'Unscheduled'
   const s = new Date(t.start_at)
-  if (t.type === 'daily') {
+  if (t.type !== 'hourly') {
     const last = t.end_at ? subDays(new Date(t.end_at), 1) : s
     return last > s ? `${format(s, 'MMM d')} – ${format(last, 'MMM d')}` : format(s, 'EEE, MMM d')
   }

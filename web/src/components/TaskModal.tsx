@@ -1,10 +1,10 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
 import { ChevronRight, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { fromInput, formatDuration, toInput } from '../lib/dates'
-import { useCreateTask, useDeleteTask, useProjects, useTask, useUpdateTask, useUsers, type TaskCreate, type TaskPatch } from '../lib/queries'
-import { PRIORITIES, STATUSES, type Priority, type Status, type Task, type TaskType } from '../lib/types'
+import { useCreateTask, useDeleteTask, useTask, useTasks, useUpdateTask, useUsers, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
+import { canContain, defaultChildType, PRIORITIES, STATUSES, TASK_TYPES, type Priority, type Status, type Task, type TaskType } from '../lib/types'
 import { Avatar, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge, UserSelect } from './ui'
 
 type ModalState = { mode: 'edit'; id: string } | { mode: 'create'; defaults: TaskCreate } | null
@@ -58,13 +58,14 @@ function EditTask({ id, onClose, onOpen }: { id: string; onClose: () => void; on
       </div>
     )
   if (error || !data) return <div className="p-8 text-red-600">Could not load task: {String(error)}</div>
-  return <TaskForm key={data.updated_at} task={data} subtasks={data.subtasks} parent={data.parent} onClose={onClose} onOpen={onOpen} />
+  return <TaskForm key={data.updated_at} task={data} children_={data.subtasks} ancestors={data.ancestors} onClose={onClose} onOpen={onOpen} />
 }
 
 interface FormState {
   title: string
   description: string
   type: TaskType
+  parent_id: string
   status: Status
   priority: Priority
   assignee_id: string
@@ -81,6 +82,7 @@ function initialForm(t: Partial<Task> | TaskCreate): FormState {
     title: t.title ?? '',
     description: t.description ?? '',
     type,
+    parent_id: t.parent_id ?? '',
     status: t.status ?? 'todo',
     priority: t.priority ?? 'medium',
     assignee_id: t.assignee_id ?? '',
@@ -92,68 +94,81 @@ function initialForm(t: Partial<Task> | TaskCreate): FormState {
   }
 }
 
-/** Converts the schedule inputs when the task type is switched. */
+/** Converts the schedule inputs when switching between hourly and date-based types. */
 function switchType(f: FormState, type: TaskType): FormState {
   if (type === f.type) return f
+  const wasHourly = f.type === 'hourly'
+  const isHourly = type === 'hourly'
+  if (wasHourly === isHourly) return { ...f, type } // project <-> daily share date inputs
   const start = fromInput(f.start, f.type)
   const end = fromInput(f.end, f.type, true)
   if (!start) return { ...f, type, start: '', end: '' }
-  if (type === 'hourly') {
+  if (isHourly) {
     const s = setHours(startOfDay(new Date(start)), 9)
     return { ...f, type, start: toInput(s.toISOString(), 'hourly'), end: toInput(addHours(s, 2).toISOString(), 'hourly') }
   }
   const s = startOfDay(new Date(start)).toISOString()
   // An hourly end at exactly midnight belongs to the previous day.
   const e = end ? new Date(new Date(end).getTime() - 1) : new Date(start)
-  return { ...f, type, start: toInput(s, 'daily'), end: toInput(new Date(startOfDay(e).getTime() + 86_400_000).toISOString(), 'daily', true) }
+  return { ...f, type, start: toInput(s, type), end: toInput(new Date(startOfDay(e).getTime() + 86_400_000).toISOString(), type, true) }
 }
 
 function TaskForm({
   task,
   initial,
-  subtasks,
-  parent,
+  children_: childTasks = [],
+  ancestors = [],
   onClose,
   onOpen,
   onSaved,
 }: {
   task?: Task
   initial?: TaskCreate
-  subtasks?: Task[]
-  parent?: Task | null
+  children_?: Task[]
+  ancestors?: Task[]
   onClose: () => void
   onOpen?: (id: string) => void
   onSaved?: (t: Task) => void
 }) {
   const [f, setF] = useState<FormState>(() => initialForm(task ?? initial ?? { title: '' }))
   const [err, setErr] = useState('')
-  const [projectId, setProjectId] = useState(initial?.project_id ?? '')
-  const { data: projects = [] } = useProjects()
-  const needsProject = !task && !initial?.parent_id && !initial?.project_id
+  const [workspaceId, setWorkspaceId] = useState(task?.workspace_id ?? initial?.workspace_id ?? '')
+  const { data: workspaces = [] } = useWorkspaces()
+  const needsWorkspace = !task && !initial?.parent_id && !initial?.workspace_id
   const update = useUpdateTask()
   const create = useCreateTask()
   const del = useDeleteTask()
   const up = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((s) => ({ ...s, [k]: v }))
 
+  // Possible parents: project and daily tasks in the same workspace.
+  const { data: containers = [] } = useTasks({ workspace_id: workspaceId, type: 'project,daily' }, !!workspaceId)
+  const parent = containers.find((c) => c.id === f.parent_id) ?? ancestors[ancestors.length - 1]
+  const parentOptions = containers.filter((c) => c.id !== task?.id && canContain(c.type, f.type))
+  // A type is allowed if the parent can hold it and it can hold the existing children.
+  const typeAllowed = (t: TaskType) =>
+    (!f.parent_id || !parent || canContain(parent.type, t)) && childTasks.every((c) => canContain(t, c.type))
+
   const startIso = fromInput(f.start, f.type)
   const endIso = fromInput(f.end, f.type, true)
   const durationMin = startIso && endIso ? differenceInMinutes(new Date(endIso), new Date(startIso)) : 0
+  const dateBased = f.type !== 'hourly'
 
   const save = async () => {
     setErr('')
     if (!f.title.trim()) return setErr('Title is required')
-    if (needsProject && !projectId) return setErr('Choose a project')
+    if (needsWorkspace && !workspaceId) return setErr('Choose a workspace')
     if (startIso && endIso && durationMin < 0) return setErr('End must be after start')
     const num = (s: string) => (s.trim() === '' ? null : Number(s))
     const patch: TaskPatch = {
       title: f.title.trim(),
       description: f.description,
       type: f.type,
+      parent_id: f.parent_id || null,
       status: f.status,
       priority: f.priority,
       assignee_id: f.assignee_id || null,
       start_at: startIso,
-      end_at: endIso ?? (startIso && f.type === 'daily' ? fromInput(f.start, 'daily', true) : null),
+      end_at: endIso ?? (startIso && dateBased ? fromInput(f.start, f.type, true) : null),
       estimate_hours: num(f.estimate_hours),
       actual_hours: num(f.actual_hours),
       progress: f.progress,
@@ -163,7 +178,7 @@ function TaskForm({
         await update.mutateAsync({ id: task.id, patch })
         onClose()
       } else {
-        const t = await create.mutateAsync({ ...initial, ...patch, title: patch.title!, project_id: projectId || undefined })
+        const t = await create.mutateAsync({ ...initial, ...patch, title: patch.title!, workspace_id: workspaceId || undefined })
         onSaved?.(t)
       }
     } catch (e) {
@@ -173,15 +188,16 @@ function TaskForm({
 
   const remove = async () => {
     if (!task) return
-    const extra = task.subtask_count ? ` and its ${task.subtask_count} subtask(s)` : ''
+    const extra = task.subtask_count ? ` and the ${task.subtask_count} task(s) inside it` : ''
     if (!confirm(`Delete ${task.key}${extra}?`)) return
     await del.mutateAsync(task.id)
-    if (parent && onOpen) onOpen(parent.id)
+    const p = ancestors[ancestors.length - 1]
+    if (p && onOpen) onOpen(p.id)
     else onClose()
   }
 
   const busy = update.isPending || create.isPending
-  const isSubtask = !!(task?.parent_id || initial?.parent_id)
+  const typeInfo = TASK_TYPES.find((t) => t.id === f.type)!
 
   return (
     <div
@@ -189,16 +205,17 @@ function TaskForm({
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
       }}
     >
-      <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-3 text-sm text-slate-500">
-        {parent && (
-          <>
-            <button className="font-medium text-blue-600 hover:underline" onClick={() => onOpen?.(parent.id)}>
-              {parent.key}
+      <div className="flex items-center gap-1.5 border-b border-slate-200 px-5 py-3 text-sm text-slate-500">
+        {ancestors.map((a) => (
+          <span key={a.id} className="flex items-center gap-1.5">
+            <button className="font-medium text-blue-600 hover:underline" title={a.title} onClick={() => onOpen?.(a.id)}>
+              {a.key}
             </button>
             <ChevronRight size={14} />
-          </>
-        )}
-        <span className="font-medium text-slate-700">{task ? task.key : isSubtask ? 'New subtask' : 'New task'}</span>
+          </span>
+        ))}
+        <span className="font-medium text-slate-700">{task ? task.key : `New ${typeInfo.label.toLowerCase()} task`}</span>
+        {task && <TypeBadge type={task.type} />}
         {task && <StatusPill status={task.status} />}
         <div className="ml-auto flex items-center gap-1">
           {task && (
@@ -217,7 +234,7 @@ function TaskForm({
           <input
             autoFocus={!task}
             className="w-full rounded-md border border-transparent px-2 py-1 text-xl font-semibold hover:border-slate-200 focus:border-blue-500 focus:outline-none"
-            placeholder="What needs to be done?"
+            placeholder={f.type === 'project' ? 'Project name' : 'What needs to be done?'}
             value={f.title}
             onChange={(e) => up('title', e.target.value)}
           />
@@ -225,15 +242,20 @@ function TaskForm({
             <textarea className={clsx(inputCls, 'min-h-32')} value={f.description} onChange={(e) => up('description', e.target.value)} placeholder="Add details, links, runbook steps…" />
           </Field>
 
-          {task && !task.parent_id && <Subtasks parent={task} subtasks={subtasks ?? []} onOpen={onOpen!} />}
+          {task && task.type !== 'hourly' && <ChildTasks parent={task} items={childTasks} onOpen={onOpen!} />}
+          {!task && f.type !== 'hourly' && (
+            <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              After creating this {typeInfo.label.toLowerCase()} task you can add {f.type === 'project' ? 'daily and hourly' : 'hourly'} tasks inside it.
+            </p>
+          )}
         </div>
 
         <div className="space-y-3">
-          {needsProject && (
-            <Field label="Project">
-              <select className={inputCls} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-                <option value="">Choose a project…</option>
-                {projects.map((p) => (
+          {needsWorkspace && (
+            <Field label="Workspace">
+              <select className={inputCls} value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
+                <option value="">Choose a workspace…</option>
+                {workspaces.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.key} · {p.name}
                   </option>
@@ -241,16 +263,41 @@ function TaskForm({
               </select>
             </Field>
           )}
-          <Field label="Task type">
-            <div className="grid grid-cols-2 overflow-hidden rounded-md border border-slate-300 text-sm">
-              {(['hourly', 'daily'] as const).map((t) => (
-                <button key={t} type="button" onClick={() => setF((s) => switchType(s, t))} className={clsx('px-2 py-1.5', f.type === t ? 'bg-slate-800 text-white' : 'bg-white hover:bg-slate-50')}>
-                  {t === 'hourly' ? 'Hourly' : 'Daily'}
+          <Field label="Type">
+            <div className="grid grid-cols-3 overflow-hidden rounded-md border border-slate-300 text-sm">
+              {TASK_TYPES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={!typeAllowed(t.id)}
+                  title={typeAllowed(t.id) ? t.hint : `Not allowed here: ${f.parent_id ? 'the parent' : 'a task inside'} would break Project > Daily > Hourly`}
+                  onClick={() => setF((s) => switchType(s, t.id))}
+                  className={clsx('px-2 py-1.5 disabled:cursor-not-allowed disabled:opacity-40', f.type === t.id ? 'bg-slate-800 text-white' : 'bg-white hover:bg-slate-50')}
+                >
+                  {t.label}
                 </button>
               ))}
             </div>
-            <p className="mt-1 text-[11px] text-slate-400">{f.type === 'hourly' ? 'Support, deployment, implementation — scheduled by the hour.' : 'Requests & deliverables — scheduled by date.'}</p>
+            <p className="mt-1 text-[11px] text-slate-400">{typeInfo.hint}</p>
           </Field>
+          {f.type !== 'project' && (
+            <Field label={f.type === 'daily' ? 'Part of project' : 'Part of project / daily task'}>
+              <select className={inputCls} value={f.parent_id} onChange={(e) => up('parent_id', e.target.value)} disabled={!workspaceId}>
+                <option value="">None (independent)</option>
+                {parentOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.type === 'project' ? '▣' : '▢'} {c.key} · {c.title}
+                  </option>
+                ))}
+                {/* Keep the current parent selectable even while the list loads. */}
+                {f.parent_id && !parentOptions.some((c) => c.id === f.parent_id) && parent && (
+                  <option value={parent.id}>
+                    {parent.key} · {parent.title}
+                  </option>
+                )}
+              </select>
+            </Field>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <Field label="Status">
               <select className={inputCls} value={f.status} onChange={(e) => up('status', e.target.value as Status)}>
@@ -271,24 +318,26 @@ function TaskForm({
               </select>
             </Field>
           </div>
-          <Field label="Assignee">
+          <Field label={f.type === 'project' ? 'Owner' : 'Assignee'}>
             <UserSelect value={f.assignee_id} onChange={(v) => up('assignee_id', v)} />
           </Field>
-          <Field label={f.type === 'hourly' ? 'Start' : 'Start date'}>
-            <input type={f.type === 'hourly' ? 'datetime-local' : 'date'} className={inputCls} value={f.start} onChange={(e) => up('start', e.target.value)} />
+          <Field label={dateBased ? 'Start date' : 'Start'}>
+            <input type={dateBased ? 'date' : 'datetime-local'} className={inputCls} value={f.start} onChange={(e) => up('start', e.target.value)} />
           </Field>
-          <Field label={f.type === 'hourly' ? 'End' : 'Due date'}>
-            <input type={f.type === 'hourly' ? 'datetime-local' : 'date'} className={inputCls} value={f.end} min={f.start} onChange={(e) => up('end', e.target.value)} />
+          <Field label={dateBased ? (f.type === 'project' ? 'Target date' : 'Due date') : 'End'}>
+            <input type={dateBased ? 'date' : 'datetime-local'} className={inputCls} value={f.end} min={f.start} onChange={(e) => up('end', e.target.value)} />
           </Field>
           {durationMin > 0 && <p className="-mt-1 text-xs text-slate-500">Duration: {formatDuration(durationMin)}</p>}
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="Estimate (h)">
-              <input type="number" min={0} step={0.25} className={inputCls} value={f.estimate_hours} onChange={(e) => up('estimate_hours', e.target.value)} />
-            </Field>
-            <Field label="Actual (h)">
-              <input type="number" min={0} step={0.25} className={inputCls} value={f.actual_hours} onChange={(e) => up('actual_hours', e.target.value)} placeholder={f.type === 'hourly' && durationMin > 0 ? String(+(durationMin / 60).toFixed(2)) : ''} />
-            </Field>
-          </div>
+          {f.type !== 'project' && (
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Estimate (h)">
+                <input type="number" min={0} step={0.25} className={inputCls} value={f.estimate_hours} onChange={(e) => up('estimate_hours', e.target.value)} />
+              </Field>
+              <Field label="Actual (h)">
+                <input type="number" min={0} step={0.25} className={inputCls} value={f.actual_hours} onChange={(e) => up('actual_hours', e.target.value)} placeholder={f.type === 'hourly' && durationMin > 0 ? String(+(durationMin / 60).toFixed(2)) : ''} />
+              </Field>
+            </div>
+          )}
           <Field label={`Progress · ${f.progress}%`}>
             <input type="range" min={0} max={100} step={5} className="w-full" value={f.progress} onChange={(e) => up('progress', Number(e.target.value))} />
           </Field>
@@ -309,19 +358,22 @@ function TaskForm({
   )
 }
 
-function Subtasks({ parent, subtasks, onOpen }: { parent: Task; subtasks: Task[]; onOpen: (id: string) => void }) {
+/** Tasks inside a project (daily/hourly) or a daily task (hourly). */
+function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; onOpen: (id: string) => void }) {
   const [title, setTitle] = useState('')
+  const [type, setType] = useState<TaskType>(defaultChildType(parent.type))
   const create = useCreateTask()
   const update = useUpdateTask()
   const { byId } = useUsers()
-  const done = subtasks.filter((s) => s.status === 'done').length
+  const done = items.filter((s) => s.status === 'done').length
+  const allowed = useMemo(() => TASK_TYPES.filter((t) => canContain(parent.type, t.id)), [parent.type])
 
   const add = async () => {
     if (!title.trim()) return
     await create.mutateAsync({
       title: title.trim(),
       parent_id: parent.id,
-      type: parent.type,
+      type,
       assignee_id: parent.assignee_id,
       priority: parent.priority,
     })
@@ -331,32 +383,33 @@ function Subtasks({ parent, subtasks, onOpen }: { parent: Task; subtasks: Task[]
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-700">Subtasks</h3>
-        {subtasks.length > 0 && (
+        <h3 className="text-sm font-semibold text-slate-700">{parent.type === 'project' ? 'Tasks in this project' : 'Hourly tasks'}</h3>
+        {items.length > 0 && (
           <span className="text-xs text-slate-500">
-            {done}/{subtasks.length} done
+            {done}/{items.length} done
           </span>
         )}
       </div>
-      {subtasks.length > 0 && (
+      {items.length > 0 && (
         <div className="mb-2 h-1.5 overflow-hidden rounded bg-slate-100">
-          <div className="h-full bg-emerald-500 transition-all" style={{ width: `${(done / subtasks.length) * 100}%` }} />
+          <div className="h-full bg-emerald-500 transition-all" style={{ width: `${(done / items.length) * 100}%` }} />
         </div>
       )}
       <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
-        {subtasks.map((s) => (
+        {items.map((s) => (
           <li key={s.id} className="flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-slate-50">
-            <input
-              type="checkbox"
-              checked={s.status === 'done'}
-              onChange={(e) => update.mutate({ id: s.id, patch: { status: e.target.checked ? 'done' : 'todo' } })}
-            />
+            <input type="checkbox" checked={s.status === 'done'} onChange={(e) => update.mutate({ id: s.id, patch: { status: e.target.checked ? 'done' : 'todo' } })} />
             <button className="text-xs font-medium text-blue-600 hover:underline" onClick={() => onOpen(s.id)}>
               {s.key}
             </button>
             <button className={clsx('min-w-0 flex-1 truncate text-left', s.status === 'done' && 'text-slate-400 line-through')} onClick={() => onOpen(s.id)}>
               {s.title}
             </button>
+            {s.subtask_count > 0 && (
+              <span className="text-[11px] text-slate-400">
+                {s.subtask_done}/{s.subtask_count}
+              </span>
+            )}
             <TypeBadge type={s.type} />
             <PriorityIcon priority={s.priority} />
             <Avatar user={s.assignee_id ? byId.get(s.assignee_id) : null} />
@@ -364,9 +417,18 @@ function Subtasks({ parent, subtasks, onOpen }: { parent: Task; subtasks: Task[]
         ))}
         <li className="flex items-center gap-2 px-2 py-1.5">
           <Plus size={14} className="text-slate-400" />
+          {allowed.length > 1 && (
+            <select className="rounded border border-slate-200 bg-white px-1 py-0.5 text-xs" value={type} onChange={(e) => setType(e.target.value as TaskType)}>
+              {allowed.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          )}
           <input
             className="flex-1 bg-transparent text-sm focus:outline-none"
-            placeholder="Add a subtask and press Enter"
+            placeholder={`Add a ${type} task and press Enter`}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && add()}

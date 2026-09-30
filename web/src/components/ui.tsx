@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ArrowDown, ArrowUp, ChevronsUp, Clock, Equal, CalendarDays } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronsUp, Clock, Equal, CalendarDays, FolderKanban } from 'lucide-react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { useMe, useTaskFilters, useUsers } from '../lib/queries'
 import type { Priority, Status, TaskType, User } from '../lib/types'
@@ -34,14 +34,20 @@ export function Avatar({ user, size = 'sm' }: { user?: User | null; size?: 'sm' 
   )
 }
 
+const TYPE_STYLE: Record<TaskType, { icon: typeof Clock; label: string; cls: string }> = {
+  project: { icon: FolderKanban, label: 'Project', cls: 'bg-amber-100 text-amber-800' },
+  daily: { icon: CalendarDays, label: 'Daily', cls: 'bg-sky-100 text-sky-700' },
+  hourly: { icon: Clock, label: 'Hourly', cls: 'bg-violet-100 text-violet-700' },
+}
+
+/** Solid colour per type, used for dots and Gantt bars. */
+export const TYPE_COLOR: Record<TaskType, string> = { project: 'bg-amber-500', daily: 'bg-sky-500', hourly: 'bg-violet-500' }
+
 export function TypeBadge({ type, className }: { type: TaskType; className?: string }) {
-  return type === 'hourly' ? (
-    <span className={clsx('inline-flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-medium text-violet-700', className)}>
-      <Clock size={11} /> Hourly
-    </span>
-  ) : (
-    <span className={clsx('inline-flex items-center gap-1 rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-700', className)}>
-      <CalendarDays size={11} /> Daily
+  const s = TYPE_STYLE[type]
+  return (
+    <span className={clsx('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium', s.cls, className)}>
+      <s.icon size={11} /> {s.label}
     </span>
   )
 }
@@ -154,8 +160,9 @@ export function FilterBar({ children }: { children?: ReactNode }) {
       <div className="inline-flex overflow-hidden rounded-md border border-slate-300 text-sm">
         {[
           ['', 'All types'],
-          ['hourly', 'Hourly'],
+          ['project', 'Project'],
           ['daily', 'Daily'],
+          ['hourly', 'Hourly'],
         ].map(([v, label]) => (
           <button
             key={v}

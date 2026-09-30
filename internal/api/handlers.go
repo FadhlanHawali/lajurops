@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -11,40 +12,40 @@ import (
 	"github.com/FadhlanHawali/open-planner/internal/store"
 )
 
-// --- projects ---
+// --- workspaces ---
 
-func (a *API) listProjects(w http.ResponseWriter, r *http.Request) {
-	p, err := a.store.ListProjects(r.Context())
+func (a *API) listWorkspaces(w http.ResponseWriter, r *http.Request) {
+	p, err := a.store.ListWorkspaces(r.Context())
 	respond(w, p, err)
 }
 
-func (a *API) getProject(w http.ResponseWriter, r *http.Request) {
-	p, err := a.store.GetProject(r.Context(), chi.URLParam(r, "id"))
+func (a *API) getWorkspace(w http.ResponseWriter, r *http.Request) {
+	p, err := a.store.GetWorkspace(r.Context(), chi.URLParam(r, "id"))
 	respond(w, p, err)
 }
 
-func (a *API) createProject(w http.ResponseWriter, r *http.Request) {
-	var in store.ProjectInput
+func (a *API) createWorkspace(w http.ResponseWriter, r *http.Request) {
+	var in store.WorkspaceInput
 	if err := decode(r, &in); err != nil {
 		respond(w, nil, err)
 		return
 	}
-	p, err := a.store.CreateProject(r.Context(), in, auth.UserFrom(r.Context()).ID)
+	p, err := a.store.CreateWorkspace(r.Context(), in, auth.UserFrom(r.Context()).ID)
 	respondStatus(w, http.StatusCreated, p, err)
 }
 
-func (a *API) updateProject(w http.ResponseWriter, r *http.Request) {
-	var in store.ProjectInput
+func (a *API) updateWorkspace(w http.ResponseWriter, r *http.Request) {
+	var in store.WorkspaceInput
 	if err := decode(r, &in); err != nil {
 		respond(w, nil, err)
 		return
 	}
-	p, err := a.store.UpdateProject(r.Context(), chi.URLParam(r, "id"), in)
+	p, err := a.store.UpdateWorkspace(r.Context(), chi.URLParam(r, "id"), in)
 	respond(w, p, err)
 }
 
-func (a *API) deleteProject(w http.ResponseWriter, r *http.Request) {
-	err := a.store.DeleteProject(r.Context(), chi.URLParam(r, "id"))
+func (a *API) deleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	err := a.store.DeleteWorkspace(r.Context(), chi.URLParam(r, "id"))
 	respondStatus(w, http.StatusOK, map[string]bool{"deleted": true}, err)
 }
 
@@ -58,11 +59,11 @@ func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tasks, err := a.store.ListTasks(r.Context(), store.TaskFilter{
-		ProjectID:  q.Get("project_id"),
+		WorkspaceID:  q.Get("workspace_id"),
 		AssigneeID: q.Get("assignee_id"),
 		ParentID:   q.Get("parent_id"),
 		TopLevel:   q.Get("top_level") == "true",
-		Type:       q.Get("type"),
+		Types:      splitList(q.Get("type")),
 		From:       from,
 		To:         to,
 	})
@@ -72,7 +73,15 @@ func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 type taskDetail struct {
 	store.Task
 	Subtasks []store.Task `json:"subtasks"`
-	Parent   *store.Task  `json:"parent"`
+	// Ancestors lists the parent chain, outermost first.
+	Ancestors []store.Task `json:"ancestors"`
+}
+
+func splitList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
 }
 
 func (a *API) getTask(w http.ResponseWriter, r *http.Request) {
@@ -82,19 +91,19 @@ func (a *API) getTask(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
-	d := taskDetail{Task: t, Subtasks: []store.Task{}}
-	if t.ParentID != nil {
-		p, err := a.store.GetTask(ctx, *t.ParentID)
+	d := taskDetail{Task: t, Ancestors: []store.Task{}}
+	// The hierarchy is at most three levels deep, so this loop is short.
+	for parent := t.ParentID; parent != nil; {
+		p, err := a.store.GetTask(ctx, *parent)
 		if err != nil {
 			respond(w, nil, err)
 			return
 		}
-		d.Parent = &p
-	} else if d.Subtasks, err = a.store.ListTasks(ctx, store.TaskFilter{ParentID: t.ID}); err != nil {
-		respond(w, nil, err)
-		return
+		d.Ancestors = append([]store.Task{p}, d.Ancestors...)
+		parent = p.ParentID
 	}
-	respond(w, d, nil)
+	d.Subtasks, err = a.store.ListTasks(ctx, store.TaskFilter{ParentID: t.ID})
+	respond(w, d, err)
 }
 
 func (a *API) createTask(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +150,7 @@ func (a *API) workloadReport(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
-	rows, err := a.store.WorkloadReport(r.Context(), from, to, r.URL.Query().Get("project_id"))
+	rows, err := a.store.WorkloadReport(r.Context(), from, to, r.URL.Query().Get("workspace_id"))
 	respond(w, rows, err)
 }
 
@@ -151,6 +160,6 @@ func (a *API) workloadTasks(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
-	tasks, err := a.store.WorkloadTasks(r.Context(), chi.URLParam(r, "userID"), from, to, r.URL.Query().Get("project_id"))
+	tasks, err := a.store.WorkloadTasks(r.Context(), chi.URLParam(r, "userID"), from, to, r.URL.Query().Get("workspace_id"))
 	respond(w, tasks, err)
 }
