@@ -37,6 +37,11 @@ type Config struct {
 	// when the secret is empty.
 	KeycloakAdminClientID     string
 	KeycloakAdminClientSecret string
+
+	// ImportAllowPrivateURLs lets "import from URL" reach private/internal
+	// addresses (e.g. an intranet file server). Off by default to prevent
+	// the server being used to probe internal services.
+	ImportAllowPrivateURLs bool
 }
 
 // UserManagementEnabled reports whether the Keycloak Admin API is configured.
@@ -58,6 +63,7 @@ func Load() (Config, error) {
 		KeycloakAdminClientSecret: os.Getenv("KEYCLOAK_ADMIN_CLIENT_SECRET"),
 	}
 	c.AuthDisabled, _ = strconv.ParseBool(os.Getenv("AUTH_DISABLED"))
+	c.ImportAllowPrivateURLs, _ = strconv.ParseBool(os.Getenv("IMPORT_ALLOW_PRIVATE_URLS"))
 
 	if !c.AuthDisabled {
 		if c.OIDCIssuer == "" {

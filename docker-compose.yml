@@ -76,6 +76,8 @@ services:
       KEYCLOAK_ADMIN_CLIENT_ID: open-planner-admin
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${PLANNER_ADMIN_CLIENT_SECRET:-dev-admin-secret-change-me}
       ADMIN_ROLE: planner-admin
+      # Allow "import from URL" to reach private/internal addresses (off by default).
+      IMPORT_ALLOW_PRIVATE_URLS: ${IMPORT_ALLOW_PRIVATE_URLS:-false}
     ports:
       - "8080:8080"
     depends_on:

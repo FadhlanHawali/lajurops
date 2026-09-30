@@ -25,6 +25,7 @@ A self-hosted planner in the spirit of Jira/Trello, built for teams that mix
   blocked cards show what they wait for, and the timeline draws arrows (red when a task starts before
   the task it waits for ends)
 - **Comments** on projects, daily and hourly tasks, written in **Markdown** (GitHub flavoured: checklists, tables, code blocks) with a formatting toolbar and preview; authors can edit/delete their own comments, admins can delete any
+- **Backup & restore**: export a workspace to JSON; import a backup from a file or a URL as a new workspace
 - **Workload report**: per user, per week or month: hourly support hours, hourly/daily task counts, completion; drill down and export CSV
 - **Keycloak** sign-in (OIDC + PKCE) with an in-app sign-in screen
 - **User management** for admins: create, edit, disable, delete users, reset passwords and grant the admin role (via the Keycloak Admin API)
@@ -133,6 +134,7 @@ make build        # web/dist + bin/open-planner
 | `KEYCLOAK_ADMIN_URL` | issuer base URL | Keycloak base URL the backend uses for the Admin API (e.g. `http://keycloak:8080`) |
 | `KEYCLOAK_ADMIN_CLIENT_ID` | `open-planner-admin` | Confidential client with a service account |
 | `KEYCLOAK_ADMIN_CLIENT_SECRET` | (empty) | Its secret; user management is disabled when empty |
+| `IMPORT_ALLOW_PRIVATE_URLS` | `false` | Let "import from URL" fetch from private/internal addresses (e.g. an intranet file server) |
 | `AUTH_DISABLED`  | `false` | Local development only: skip Keycloak entirely |
 
 The frontend gets its Keycloak settings at runtime from `GET /api/config`, so
@@ -155,6 +157,18 @@ one build works in every environment.
 - Put the app behind TLS; set `PUBLIC_APP_URL`/`PUBLIC_KEYCLOAK_URL` and update the client's redirect URIs.
 - Change every default password in `.env` and the realm file.
 
+## Backup and restore
+
+- **Export**: the download button on a workspace page saves `<KEY>-<date>.json` with the workspace, all
+  tasks (hierarchy, dates, status, owners), environments, dependencies and comments.
+- **Import**: the upload button next to *Workspaces* in the sidebar. Pick/drop a file or enter a URL; a
+  preview shows what will be created. A backup is always restored as a **new** workspace (choose a new key
+  if the original is taken); task numbers are kept. People are matched **by username**: owners missing from
+  this planner are dropped and their comments show as by a deleted user (accounts live in Keycloak).
+- **Import from URL** is downloaded by the server. To stop it being used to probe internal services, it
+  refuses private/loopback/link-local addresses (e.g. `10.x`, `192.168.x`, `localhost`, cloud metadata) unless
+  `IMPORT_ALLOW_PRIVATE_URLS=true`; files are limited to 25 MB.
+
 ## How reporting counts work
 
 A task counts toward the week/month its **start** falls in (creation time if unscheduled),
@@ -176,6 +190,9 @@ POST   /api/tasks               { workspace_id | parent_id, title, type: project
 GET    /api/tasks/{id}          includes subtasks, ancestors, waiting_for and blocking
 PATCH  /api/tasks/{id}          partial update (incl. type, parent_id; nesting is validated); null clears a field
 DELETE /api/tasks/{id}          also deletes everything inside it
+GET    /api/workspaces/{id}/export                  backup (JSON)
+POST   /api/workspaces/import?key=&name=&dry_run=   body: backup; creates a new workspace
+POST   /api/import/fetch        { url }             download a backup server-side (private addresses blocked)
 GET    /api/tasks/{id}/environments                 a project's environments (with task counts)
 PUT    /api/tasks/{id}/environments                 [{ id?, name, color }]  replaces the list, in order
 POST   /api/tasks/{id}/dependencies                 { depends_on_id }   (task {id} waits for it)

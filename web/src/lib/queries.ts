@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { AdminUser, AdminUserInput, Comment, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, Comment, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -299,3 +299,21 @@ export function usePurgeUser() {
     onSettled: () => invalidatePeople(qc),
   })
 }
+
+// --- workspace backup ---
+
+/** Downloads a workspace backup as a .json file. */
+export async function downloadWorkspaceBackup(id: string, key: string) {
+  const doc = await api<WorkspaceBackup>(`/workspaces/${id}/export`)
+  const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `${key}-${doc.exported_at.slice(0, 10)}.json`
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+export const fetchBackupFromUrl = (url: string) => api<WorkspaceBackup>('/import/fetch', { method: 'POST', body: { url } })
+
+export const importWorkspace = (doc: WorkspaceBackup, opts: { key: string; name: string; dryRun: boolean }) =>
+  api<ImportResult>('/workspaces/import', { method: 'POST', body: doc, query: { key: opts.key, name: opts.name, dry_run: opts.dryRun } })

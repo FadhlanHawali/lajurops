@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import clsx from 'clsx'
-import { BarChart3, CalendarDays, FolderKanban, GanttChart, KanbanSquare, LogOut, Plus, Settings, Trash2, Users as UsersIcon } from 'lucide-react'
+import { BarChart3, CalendarDays, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Settings, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
+import { ImportDialog } from './components/ImportDialog'
 import { TaskModalProvider, useTaskModal } from './components/TaskModal'
 import { Avatar, Button, Field, inputCls, userName } from './components/ui'
 import { accountUrl, authEnabled, logout } from './lib/auth'
-import { useCreateWorkspace, useDeleteWorkspace, useMe, useWorkspace, useWorkspaces } from './lib/queries'
+import { downloadWorkspaceBackup, useCreateWorkspace, useDeleteWorkspace, useMe, useWorkspace, useWorkspaces } from './lib/queries'
 import Board from './views/Board'
 import Calendar from './views/Calendar'
 import Gantt from './views/Gantt'
@@ -62,6 +63,7 @@ function Sidebar() {
   const { data: workspaces = [] } = useWorkspaces()
   const { data: me } = useMe()
   const [creating, setCreating] = useState(false)
+  const [importing, setImporting] = useState(false)
   const link = ({ isActive }: { isActive: boolean }) =>
     clsx('flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm', isActive ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white')
 
@@ -85,9 +87,14 @@ function Sidebar() {
         )}
         <div className="flex items-center justify-between px-2.5 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
           Workspaces
-          <button className="rounded p-0.5 hover:bg-slate-800 hover:text-white" title="New workspace" onClick={() => setCreating(true)}>
-            <Plus size={14} />
-          </button>
+          <span className="flex items-center gap-0.5">
+            <button className="rounded p-0.5 hover:bg-slate-800 hover:text-white" title="Import a workspace backup" onClick={() => setImporting(true)}>
+              <Upload size={13} />
+            </button>
+            <button className="rounded p-0.5 hover:bg-slate-800 hover:text-white" title="New workspace" onClick={() => setCreating(true)}>
+              <Plus size={14} />
+            </button>
+          </span>
         </div>
         {workspaces.map((p) => (
           <NavLink key={p.id} to={`/w/${p.id}/board`} className={({ isActive }) => link({ isActive: isActive || location.pathname.startsWith(`/w/${p.id}/`) })}>
@@ -117,6 +124,7 @@ function Sidebar() {
         </div>
       )}
       {creating && <NewWorkspaceDialog onClose={() => setCreating(false)} />}
+      {importing && <ImportDialog onClose={() => setImporting(false)} />}
     </aside>
   )
 }
@@ -146,6 +154,7 @@ function WorkspacePage() {
   const { workspaceId = '', view = 'board' } = useParams()
   const { data: workspace, error } = useWorkspace(workspaceId)
   const del = useDeleteWorkspace()
+  const [exporting, setExporting] = useState(false)
   const navigate = useNavigate()
   const modal = useTaskModal()
   if (error) return <Navigate to="/" replace />
@@ -172,6 +181,24 @@ function WorkspacePage() {
           </Button>
           <Button
             variant="ghost"
+            title="Export a backup of this workspace (.json)"
+            disabled={!workspace || exporting}
+            onClick={async () => {
+              if (!workspace) return
+              setExporting(true)
+              try {
+                await downloadWorkspaceBackup(workspace.id, workspace.key)
+              } catch (e) {
+                alert(`Export failed: ${(e as Error).message}`)
+              } finally {
+                setExporting(false)
+              }
+            }}
+          >
+            {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+          </Button>
+          <Button
+            variant="ghost"
             title="Delete workspace"
             onClick={async () => {
               if (workspace && confirm(`Delete workspace ${workspace.name} and all ${workspace.task_count} tasks? This cannot be undone.`)) {
@@ -192,6 +219,7 @@ function WorkspacePage() {
 
 function Home() {
   const { data: workspaces, isLoading } = useWorkspaces()
+  const [importing, setImporting] = useState(false)
   if (isLoading) return null
   if (workspaces?.length) return <Navigate to={`/w/${workspaces[0].id}/board`} replace />
   return (
@@ -200,7 +228,14 @@ function Home() {
         <h1 className="text-xl font-semibold">Welcome to Open Planner</h1>
         <p className="mt-1 mb-4 text-sm text-slate-500">Create your first workspace to start planning tasks.</p>
         <NewWorkspaceForm />
+        <p className="mt-4 border-t border-slate-100 pt-3 text-center text-sm text-slate-500">
+          Have a backup?{' '}
+          <button className="font-medium text-blue-600 hover:underline" onClick={() => setImporting(true)}>
+            Import a workspace
+          </button>
+        </p>
       </div>
+      {importing && <ImportDialog onClose={() => setImporting(false)} />}
     </div>
   )
 }

@@ -189,3 +189,31 @@ export const STATUSES: { id: Status; label: string }[] = [
 export const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export const statusLabel = (s: Status) => STATUSES.find((x) => x.id === s)?.label ?? s
+
+/** A workspace backup file (see the server's store.ExportDoc). */
+export interface WorkspaceBackup {
+  format: 'open-planner-workspace'
+  version: number
+  exported_at: string
+  exported_by?: string
+  workspace: { key: string; name: string; description: string }
+  users: { ref: string; username: string }[]
+  tasks: unknown[]
+  environments: unknown[]
+  dependencies: unknown[]
+  comments: unknown[]
+}
+
+export interface ImportResult {
+  dry_run: boolean
+  workspace: Workspace | null
+  key: string
+  name: string
+  key_taken: boolean
+  tasks: number
+  environments: number
+  dependencies: number
+  comments: number
+  assignments: number
+  unknown_users: string[]
+}
