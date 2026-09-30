@@ -53,6 +53,11 @@ func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *k
 			r.Patch("/tasks/{id}", a.updateTask)
 			r.Delete("/tasks/{id}", a.deleteTask)
 
+			r.Get("/tasks/{id}/comments", a.listComments)
+			r.Post("/tasks/{id}/comments", a.createComment)
+			r.Patch("/comments/{id}", a.updateComment)
+			r.Delete("/comments/{id}", a.deleteComment)
+
 			r.Get("/reports/workload", a.workloadReport)
 			r.Get("/reports/workload/{userID}/tasks", a.workloadTasks)
 

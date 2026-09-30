@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { FolderKanban, Plus } from 'lucide-react'
+import { FolderKanban, MessageSquare, Plus } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
 import { Avatar, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
 import { formatSchedule } from '../lib/dates'
@@ -171,6 +171,11 @@ function Card({
         <TypeBadge type={t.type} />
         <span className="text-[11px] font-medium text-slate-500">{t.key}</span>
         <span className="ml-auto flex items-center gap-1.5">
+          {t.comment_count > 0 && (
+            <span className="flex items-center gap-0.5 text-[11px] text-slate-400" title={`${t.comment_count} comment(s)`}>
+              <MessageSquare size={12} /> {t.comment_count}
+            </span>
+          )}
           <PriorityIcon priority={t.priority} />
           <Avatar user={t.assignee_id ? byId.get(t.assignee_id) : null} />
         </span>

@@ -5,6 +5,7 @@ import { ChevronRight, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { fromInput, toInput } from '../lib/dates'
 import { useCreateTask, useDeleteTask, useTask, useTasks, useUpdateTask, useUsers, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
 import { canContain, defaultChildType, PRIORITIES, STATUSES, TASK_TYPES, type Priority, type Status, type Task, type TaskType } from '../lib/types'
+import { Comments } from './Comments'
 import { DateRangeField, HourlyScheduleField } from './DateTimePicker'
 import { Avatar, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge, UserSelect } from './ui'
 
@@ -244,6 +245,11 @@ function TaskForm({
           </Field>
 
           {task && task.type !== 'hourly' && <ChildTasks parent={task} items={childTasks} onOpen={onOpen!} />}
+          {task && (
+            <div className="border-t border-slate-100 pt-4">
+              <Comments taskId={task.id} />
+            </div>
+          )}
           {!task && f.type !== 'hourly' && (
             <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">
               After creating this {typeInfo.label.toLowerCase()} task you can add {f.type === 'project' ? 'daily and hourly' : 'hourly'} tasks inside it.

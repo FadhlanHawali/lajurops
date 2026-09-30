@@ -37,6 +37,7 @@ type Task struct {
 	UpdatedAt     time.Time  `json:"updated_at"`
 	SubtaskCount  int        `json:"subtask_count"`
 	SubtaskDone   int        `json:"subtask_done"`
+	CommentCount  int        `json:"comment_count"`
 }
 
 type TaskInput struct {
@@ -77,7 +78,8 @@ const taskCols = `t.id::text, t.workspace_id::text, p.key, t.parent_id::text, t.
 	t.estimate_hours::float8, t.actual_hours::float8, t.progress, t.position,
 	t.completed_at, t.created_at, t.updated_at,
 	(SELECT count(*) FROM tasks s WHERE s.parent_id = t.id),
-	(SELECT count(*) FROM tasks s WHERE s.parent_id = t.id AND s.status = 'done')`
+	(SELECT count(*) FROM tasks s WHERE s.parent_id = t.id AND s.status = 'done'),
+	(SELECT count(*) FROM task_comments c WHERE c.task_id = t.id)`
 
 const taskFrom = ` FROM tasks t JOIN workspaces p ON p.id = t.workspace_id`
 
@@ -87,7 +89,7 @@ func scanTask(row pgx.Row) (Task, error) {
 		&t.Title, &t.Description, &t.Type, &t.Status, &t.Priority,
 		&t.AssigneeID, &t.ReporterID, &t.StartAt, &t.EndAt,
 		&t.EstimateHours, &t.ActualHours, &t.Progress, &t.Position,
-		&t.CompletedAt, &t.CreatedAt, &t.UpdatedAt, &t.SubtaskCount, &t.SubtaskDone)
+		&t.CompletedAt, &t.CreatedAt, &t.UpdatedAt, &t.SubtaskCount, &t.SubtaskDone, &t.CommentCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
 	}

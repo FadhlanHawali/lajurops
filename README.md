@@ -15,6 +15,7 @@ A self-hosted planner in the spirit of Jira/Trello, built for teams that mix
 
   A task can only contain smaller types (project → daily/hourly, daily → hourly).
   Daily and hourly tasks can also be **independent**, without a project.
+- **Comments** on projects, daily and hourly tasks, written in **Markdown** (GitHub flavoured: checklists, tables, code blocks) with a formatting toolbar and preview; authors can edit/delete their own comments, admins can delete any
 - **Workload report**: per user, per week or month: hourly support hours, hourly/daily task counts, completion; drill down and export CSV
 - **Keycloak** sign-in (OIDC + PKCE) with an in-app sign-in screen
 - **User management** for admins: create, edit, disable, delete users, reset passwords and grant the admin role (via the Keycloak Admin API)
@@ -152,6 +153,9 @@ POST   /api/tasks               { workspace_id | parent_id, title, type: project
 GET    /api/tasks/{id}          includes subtasks and ancestors
 PATCH  /api/tasks/{id}          partial update (incl. type, parent_id; nesting is validated); null clears a field
 DELETE /api/tasks/{id}          also deletes everything inside it
+GET    /api/tasks/{id}/comments   POST /api/tasks/{id}/comments { body }   (Markdown)
+PATCH  /api/comments/{id}       { body }   (author only)
+DELETE /api/comments/{id}       (author or planner-admin)
 GET    /api/reports/workload?from=&to=&workspace_id=
 GET    /api/reports/workload/{userId}/tasks?from=&to=&workspace_id=
 

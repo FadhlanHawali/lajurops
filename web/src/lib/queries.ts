@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { AdminUser, AdminUserInput, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, Comment, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -188,4 +188,33 @@ export function useDeleteAdminUser() {
     mutationFn: (id: string) => api(`/admin/users/${id}`, { method: 'DELETE' }),
     onSettled: () => invalidateUsers(qc),
   })
+}
+
+// --- comments ---
+
+export const useComments = (taskId: string) =>
+  useQuery({ queryKey: ['comments', taskId], queryFn: () => api<Comment[]>(`/tasks/${taskId}/comments`) })
+
+function invalidateComments(qc: QueryClient, taskId: string) {
+  qc.invalidateQueries({ queryKey: ['comments', taskId] })
+  qc.invalidateQueries({ queryKey: ['tasks'] }) // comment counts on cards
+}
+
+export function useCommentMutations(taskId: string) {
+  const qc = useQueryClient()
+  const onSettled = () => invalidateComments(qc, taskId)
+  return {
+    create: useMutation({
+      mutationFn: (body: string) => api<Comment>(`/tasks/${taskId}/comments`, { method: 'POST', body: { body } }),
+      onSettled,
+    }),
+    update: useMutation({
+      mutationFn: ({ id, body }: { id: string; body: string }) => api<Comment>(`/comments/${id}`, { method: 'PATCH', body: { body } }),
+      onSettled,
+    }),
+    remove: useMutation({
+      mutationFn: (id: string) => api(`/comments/${id}`, { method: 'DELETE' }),
+      onSettled,
+    }),
+  }
 }

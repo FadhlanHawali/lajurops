@@ -89,6 +89,17 @@ export interface Task {
   updated_at: string
   subtask_count: number
   subtask_done: number
+  comment_count: number
+}
+
+export interface Comment {
+  id: string
+  task_id: string
+  author_id: string | null
+  /** Markdown source. */
+  body: string
+  created_at: string
+  updated_at: string
 }
 
 export interface TaskDetail extends Task {
