@@ -30,6 +30,24 @@ export interface User {
   display_name: string
   active: boolean
   last_seen_at: string
+  /** Set when the account no longer exists in Keycloak. */
+  deleted_at: string | null
+}
+
+/** A planner user whose Keycloak account was deleted. */
+export interface RemovedUser extends User {
+  sub: string
+  /** Tasks only they own (with nothing of anyone else's inside): deleted if chosen. */
+  sole_tasks: number
+  /** Other assignments: only unassigned. */
+  shared_tasks: number
+  comments: number
+}
+
+export interface SyncResult {
+  in_keycloak: number
+  marked_deleted: string[]
+  restored: string[]
 }
 
 export interface Me extends User {
@@ -157,6 +175,8 @@ export interface Workload {
   daily_tasks: number
   daily_done: number
   logged_hours: number
+  deleted: boolean
+  active: boolean
 }
 
 export const STATUSES: { id: Status; label: string }[] = [

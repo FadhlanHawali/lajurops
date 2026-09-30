@@ -183,6 +183,22 @@ func (c *Client) ListUsers(ctx context.Context, search string, first, max int) (
 	return users, err
 }
 
+// ListAllUsers pages through every user in the realm.
+func (c *Client) ListAllUsers(ctx context.Context) ([]User, error) {
+	const page = 200
+	var all []User
+	for first := 0; ; first += page {
+		batch, err := c.ListUsers(ctx, "", first, page)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, batch...)
+		if len(batch) < page {
+			return all, nil
+		}
+	}
+}
+
 func (c *Client) CountUsers(ctx context.Context, search string) (int, error) {
 	q := url.Values{}
 	if search != "" {

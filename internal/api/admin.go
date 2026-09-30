@@ -235,8 +235,9 @@ func (a *API) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		respondKC(w, err)
 		return
 	}
-	// Keep the local row so past assignments and reports stay intact.
-	if err := a.store.DeactivateUser(ctx, id); err != nil {
+	// Keep the local row so past assignments and reports stay intact; it
+	// shows under "Deleted in Keycloak" where it can be removed for good.
+	if err := a.store.MarkDeleted(ctx, id); err != nil {
 		respond(w, nil, err)
 		return
 	}
@@ -275,4 +276,55 @@ func respondKC(w http.ResponseWriter, err error) {
 	}
 	slog.Error("keycloak admin call failed", "err", err)
 	writeJSON(w, http.StatusBadGateway, map[string]string{"error": "identity provider request failed"})
+}
+
+// adminSyncUsers mirrors every Keycloak user into the planner and marks
+// planner users that no longer exist in Keycloak as deleted.
+func (a *API) adminSyncUsers(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	users, err := a.kc.ListAllUsers(ctx)
+	if err != nil {
+		respondKC(w, err)
+		return
+	}
+	in := make([]store.KeycloakUser, 0, len(users))
+	for _, u := range users {
+		if strings.HasPrefix(u.Username, "service-account-") {
+			continue
+		}
+		in = append(in, store.KeycloakUser{Sub: u.ID, Username: u.Username, Email: u.Email, DisplayName: u.DisplayName(), Enabled: u.Enabled})
+		a.auth.Forget(u.ID)
+	}
+	res, err := a.store.SyncAll(ctx, in)
+	respond(w, res, err)
+}
+
+func (a *API) adminRemovedUsers(w http.ResponseWriter, r *http.Request) {
+	list, err := a.store.ListRemovedUsers(r.Context())
+	respond(w, list, err)
+}
+
+// adminPurgeUser removes a user deleted in Keycloak from the planner,
+// optionally deleting the tasks only they own.
+func (a *API) adminPurgeUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	u, err := a.store.GetRemovedUser(ctx, chi.URLParam(r, "id"))
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
+	// Refuse if the account came back in Keycloak since it was marked.
+	if _, err := a.kc.GetUser(ctx, u.Sub); err == nil {
+		respond(w, nil, store.InvalidError{Msg: u.Username + " still exists in Keycloak; run Sync first"})
+		return
+	} else {
+		var ke *keycloak.Error
+		if !errors.As(err, &ke) || ke.Status != http.StatusNotFound {
+			respondKC(w, err)
+			return
+		}
+	}
+	res, err := a.store.PurgeUser(ctx, u.ID, r.URL.Query().Get("delete_tasks") == "true")
+	a.auth.Forget(u.Sub)
+	respond(w, res, err)
 }

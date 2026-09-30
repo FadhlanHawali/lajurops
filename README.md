@@ -87,6 +87,13 @@ the confidential client `open-planner-admin` (realm-management roles `view-users
 `query-users`, `manage-users`, `view-realm`). Users created there can be assigned tasks
 immediately; deleted or disabled users disappear from assignee lists but keep their history.
 
+**Users deleted directly in Keycloak:** press **Sync with Keycloak** on the Users page. Planner users
+that no longer exist in Keycloak are marked *Deleted* and listed under "Deleted in Keycloak", where
+an admin can **Remove from planner**, either keeping their tasks (just unassigned) or deleting the
+tasks only they own. Shared tasks, and tasks containing someone else's work, are only unassigned;
+comments stay, shown as by a deleted user. Workload hides deleted/disabled people unless they have
+tasks in the selected period.
+
 ## Local development
 
 Requires Go 1.22+, Node 20+ and a PostgreSQL.
@@ -98,6 +105,12 @@ make dev-backend
 
 # terminal 2: Vite on :5173 with hot reload, proxying /api to :8080
 make dev-web
+```
+
+Store integration tests run against a real, migrated database (they create and clean up their own data):
+
+```bash
+PLANNER_TEST_DATABASE_URL=postgres://planner:planner@localhost:5432/planner?sslmode=disable go test ./internal/store
 ```
 
 Build the single binary:
@@ -174,6 +187,9 @@ GET    /api/reports/workload?from=&to=&workspace_id=
 GET    /api/reports/workload/{userId}/tasks?from=&to=&workspace_id=
 
 # planner-admin only
+POST   /api/admin/users/sync                 mirror Keycloak users; mark missing ones deleted
+GET    /api/admin/users/removed              users deleted in Keycloak, with task/comment counts
+DELETE /api/admin/users/removed/{id}?delete_tasks=true|false
 GET    /api/admin/users?search=&first=&max=
 POST   /api/admin/users         { username, email, first_name, last_name, password, temporary_password, is_admin, enabled }
 PATCH  /api/admin/users/{id}    any of the above except username; password resets it

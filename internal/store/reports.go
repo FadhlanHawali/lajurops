@@ -23,6 +23,10 @@ type Workload struct {
 	DailyTasks  int     `json:"daily_tasks"`
 	DailyDone   int     `json:"daily_done"`
 	LoggedHours float64 `json:"logged_hours"`
+	// Deleted/Active describe the account; inactive and deleted users are
+	// only listed when they have tasks in the period.
+	Deleted bool `json:"deleted"`
+	Active  bool `json:"active"`
 }
 
 func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, workspaceID string) ([]Workload, error) {
@@ -36,7 +40,8 @@ func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, workspac
 		                FILTER (WHERE t.type = 'hourly'), 0),
 		       count(t.id) FILTER (WHERE t.type = 'daily'),
 		       count(t.id) FILTER (WHERE t.type = 'daily' AND t.status = 'done'),
-		       coalesce(sum(t.actual_hours::float8), 0)
+		       coalesce(sum(t.actual_hours::float8), 0),
+		       u.deleted_at IS NOT NULL, u.active
 		FROM users u
 		LEFT JOIN task_assignees ta ON ta.user_id = u.id
 		LEFT JOIN tasks t
@@ -46,6 +51,7 @@ func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, workspac
 		      AND ($3 = '' OR t.workspace_id::text = $3)
 		      AND t.type <> 'project'
 		GROUP BY u.id
+		HAVING (u.active AND u.deleted_at IS NULL) OR count(t.id) > 0
 		ORDER BY 8 DESC, 5 DESC, lower(u.username)`,
 		from, to, workspaceID)
 	if err != nil {
@@ -57,7 +63,7 @@ func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, workspac
 		var w Workload
 		if err := rows.Scan(&w.UserID, &w.Username, &w.DisplayName, &w.Email,
 			&w.TotalTasks, &w.DoneTasks, &w.HourlyTasks, &w.HourlyHours,
-			&w.DailyTasks, &w.DailyDone, &w.LoggedHours); err != nil {
+			&w.DailyTasks, &w.DailyDone, &w.LoggedHours, &w.Deleted, &w.Active); err != nil {
 			return nil, err
 		}
 		out = append(out, w)

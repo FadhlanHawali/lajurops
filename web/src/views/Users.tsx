@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { format } from 'date-fns'
-import { ChevronLeft, ChevronRight, KeyRound, Loader2, Pencil, Plus, Search, ShieldCheck, Trash2, Wand2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, KeyRound, Loader2, Pencil, Plus, RefreshCw, Search, ShieldCheck, Trash2, UserX, Wand2, X } from 'lucide-react'
 import { Avatar, Button, Empty, Field, inputCls } from '../components/ui'
 import { ApiError } from '../lib/api'
-import { useAdminUsers, useDeleteAdminUser, useMe, useSaveAdminUser } from '../lib/queries'
-import type { AdminUser, AdminUserInput } from '../lib/types'
+import { useAdminUsers, useDeleteAdminUser, useMe, usePurgeUser, useRemovedUsers, useSaveAdminUser, useSyncUsers } from '../lib/queries'
+import type { AdminUser, AdminUserInput, RemovedUser } from '../lib/types'
 
 const PAGE = 20
 
@@ -62,9 +62,12 @@ export default function Users() {
           <input className={clsx(inputCls, 'pl-8')} placeholder="Search name, username or email" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         {isFetching && <Loader2 size={16} className="animate-spin text-slate-400" />}
-        <Button variant="primary" className="ml-auto" onClick={() => setDialog({ kind: 'edit' })}>
-          <Plus size={14} /> New user
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          <SyncButton />
+          <Button variant="primary" onClick={() => setDialog({ kind: 'edit' })}>
+            <Plus size={14} /> New user
+          </Button>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
@@ -100,7 +103,7 @@ export default function Users() {
                 <tr key={u.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2.5">
-                      <Avatar user={{ id: u.id, username: u.username, display_name: fullName(u), email: u.email, active: u.enabled, last_seen_at: '' }} size="md" />
+                      <Avatar user={{ id: u.id, username: u.username, display_name: fullName(u), email: u.email, active: u.enabled, last_seen_at: '', deleted_at: null }} size="md" />
                       <div>
                         <div className="font-medium text-slate-800">
                           {fullName(u)} {self && <span className="text-xs font-normal text-slate-400">(you)</span>}
@@ -160,6 +163,8 @@ export default function Users() {
           </Button>
         </div>
       </div>
+
+      <RemovedUsers />
 
       {dialog?.kind === 'edit' && <UserDialog user={dialog.user} self={dialog.user?.username === me?.username} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'password' && <PasswordDialog user={dialog.user} onClose={() => setDialog(null)} />}
@@ -313,5 +318,133 @@ function PasswordDialog({ user, onClose }: { user: AdminUser; onClose: () => voi
         </div>
       </form>
     </Modal>
+  )
+}
+
+// --- users deleted in Keycloak --------------------------------------------------
+
+/** Planner users whose Keycloak account is gone, with a way to remove them. */
+function RemovedUsers() {
+  const { data = [] } = useRemovedUsers()
+  const [target, setTarget] = useState<RemovedUser | null>(null)
+  if (data.length === 0) return null
+  return (
+    <section className="rounded-lg border border-red-200 bg-white">
+      <div className="flex items-center gap-2 border-b border-red-100 bg-red-50/60 px-4 py-2.5">
+        <UserX size={16} className="text-red-600" />
+        <h2 className="text-sm font-semibold text-slate-800">Deleted in Keycloak</h2>
+        <span className="text-xs text-slate-500">
+          These people can no longer sign in. They're kept in the planner so their tasks and reports still show who did the work.
+        </span>
+      </div>
+      <table className="w-full text-sm">
+        <tbody>
+          {data.map((u) => (
+            <tr key={u.id} className="border-b border-slate-100 last:border-0">
+              <td className="px-4 py-2.5">
+                <div className="flex items-center gap-2.5">
+                  <Avatar user={u} size="md" />
+                  <div>
+                    <div className="font-medium text-slate-800">{u.display_name || u.username}</div>
+                    <div className="text-xs text-slate-500">{u.username}</div>
+                  </div>
+                </div>
+              </td>
+              <td className="px-4 py-2.5">
+                <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700">Deleted</span>
+                {u.deleted_at && <span className="ml-2 text-xs text-slate-400">noticed {format(new Date(u.deleted_at), 'MMM d, yyyy HH:mm')}</span>}
+              </td>
+              <td className="px-4 py-2.5 text-xs text-slate-500">
+                {u.sole_tasks + u.shared_tasks === 0 ? 'No tasks' : `${u.sole_tasks + u.shared_tasks} assigned task${u.sole_tasks + u.shared_tasks === 1 ? '' : 's'}`}
+                {u.comments > 0 && ` · ${u.comments} comment${u.comments === 1 ? '' : 's'}`}
+              </td>
+              <td className="px-4 py-2.5 text-right">
+                <Button variant="danger" onClick={() => setTarget(u)}>
+                  <Trash2 size={14} /> Remove from planner…
+                </Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {target && <PurgeDialog user={target} onClose={() => setTarget(null)} />}
+    </section>
+  )
+}
+
+function PurgeDialog({ user, onClose }: { user: RemovedUser; onClose: () => void }) {
+  const [deleteTasks, setDeleteTasks] = useState(false)
+  const purge = usePurgeUser()
+  const name = user.display_name || user.username
+  const total = user.sole_tasks + user.shared_tasks
+
+  const submit = async () => {
+    await purge.mutateAsync({ id: user.id, deleteTasks }).then(onClose, () => {})
+  }
+
+  return (
+    <Modal title={`Remove ${name} from the planner`} onClose={onClose}>
+      <div className="space-y-3 p-5 text-sm">
+        <p className="text-slate-600">
+          {name}'s Keycloak account no longer exists. Choose what happens to the {total} task{total === 1 ? '' : 's'} assigned to them.
+        </p>
+        <label className={clsx('flex cursor-pointer gap-3 rounded-lg border p-3', !deleteTasks ? 'border-blue-500 bg-blue-50/50 ring-1 ring-blue-500' : 'border-slate-200')}>
+          <input type="radio" className="mt-1" checked={!deleteTasks} onChange={() => setDeleteTasks(false)} />
+          <span>
+            <span className="block font-medium text-slate-800">Keep their tasks</span>
+            <span className="block text-xs text-slate-500">Remove {name} from {total} task{total === 1 ? '' : 's'}; the tasks stay, unassigned where nobody else is on them.</span>
+          </span>
+        </label>
+        <label className={clsx('flex cursor-pointer gap-3 rounded-lg border p-3', deleteTasks ? 'border-red-500 bg-red-50/50 ring-1 ring-red-500' : 'border-slate-200')}>
+          <input type="radio" className="mt-1" checked={deleteTasks} onChange={() => setDeleteTasks(true)} />
+          <span>
+            <span className="block font-medium text-slate-800">Delete their tasks</span>
+            <span className="block text-xs text-slate-500">
+              Permanently delete the <b>{user.sole_tasks}</b> task{user.sole_tasks === 1 ? '' : 's'} only {name} owns (with everything inside them).
+              {user.shared_tasks > 0 && (
+                <>
+                  {' '}
+                  The other <b>{user.shared_tasks}</b> are shared with someone or contain someone else's work, so they're only unassigned.
+                </>
+              )}
+            </span>
+          </span>
+        </label>
+        {user.comments > 0 && <p className="text-xs text-slate-500">Their {user.comments} comment{user.comments === 1 ? '' : 's'} stay, shown as by a deleted user.</p>}
+        {purge.error && <p className="text-sm text-red-600">{purge.error.message}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant={deleteTasks ? 'danger' : 'primary'} onClick={submit} disabled={purge.isPending}>
+            {purge.isPending && <Loader2 size={14} className="animate-spin" />}
+            {deleteTasks ? `Remove user and delete ${user.sole_tasks} task${user.sole_tasks === 1 ? '' : 's'}` : 'Remove user, keep tasks'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/** Pulls every Keycloak user into the planner and flags accounts deleted there. */
+function SyncButton() {
+  const sync = useSyncUsers()
+  const [msg, setMsg] = useState('')
+  const run = async () => {
+    setMsg('')
+    const r = await sync.mutateAsync().catch(() => null)
+    if (!r) return
+    const parts = [`${r.in_keycloak} user${r.in_keycloak === 1 ? '' : 's'} in Keycloak`]
+    if (r.marked_deleted.length) parts.push(`marked deleted: ${r.marked_deleted.join(', ')}`)
+    if (r.restored.length) parts.push(`back in Keycloak: ${r.restored.join(', ')}`)
+    if (!r.marked_deleted.length && !r.restored.length) parts.push('everything already in sync')
+    setMsg(parts.join(' · '))
+  }
+  return (
+    <div className="flex items-center gap-2">
+      {msg && <span className="text-xs text-slate-500">{msg}</span>}
+      {sync.error && <span className="text-xs text-red-600">{sync.error.message}</span>}
+      <Button onClick={run} disabled={sync.isPending} title="Update the planner with Keycloak's current users">
+        <RefreshCw size={14} className={clsx(sync.isPending && 'animate-spin')} /> Sync with Keycloak
+      </Button>
+    </div>
   )
 }

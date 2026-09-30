@@ -70,6 +70,9 @@ func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *k
 			r.Route("/admin", func(r chi.Router) {
 				r.Use(a.adminOnly)
 				r.Get("/users", a.adminListUsers)
+				r.Post("/users/sync", a.adminSyncUsers)
+				r.Get("/users/removed", a.adminRemovedUsers)
+				r.Delete("/users/removed/{id}", a.adminPurgeUser)
 				r.Post("/users", a.adminCreateUser)
 				r.Patch("/users/{id}", a.adminUpdateUser)
 				r.Delete("/users/{id}", a.adminDeleteUser)

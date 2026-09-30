@@ -152,7 +152,14 @@ function UserRow({ r, maxHours, open, onToggle }: { r: Workload; maxHours: numbe
         <div className="flex items-center gap-2">
           <Avatar user={byId.get(r.user_id)} size="md" />
           <div>
-            <div className="font-medium text-slate-800">{userName(r)}</div>
+            <div className="font-medium text-slate-800">
+              {userName(r)}
+              {r.deleted ? (
+                <span className="ml-1.5 rounded bg-red-100 px-1 py-px text-[10px] font-semibold text-red-700 uppercase">Deleted</span>
+              ) : (
+                !r.active && <span className="ml-1.5 rounded bg-slate-200 px-1 py-px text-[10px] font-semibold text-slate-600 uppercase">Disabled</span>
+              )}
+            </div>
             <div className="text-xs text-slate-500">{r.email || r.username}</div>
           </div>
         </div>

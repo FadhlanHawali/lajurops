@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { AdminUser, AdminUserInput, Comment, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, Comment, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -14,7 +14,7 @@ export function useUsers() {
   const q = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/users') })
   const byId = useMemo(() => new Map((q.data ?? []).map((u) => [u.id, u])), [q.data])
   // Inactive users (disabled/deleted in Keycloak) stay resolvable by id for history.
-  const active = useMemo(() => (q.data ?? []).filter((u) => u.active), [q.data])
+  const active = useMemo(() => (q.data ?? []).filter((u) => u.active && !u.deleted_at), [q.data])
   return { ...q, users: active, byId }
 }
 
@@ -188,7 +188,10 @@ export function useDeleteAdminUser() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api(`/admin/users/${id}`, { method: 'DELETE' }),
-    onSettled: () => invalidateUsers(qc),
+    onSettled: () => {
+      invalidateUsers(qc)
+      qc.invalidateQueries({ queryKey: ['removed-users'] })
+    },
   })
 }
 
@@ -265,5 +268,34 @@ export function useSetEnvironments(projectId: string) {
       qc.invalidateQueries({ queryKey: ['environments', projectId] })
       invalidateTaskData(qc) // tasks may have lost a deleted environment
     },
+  })
+}
+
+// --- Keycloak sync / removed users (admins) ---
+
+export const useRemovedUsers = () =>
+  useQuery({ queryKey: ['removed-users'], queryFn: () => api<RemovedUser[]>('/admin/users/removed'), retry: false })
+
+function invalidatePeople(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: ['removed-users'] })
+  qc.invalidateQueries({ queryKey: ['admin-users'] })
+  qc.invalidateQueries({ queryKey: ['users'] })
+  invalidateTaskData(qc) // assignments and workload change
+}
+
+export function useSyncUsers() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api<SyncResult>('/admin/users/sync', { method: 'POST' }),
+    onSettled: () => invalidatePeople(qc),
+  })
+}
+
+export function usePurgeUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, deleteTasks }: { id: string; deleteTasks: boolean }) =>
+      api<{ deleted_tasks: number; unassigned_tasks: number }>(`/admin/users/removed/${id}`, { method: 'DELETE', query: { delete_tasks: deleteTasks } }),
+    onSettled: () => invalidatePeople(qc),
   })
 }
