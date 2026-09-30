@@ -18,8 +18,8 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
 
   const accept = (d: unknown, from: string) => {
     const b = d as WorkspaceBackup
-    if (!b || b.format !== 'open-planner-workspace') {
-      setError("That isn't an Open Planner workspace backup.")
+    if (!b || (b.format !== 'lajurops-workspace' && b.format !== 'open-planner-workspace')) {
+      setError("That isn't a LajurOps workspace backup.")
       return
     }
     setError('')
@@ -140,7 +140,7 @@ function UrlPicker({ onLoaded, onError }: { onLoaded: (d: unknown, from: string)
           </Button>
         </div>
       </Field>
-      <p className="text-xs text-slate-500">The planner server downloads the file. Private and internal addresses are blocked unless your admin allows them.</p>
+      <p className="text-xs text-slate-500">The LajurOps server downloads the file. Private and internal addresses are blocked unless your admin allows them.</p>
     </form>
   )
 }
@@ -258,7 +258,7 @@ function Preview({ doc, origin, onBack, onDone }: { doc: WorkspaceBackup; origin
         <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <AlertTriangle size={14} className="mt-px shrink-0" />
           <span>
-            Not in this planner: <b>{preview.unknown_users.join(', ')}</b>. Their assignments will be dropped and their comments will show as by a deleted user.
+            Not in this LajurOps instance: <b>{preview.unknown_users.join(', ')}</b>. Their assignments will be dropped and their comments will show as by a deleted user.
           </span>
         </div>
       )}

@@ -10,13 +10,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/FadhlanHawali/open-planner/internal/api"
-	"github.com/FadhlanHawali/open-planner/internal/auth"
-	"github.com/FadhlanHawali/open-planner/internal/config"
-	"github.com/FadhlanHawali/open-planner/internal/db"
-	"github.com/FadhlanHawali/open-planner/internal/keycloak"
-	"github.com/FadhlanHawali/open-planner/internal/store"
-	"github.com/FadhlanHawali/open-planner/web"
+	"github.com/FadhlanHawali/lajurops/internal/api"
+	"github.com/FadhlanHawali/lajurops/internal/auth"
+	"github.com/FadhlanHawali/lajurops/internal/config"
+	"github.com/FadhlanHawali/lajurops/internal/db"
+	"github.com/FadhlanHawali/lajurops/internal/keycloak"
+	"github.com/FadhlanHawali/lajurops/internal/store"
+	"github.com/FadhlanHawali/lajurops/web"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -66,7 +66,7 @@ func run() error {
 		srv.Shutdown(shutdownCtx)
 	}()
 
-	slog.Info("open-planner listening", "version", version, "addr", cfg.Addr, "auth", !cfg.AuthDisabled, "user_management", kc != nil)
+	slog.Info("lajurops listening", "version", version, "addr", cfg.Addr, "auth", !cfg.AuthDisabled, "user_management", kc != nil)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

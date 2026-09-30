@@ -49,10 +49,10 @@ func fakeKeycloak(t *testing.T) (*httptest.Server, *int) {
 		w.Header().Set("Location", "http://kc/admin/realms/r/users/new-id")
 		w.WriteHeader(http.StatusCreated)
 	}))
-	mux.HandleFunc("GET /admin/realms/r/roles/planner-admin", auth(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(Role{ID: "role-id", Name: "planner-admin"})
+	mux.HandleFunc("GET /admin/realms/r/roles/lajurops-admin", auth(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(Role{ID: "role-id", Name: "lajurops-admin"})
 	}))
-	mux.HandleFunc("GET /admin/realms/r/roles/planner-admin/users", auth(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /admin/realms/r/roles/lajurops-admin/users", auth(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]User{{ID: "a1"}, {ID: "a2"}})
 	}))
 	mux.HandleFunc("DELETE /admin/realms/r/users/{id}/role-mappings/realm", auth(func(w http.ResponseWriter, r *http.Request) {
@@ -84,12 +84,12 @@ func TestClient(t *testing.T) {
 		t.Fatalf("expected conflict error, got %v", err)
 	}
 
-	admins, err := c.RoleMemberIDs(ctx, "planner-admin")
+	admins, err := c.RoleMemberIDs(ctx, "lajurops-admin")
 	if err != nil || !admins["a1"] || !admins["a2"] || len(admins) != 2 {
 		t.Fatalf("RoleMemberIDs = %v, %v", admins, err)
 	}
 
-	if err := c.SetRealmRole(ctx, "u1", "planner-admin", false); err != nil {
+	if err := c.SetRealmRole(ctx, "u1", "lajurops-admin", false); err != nil {
 		t.Fatalf("SetRealmRole: %v", err)
 	}
 

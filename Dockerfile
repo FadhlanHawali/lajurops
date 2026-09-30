@@ -16,12 +16,12 @@ RUN go mod download
 COPY . .
 COPY --from=web /src/web/dist ./web/dist
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/open-planner ./cmd/open-planner
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/lajurops ./cmd/lajurops
 
 # 3) Minimal runtime image: just the single binary
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/open-planner /open-planner
+COPY --from=build /out/lajurops /lajurops
 ENV ADDR=:8080
 EXPOSE 8080
 USER nonroot:nonroot
-ENTRYPOINT ["/open-planner"]
+ENTRYPOINT ["/lajurops"]

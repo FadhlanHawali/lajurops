@@ -334,7 +334,7 @@ function RemovedUsers() {
         <UserX size={16} className="text-red-600" />
         <h2 className="text-sm font-semibold text-slate-800">Deleted in Keycloak</h2>
         <span className="text-xs text-slate-500">
-          These people can no longer sign in. They're kept in the planner so their tasks and reports still show who did the work.
+          These people can no longer sign in. They're kept in LajurOps so their tasks and reports still show who did the work.
         </span>
       </div>
       <table className="w-full text-sm">
@@ -360,7 +360,7 @@ function RemovedUsers() {
               </td>
               <td className="px-4 py-2.5 text-right">
                 <Button variant="danger" onClick={() => setTarget(u)}>
-                  <Trash2 size={14} /> Remove from planner…
+                  <Trash2 size={14} /> Remove from LajurOps…
                 </Button>
               </td>
             </tr>
@@ -383,10 +383,10 @@ function PurgeDialog({ user, onClose }: { user: RemovedUser; onClose: () => void
   }
 
   return (
-    <Modal title={`Remove ${name} from the planner`} onClose={onClose}>
+    <Modal title={`Remove ${name} from LajurOps`} onClose={onClose}>
       <div className="space-y-3 p-5 text-sm">
         {total === 0 ? (
-          <p className="text-slate-600">{name}'s Keycloak account no longer exists and they have no tasks in the planner. Remove them from the planner?</p>
+          <p className="text-slate-600">{name}'s Keycloak account no longer exists and they have no tasks in LajurOps. Remove them from LajurOps?</p>
         ) : (
           <p className="text-slate-600">
             {name}'s Keycloak account no longer exists. Choose what happens to the {total} task{total === 1 ? '' : 's'} assigned to them.
@@ -450,7 +450,7 @@ function SyncButton() {
     <div className="flex items-center gap-2">
       {msg && <span className="text-xs text-slate-500">{msg}</span>}
       {sync.error && <span className="text-xs text-red-600">{sync.error.message}</span>}
-      <Button onClick={run} disabled={sync.isPending} title="Update the planner with Keycloak's current users">
+      <Button onClick={run} disabled={sync.isPending} title="Update LajurOps with Keycloak's current users">
         <RefreshCw size={14} className={clsx(sync.isPending && 'animate-spin')} /> Sync with Keycloak
       </Button>
     </div>

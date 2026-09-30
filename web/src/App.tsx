@@ -44,7 +44,7 @@ export default function App() {
             <Route
               path="/admin/users"
               element={
-                <Page title="Users" subtitle="Manage who can sign in to Open Planner (stored in Keycloak)">
+                <Page title="Users" subtitle="Manage who can sign in to LajurOps (stored in Keycloak)">
                   <div className="h-full overflow-y-auto">
                     <Users />
                   </div>
@@ -71,7 +71,9 @@ function Sidebar() {
     <aside className="hidden w-60 shrink-0 flex-col bg-slate-900 md:flex">
       <div className="flex items-center gap-2 px-4 py-4">
         <img src="/favicon.svg" className="h-7 w-7" alt="" />
-        <span className="text-lg font-semibold text-white">Open Planner</span>
+        <span className="text-lg font-semibold tracking-tight text-white">
+          Lajur<span className="text-sky-300">Ops</span>
+        </span>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-2">
         <NavLink to="/calendar" className={link}>
@@ -225,7 +227,7 @@ function Home() {
   return (
     <div className="flex h-full items-center justify-center p-6">
       <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-semibold">Welcome to Open Planner</h1>
+        <h1 className="text-xl font-semibold">Welcome to LajurOps</h1>
         <p className="mt-1 mb-4 text-sm text-slate-500">Create your first workspace to start planning tasks.</p>
         <NewWorkspaceForm />
         <p className="mt-4 border-t border-slate-100 pt-3 text-center text-sm text-slate-500">

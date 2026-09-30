@@ -17,7 +17,7 @@ type Config struct {
 	AuthDisabled bool
 
 	// OIDCIssuer is the issuer URL as seen by the browser, e.g.
-	// http://localhost:8081/realms/open-planner. Tokens are validated against it.
+	// http://localhost:8081/realms/lajurops. Tokens are validated against it.
 	OIDCIssuer string
 	// OIDCJWKSURL is where the backend fetches signing keys. Defaults to the
 	// issuer's certs endpoint; override when the backend reaches Keycloak on
@@ -55,11 +55,11 @@ func Load() (Config, error) {
 		DatabaseURL:  env("DATABASE_URL", "postgres://planner:planner@localhost:5432/planner?sslmode=disable"),
 		OIDCIssuer:   strings.TrimRight(os.Getenv("OIDC_ISSUER"), "/"),
 		OIDCJWKSURL:  os.Getenv("OIDC_JWKS_URL"),
-		OIDCClientID: env("OIDC_CLIENT_ID", "open-planner"),
+		OIDCClientID: env("OIDC_CLIENT_ID", "lajurops"),
 
-		AdminRole:                 env("ADMIN_ROLE", "planner-admin"),
+		AdminRole:                 env("ADMIN_ROLE", "lajurops-admin"),
 		KeycloakAdminURL:          strings.TrimRight(os.Getenv("KEYCLOAK_ADMIN_URL"), "/"),
-		KeycloakAdminClientID:     env("KEYCLOAK_ADMIN_CLIENT_ID", "open-planner-admin"),
+		KeycloakAdminClientID:     env("KEYCLOAK_ADMIN_CLIENT_ID", "lajurops-service"),
 		KeycloakAdminClientSecret: os.Getenv("KEYCLOAK_ADMIN_CLIENT_SECRET"),
 	}
 	c.AuthDisabled, _ = strconv.ParseBool(os.Getenv("AUTH_DISABLED"))

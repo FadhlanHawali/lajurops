@@ -11,8 +11,8 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
-	"github.com/FadhlanHawali/open-planner/internal/config"
-	"github.com/FadhlanHawali/open-planner/internal/store"
+	"github.com/FadhlanHawali/lajurops/internal/config"
+	"github.com/FadhlanHawali/lajurops/internal/store"
 )
 
 type ctxKey struct{}

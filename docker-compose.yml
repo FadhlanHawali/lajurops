@@ -1,4 +1,4 @@
-name: open-planner
+name: lajurops
 
 services:
   # Database for the planner application
@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: planner
-      POSTGRES_PASSWORD: ${PLANNER_DB_PASSWORD:-planner}
+      POSTGRES_PASSWORD: ${LAJUROPS_DB_PASSWORD:-planner}
       POSTGRES_DB: planner
     volumes:
       - planner-db:/var/lib/postgresql/data
@@ -49,33 +49,33 @@ services:
       # The URL browsers use; it also becomes the token issuer.
       KC_HOSTNAME: ${PUBLIC_KEYCLOAK_URL:-http://localhost:8081}
       KC_HEALTH_ENABLED: "true"
-      # Substituted into the realm import (client secret of open-planner-admin).
-      PLANNER_ADMIN_CLIENT_SECRET: ${PLANNER_ADMIN_CLIENT_SECRET:-dev-admin-secret-change-me}
+      # Substituted into the realm import (client secret of lajurops-service).
+      LAJUROPS_SERVICE_CLIENT_SECRET: ${LAJUROPS_SERVICE_CLIENT_SECRET:-dev-admin-secret-change-me}
     ports:
       - "8081:8080"
     volumes:
-      - ./deploy/keycloak/realm-open-planner.json:/opt/keycloak/data/import/realm-open-planner.json:ro
+      - ./deploy/keycloak/realm-lajurops.json:/opt/keycloak/data/import/realm-lajurops.json:ro
     depends_on:
       keycloak-db:
         condition: service_healthy
 
   app:
     build: .
-    image: open-planner:latest
+    image: lajurops:latest
     restart: unless-stopped
     environment:
       ADDR: ":8080"
-      DATABASE_URL: postgres://planner:${PLANNER_DB_PASSWORD:-planner}@planner-db:5432/planner?sslmode=disable
+      DATABASE_URL: postgres://planner:${LAJUROPS_DB_PASSWORD:-planner}@planner-db:5432/planner?sslmode=disable
       # Tokens are issued for the public (browser-facing) Keycloak URL...
-      OIDC_ISSUER: ${PUBLIC_KEYCLOAK_URL:-http://localhost:8081}/realms/open-planner
+      OIDC_ISSUER: ${PUBLIC_KEYCLOAK_URL:-http://localhost:8081}/realms/lajurops
       # ...but the backend talks to Keycloak over the internal network.
-      OIDC_JWKS_URL: http://keycloak:8080/realms/open-planner/protocol/openid-connect/certs
-      OIDC_CLIENT_ID: open-planner
+      OIDC_JWKS_URL: http://keycloak:8080/realms/lajurops/protocol/openid-connect/certs
+      OIDC_CLIENT_ID: lajurops
       # User management through the Keycloak Admin API
       KEYCLOAK_ADMIN_URL: http://keycloak:8080
-      KEYCLOAK_ADMIN_CLIENT_ID: open-planner-admin
-      KEYCLOAK_ADMIN_CLIENT_SECRET: ${PLANNER_ADMIN_CLIENT_SECRET:-dev-admin-secret-change-me}
-      ADMIN_ROLE: planner-admin
+      KEYCLOAK_ADMIN_CLIENT_ID: lajurops-service
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${LAJUROPS_SERVICE_CLIENT_SECRET:-dev-admin-secret-change-me}
+      ADMIN_ROLE: lajurops-admin
       # Allow "import from URL" to reach private/internal addresses (off by default).
       IMPORT_ALLOW_PRIVATE_URLS: ${IMPORT_ALLOW_PRIVATE_URLS:-false}
     ports:

@@ -12,9 +12,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/FadhlanHawali/open-planner/internal/auth"
-	"github.com/FadhlanHawali/open-planner/internal/keycloak"
-	"github.com/FadhlanHawali/open-planner/internal/store"
+	"github.com/FadhlanHawali/lajurops/internal/auth"
+	"github.com/FadhlanHawali/lajurops/internal/keycloak"
+	"github.com/FadhlanHawali/lajurops/internal/store"
 )
 
 // adminOnly rejects callers without the admin realm role, and reports when

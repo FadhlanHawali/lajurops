@@ -205,7 +205,8 @@ export const statusLabel = (s: Status) => STATUSES.find((x) => x.id === s)?.labe
 
 /** A workspace backup file (see the server's store.ExportDoc). */
 export interface WorkspaceBackup {
-  format: 'open-planner-workspace'
+  /** 'open-planner-workspace' is the name used before the rename. */
+  format: 'lajurops-workspace' | 'open-planner-workspace'
   version: number
   exported_at: string
   exported_by?: string

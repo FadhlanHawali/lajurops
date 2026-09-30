@@ -5,8 +5,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/FadhlanHawali/open-planner/internal/auth"
-	"github.com/FadhlanHawali/open-planner/internal/store"
+	"github.com/FadhlanHawali/lajurops/internal/auth"
+	"github.com/FadhlanHawali/lajurops/internal/store"
 )
 
 type commentInput struct {

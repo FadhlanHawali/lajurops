@@ -16,9 +16,18 @@ import (
 // ids, so a backup can be restored next to the original or on another server.
 
 const (
-	ExportFormat  = "open-planner-workspace"
+	ExportFormat  = "lajurops-workspace"
 	ExportVersion = 1
+	// LegacyExportFormat is what backups were called before the rename to
+	// LajurOps; they import unchanged.
+	LegacyExportFormat = "open-planner-workspace"
 )
+
+// IsBackupFormat reports whether format identifies a workspace backup,
+// including backups made before the rename.
+func IsBackupFormat(format string) bool {
+	return format == ExportFormat || format == LegacyExportFormat
+}
 
 type ExportDoc struct {
 	Format       string              `json:"format"`
@@ -269,11 +278,11 @@ func bad(format string, args ...any) error {
 // ImportWorkspaceData restores a backup as a new workspace.
 func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt ImportOptions) (ImportResult, error) {
 	res := ImportResult{DryRun: opt.DryRun, UnknownUsers: []string{}}
-	if doc.Format != ExportFormat {
-		return res, invalid("this file is not an Open Planner workspace backup")
+	if !IsBackupFormat(doc.Format) {
+		return res, invalid("this file is not a LajurOps workspace backup")
 	}
 	if doc.Version < 1 || doc.Version > ExportVersion {
-		return res, invalid(fmt.Sprintf("backup version %d is not supported by this planner (supports up to %d)", doc.Version, ExportVersion))
+		return res, invalid(fmt.Sprintf("backup version %d is not supported by this LajurOps version (supports up to %d)", doc.Version, ExportVersion))
 	}
 
 	res.Key = strings.ToUpper(strings.TrimSpace(orDefault(opt.Key, doc.Workspace.Key)))

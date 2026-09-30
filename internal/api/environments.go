@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/FadhlanHawali/open-planner/internal/store"
+	"github.com/FadhlanHawali/lajurops/internal/store"
 )
 
 // listEnvironments returns a project's environments with usage counts.

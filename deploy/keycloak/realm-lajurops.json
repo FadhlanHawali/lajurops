@@ -1,6 +1,6 @@
 {
-  "realm": "open-planner",
-  "displayName": "Open Planner",
+  "realm": "lajurops",
+  "displayName": "LajurOps",
   "enabled": true,
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
@@ -9,8 +9,8 @@
   "ssoSessionIdleTimeout": 28800,
   "clients": [
     {
-      "clientId": "open-planner",
-      "name": "Open Planner",
+      "clientId": "lajurops",
+      "name": "LajurOps",
       "enabled": true,
       "publicClient": true,
       "protocol": "openid-connect",
@@ -31,12 +31,12 @@
       }
     },
     {
-      "clientId": "open-planner-admin",
-      "name": "Open Planner user management",
+      "clientId": "lajurops-service",
+      "name": "LajurOps user management",
       "enabled": true,
       "publicClient": false,
       "clientAuthenticatorType": "client-secret",
-      "secret": "${PLANNER_ADMIN_CLIENT_SECRET}",
+      "secret": "${LAJUROPS_SERVICE_CLIENT_SECRET}",
       "serviceAccountsEnabled": true,
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
@@ -60,8 +60,8 @@
         }
       ],
       "realmRoles": [
-        "default-roles-open-planner",
-        "planner-admin"
+        "default-roles-lajurops",
+        "lajurops-admin"
       ]
     },
     {
@@ -79,13 +79,13 @@
         }
       ],
       "realmRoles": [
-        "default-roles-open-planner"
+        "default-roles-lajurops"
       ]
     },
     {
-      "username": "service-account-open-planner-admin",
+      "username": "service-account-lajurops-service",
       "enabled": true,
-      "serviceAccountClientId": "open-planner-admin",
+      "serviceAccountClientId": "lajurops-service",
       "clientRoles": {
         "realm-management": [
           "view-users",
@@ -99,8 +99,8 @@
   "roles": {
     "realm": [
       {
-        "name": "planner-admin",
-        "description": "Can manage Open Planner users"
+        "name": "lajurops-admin",
+        "description": "Can manage LajurOps users"
       }
     ]
   }

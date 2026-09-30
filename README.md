@@ -1,18 +1,19 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
-    <img src="docs/assets/logo.svg" alt="Open Planner" width="330">
+    <img src="docs/assets/logo.svg" alt="LajurOps" width="300">
   </picture>
 </p>
 
+<h3 align="center">Plan every lane, down to the hour</h3>
+
 <p align="center">
-  <b>Self-hosted planning for teams that mix hour-level work (support, deployments, implementations)<br>
-  with date-level work (requests, deliverables)</b><br>
+  Open-source planning for ops teams: projects, requests and deployments on one timeline, across every environment.<br>
   Board · Projects · Timeline down to the hour · Calendar · Workload · Keycloak · single binary
 </p>
 
 <p align="center">
-  <img src="docs/media/hero-timeline.png" alt="Open Planner timeline with projects, environments and dependencies" width="900">
+  <img src="docs/media/hero-timeline.png" alt="LajurOps timeline with projects, environments and dependencies" width="900">
 </p>
 
 <p align="center">
@@ -21,6 +22,8 @@
   <a href="#configuration">Configuration</a> ·
   <a href="#api">API</a>
 </p>
+
+> *Lajur* is Indonesian for "lane": every person, project and environment is a lane on the timeline.
 
 ## Features
 
@@ -35,7 +38,7 @@ task is waiting for.
 A task is a **Project**, **Daily** or **Hourly** item, nested Project → Daily → Hourly. Projects are **long**
 (a quarter or more) or **short** (about a month) and belong to a **category** (KPI, Enhancement, Ad Hoc, or your
 own). A project's **status and progress come from its tasks**. Each project defines its **environments**
-(Dev → SIT → UAT → Pilot → Production) and its tasks are grouped by environment; opening a task from a project
+(e.g. Dev → QA → Staging → Production) and its tasks are grouped by environment; opening a task from a project
 stacks it, with a way back.
 
 <img src="docs/media/projects.gif" alt="Projects by category, tasks grouped by environment, stacked task dialogs" width="900">
@@ -66,8 +69,8 @@ toolbar, shortcuts and preview.
 <img src="docs/media/comments.gif" alt="Writing and previewing a Markdown comment" width="900">
 
 ### Workload report
-Per person, per week or month: hourly support hours, hourly/daily task counts and completion. Drill into a
-person's tasks and export CSV.
+Per person, per week or month: hourly hours, hourly/daily task counts and completion. Drill into a person's tasks
+and export CSV.
 
 <img src="docs/media/workload.gif" alt="Workload report: weekly and monthly, per-person drill-down" width="900">
 
@@ -87,7 +90,7 @@ grant admin) and can sync with Keycloak to clean up people deleted there.
 - **Board**: Kanban (To Do → In Progress → In Review → Done) with drag & drop
 - **Timeline (Gantt)**: zoom from **month → week → day → 6 hours → hour**; drag to reschedule, drag edges to resize, Ctrl+scroll to zoom
 - **Calendar**: month/week/day/agenda views; drag, resize, or select a slot to create
-- **Workspaces** (e.g. a team) hold all tasks; task keys look like `OPS-12`
+- **Workspaces** (e.g. a team) hold all tasks; task keys look like `APP-12`
 - **Three task types**, nested **Project → Daily → Hourly**:
   - `project`: the big picture; groups daily and hourly tasks (shown as a summary bar on the timeline).
     Each project is either **long** (a quarter or more) or **short** (short notice, about a month);
@@ -96,20 +99,20 @@ grant admin) and can sync with Keycloak to clean up people deleted there.
     customisable per workspace); the board shows projects in category columns. A project's **status and
     progress are derived from its daily/hourly tasks** (all done → done, any started → in progress)
   - `daily`: requests and deliverables, scheduled by whole days (start date → due date)
-  - `hourly`: implementation / deployment / support, with exact start and end times (snapped to 15 min on the hour zoom)
+  - `hourly`: implementation, deployment and support work, with exact start and end times (snapped to 15 min on the hour zoom)
 
   A task can only contain smaller types (project → daily/hourly, daily → hourly).
   Daily and hourly tasks can also be **independent**, without a project.
 - **Multiple owners** per project/daily/hourly task
-- **Environments** per project (e.g. Dev → SIT → UAT → Pilot → Production, ordered and colour-coded);
+- **Environments** per project (e.g. Dev → QA → Staging → Production, ordered and colour-coded);
   daily/hourly tasks in the project say which environment they're done in, shown on cards, the timeline
   and calendar, with an environment filter on the board
-- **Dependencies** between daily/hourly tasks ("Create VM" *waits for* "Create IP"): cycles are rejected,
-  blocked cards show what they wait for, and the timeline draws arrows (red when a task starts before
+- **Dependencies** between daily/hourly tasks ("Deploy to Staging" *waits for* "Set up staging"): cycles are
+  rejected, blocked cards show what they wait for, and the timeline draws arrows (red when a task starts before
   the task it waits for ends)
 - **Comments** on projects, daily and hourly tasks, written in **Markdown** (GitHub flavoured: checklists, tables, code blocks) with a formatting toolbar and preview; authors can edit/delete their own comments, admins can delete any
 - **Backup & restore**: export a workspace to JSON; import a backup from a file or a URL as a new workspace
-- **Workload report**: per user, per week or month: hourly support hours, hourly/daily task counts, completion; drill down and export CSV
+- **Workload report**: per user, per week or month: hourly hours, hourly/daily task counts, completion; drill down and export CSV
 - **Keycloak** sign-in (OIDC + PKCE) with an in-app sign-in screen
 - **User management** for admins: create, edit, disable, delete users, reset passwords and grant the admin role (via the Keycloak Admin API)
 
@@ -126,14 +129,15 @@ into the Go server with `go:embed`, the same approach [Radar](https://github.com
 | Auth     | Keycloak (public client, Authorization Code + PKCE) |
 
 ```
-cmd/open-planner/     main: config, DB, HTTP server
+cmd/lajurops/         main: config, DB, HTTP server
 internal/api/         REST handlers (/api/...)
 internal/auth/        Keycloak JWT verification middleware (+ admin role)
 internal/keycloak/    Keycloak Admin REST API client (user management)
 internal/store/       SQL queries (workspaces, tasks, users, reports)
 internal/db/          pool + embedded SQL migrations
 web/                  React app; web/dist is embedded into the binary
-deploy/keycloak/      realm import (client + demo users)
+deploy/keycloak/      realm import (clients + demo users)
+scripts/demo/         seeds a demo instance and records the README media
 ```
 
 ## Quick start (Docker Compose)
@@ -147,33 +151,33 @@ docker compose up -d --build
 |---------------|-----|
 | `app`         | http://localhost:8080 |
 | `keycloak`    | http://localhost:8081 (admin console: `admin` / `KEYCLOAK_ADMIN_PASSWORD`) |
-| `planner-db`  | PostgreSQL for the planner (volume `planner-db`) |
-| `keycloak-db` | PostgreSQL for Keycloak (volume `keycloak-db`) |
+| `planner-db`  | PostgreSQL for LajurOps (volume `lajurops_planner-db`) |
+| `keycloak-db` | PostgreSQL for Keycloak (volume `lajurops_keycloak-db`) |
 
-The `open-planner` realm is imported with two demo users: **alice** (planner admin) and
-**bob** (member). Their passwords are in [deploy/keycloak/realm-open-planner.json](deploy/keycloak/realm-open-planner.json).
+The `lajurops` realm is imported with two demo users: **alice** (admin) and **bob** (member).
+Their passwords are in [deploy/keycloak/realm-lajurops.json](deploy/keycloak/realm-lajurops.json).
 Change or remove them before exposing the stack.
 
 > The realm file is imported only when the realm doesn't exist yet. After changing it,
-> recreate Keycloak's database: `docker compose down -v` (this also wipes the planner DB)
-> or `docker compose rm -sf keycloak keycloak-db && docker volume rm open-planner_keycloak-db`.
+> recreate Keycloak's database: `docker compose down -v` (this also wipes the LajurOps DB)
+> or `docker compose rm -sf keycloak keycloak-db && docker volume rm lajurops_keycloak-db`.
 
 ## Sign-in and user management
 
 Opening the app shows a sign-in screen; **Sign in** redirects to Keycloak's login page
-(passwords never touch the planner), then back to the app. Users can change their own
+(passwords never touch LajurOps), then back to the app. Users can change their own
 password from the ⚙ link in the sidebar (Keycloak account console).
 
-Users with the Keycloak realm role **`planner-admin`** get a **Users** page to create, edit,
+Users with the Keycloak realm role **`lajurops-admin`** get a **Users** page to create, edit,
 disable and delete accounts, reset passwords (optionally forcing a change at next sign-in) and
 grant or revoke the admin role. The backend performs these calls with the service account of
-the confidential client `open-planner-admin` (realm-management roles `view-users`,
+the confidential client `lajurops-service` (realm-management roles `view-users`,
 `query-users`, `manage-users`, `view-realm`). Users created there can be assigned tasks
 immediately; deleted or disabled users disappear from assignee lists but keep their history.
 
-**Users deleted directly in Keycloak:** press **Sync with Keycloak** on the Users page. Planner users
+**Users deleted directly in Keycloak:** press **Sync with Keycloak** on the Users page. LajurOps users
 that no longer exist in Keycloak are marked *Deleted* and listed under "Deleted in Keycloak", where
-an admin can **Remove from planner**, either keeping their tasks (just unassigned) or deleting the
+an admin can **Remove from LajurOps**, either keeping their tasks (just unassigned) or deleting the
 tasks only they own. Shared tasks, and tasks containing someone else's work, are only unassigned;
 comments stay, shown as by a deleted user. Workload hides deleted/disabled people unless they have
 tasks in the selected period.
@@ -200,8 +204,8 @@ PLANNER_TEST_DATABASE_URL=postgres://planner:planner@localhost:5432/planner?sslm
 Build the single binary:
 
 ```bash
-make build        # web/dist + bin/open-planner
-./bin/open-planner
+make build        # web/dist + bin/lajurops
+./bin/lajurops
 ```
 
 ## Configuration
@@ -210,26 +214,29 @@ make build        # web/dist + bin/open-planner
 |------------------|---------|-------------|
 | `ADDR`           | `:8080` | Listen address |
 | `DATABASE_URL`   | `postgres://planner:planner@localhost:5432/planner?sslmode=disable` | PostgreSQL DSN |
-| `OIDC_ISSUER`    | (required) | Realm URL **as the browser sees it**, e.g. `https://sso.example.com/realms/open-planner` |
+| `OIDC_ISSUER`    | (required) | Realm URL **as the browser sees it**, e.g. `https://sso.example.com/realms/lajurops` |
 | `OIDC_JWKS_URL`  | `<issuer>/protocol/openid-connect/certs` | Where the server fetches signing keys; set it when the backend reaches Keycloak on an internal hostname |
-| `OIDC_CLIENT_ID` | `open-planner` | Public client used by the SPA; tokens must have `azp` = this |
-| `ADMIN_ROLE`     | `planner-admin` | Realm role that unlocks the Users page |
+| `OIDC_CLIENT_ID` | `lajurops` | Public client used by the SPA; tokens must have `azp` = this |
+| `ADMIN_ROLE`     | `lajurops-admin` | Realm role that unlocks the Users page |
 | `KEYCLOAK_ADMIN_URL` | issuer base URL | Keycloak base URL the backend uses for the Admin API (e.g. `http://keycloak:8080`) |
-| `KEYCLOAK_ADMIN_CLIENT_ID` | `open-planner-admin` | Confidential client with a service account |
+| `KEYCLOAK_ADMIN_CLIENT_ID` | `lajurops-service` | Confidential client with a service account |
 | `KEYCLOAK_ADMIN_CLIENT_SECRET` | (empty) | Its secret; user management is disabled when empty |
 | `IMPORT_ALLOW_PRIVATE_URLS` | `false` | Let "import from URL" fetch from private/internal addresses (e.g. an intranet file server) |
 | `AUTH_DISABLED`  | `false` | Local development only: skip Keycloak entirely |
+
+Docker Compose reads `LAJUROPS_DB_PASSWORD`, `KEYCLOAK_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`,
+`LAJUROPS_SERVICE_CLIENT_SECRET` and `PUBLIC_KEYCLOAK_URL` from `.env` (see `.env.example`).
 
 The frontend gets its Keycloak settings at runtime from `GET /api/config`, so
 one build works in every environment.
 
 ### Using an existing Keycloak
 
-1. Create a client `open-planner`: *Client authentication* off (public), *Standard flow* on.
-2. Valid redirect URIs: `https://planner.example.com/*`; Web origins: `+`.
+1. Create a client `lajurops`: *Client authentication* off (public), *Standard flow* on.
+2. Valid redirect URIs: `https://lajurops.example.com/*`; Web origins: `+`.
 3. Advanced → *Proof Key for Code Exchange*: `S256`.
-4. Create a realm role `planner-admin` and assign it to your administrators.
-5. For user management, create a confidential client `open-planner-admin` with *Service accounts* on
+4. Create a realm role `lajurops-admin` and assign it to your administrators.
+5. For user management, create a confidential client `lajurops-service` with *Service accounts* on
    (standard flow off), and give its service account the `realm-management` client roles
    `view-users`, `query-users`, `manage-users`, `view-realm`.
 6. Run the app with `OIDC_ISSUER=https://<keycloak>/realms/<realm>` and `KEYCLOAK_ADMIN_CLIENT_SECRET=<secret>`.
@@ -237,17 +244,32 @@ one build works in every environment.
 ### Production notes
 
 - Run Keycloak with `start` (not `start-dev`), TLS, and `KC_HOSTNAME` set to its public URL.
-- Put the app behind TLS; set `PUBLIC_APP_URL`/`PUBLIC_KEYCLOAK_URL` and update the client's redirect URIs.
+- Put the app behind TLS; set `PUBLIC_KEYCLOAK_URL` and update the client's redirect URIs.
 - Change every default password in `.env` and the realm file.
+
+### Upgrading from Open Planner
+
+LajurOps was previously called *Open Planner*. An existing Docker Compose install keeps all its data:
+
+1. Stop the old stack; its volumes stay: `docker compose -p open-planner down`.
+2. Create the new stack without starting it (`docker compose create`) and copy each volume, e.g.
+   `docker run --rm -v open-planner_planner-db:/from:ro -v lajurops_planner-db:/to postgres:16-alpine cp -a /from/. /to/`
+   (same for `keycloak-db`).
+3. Start only Keycloak **without** the realm import and rename in place with `kcadm.sh`: realm
+   `open-planner` → `lajurops`, clients `open-planner` → `lajurops` and `open-planner-admin` → `lajurops-service`,
+   role `planner-admin` → `lajurops-admin`. Users, passwords and role assignments are kept.
+4. `docker compose up -d`. The realm import is skipped because `lajurops` now exists.
+
+Backups exported before the rename (`open-planner-workspace`) still import.
 
 ## Backup and restore
 
 - **Export**: the download button on a workspace page saves `<KEY>-<date>.json` with the workspace, all
-  tasks (hierarchy, dates, status, owners), environments, dependencies and comments.
+  tasks (hierarchy, dates, status, owners), environments, categories, dependencies and comments.
 - **Import**: the upload button next to *Workspaces* in the sidebar. Pick/drop a file or enter a URL; a
   preview shows what will be created. A backup is always restored as a **new** workspace (choose a new key
   if the original is taken); task numbers are kept. People are matched **by username**: owners missing from
-  this planner are dropped and their comments show as by a deleted user (accounts live in Keycloak).
+  this LajurOps instance are dropped and their comments show as by a deleted user (accounts live in Keycloak).
 - **Import from URL** is downloaded by the server. To stop it being used to probe internal services, it
   refuses private/loopback/link-local addresses (e.g. `10.x`, `192.168.x`, `localhost`, cloud metadata) unless
   `IMPORT_ALLOW_PRIVATE_URLS=true`; files are limited to 25 MB.
@@ -255,7 +277,7 @@ one build works in every environment.
 ## How reporting counts work
 
 A task counts toward the week/month its **start** falls in (creation time if unscheduled),
-for its **assignee**. *Hourly support hours* = `actual_hours` when recorded, otherwise the
+for its **assignee**. *Hourly hours* = `actual_hours` when recorded, otherwise the
 scheduled duration (`end - start`). Project tasks are containers and are not counted.
 A task with several owners counts fully for each of them.
 
@@ -284,11 +306,11 @@ POST   /api/tasks/{id}/dependencies                 { depends_on_id }   (task {i
 DELETE /api/tasks/{id}/dependencies/{dependsOnId}
 GET    /api/tasks/{id}/comments   POST /api/tasks/{id}/comments { body }   (Markdown)
 PATCH  /api/comments/{id}       { body }   (author only)
-DELETE /api/comments/{id}       (author or planner-admin)
+DELETE /api/comments/{id}       (author or lajurops-admin)
 GET    /api/reports/workload?from=&to=&workspace_id=
 GET    /api/reports/workload/{userId}/tasks?from=&to=&workspace_id=
 
-# planner-admin only
+# lajurops-admin only
 POST   /api/admin/users/sync                 mirror Keycloak users; mark missing ones deleted
 GET    /api/admin/users/removed              users deleted in Keycloak, with task/comment counts
 DELETE /api/admin/users/removed/{id}?delete_tasks=true|false

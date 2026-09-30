@@ -11,10 +11,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/FadhlanHawali/open-planner/internal/auth"
-	"github.com/FadhlanHawali/open-planner/internal/config"
-	"github.com/FadhlanHawali/open-planner/internal/keycloak"
-	"github.com/FadhlanHawali/open-planner/internal/store"
+	"github.com/FadhlanHawali/lajurops/internal/auth"
+	"github.com/FadhlanHawali/lajurops/internal/config"
+	"github.com/FadhlanHawali/lajurops/internal/keycloak"
+	"github.com/FadhlanHawali/lajurops/internal/store"
 )
 
 type API struct {

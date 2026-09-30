@@ -1,4 +1,4 @@
-module github.com/FadhlanHawali/open-planner
+module github.com/FadhlanHawali/lajurops
 
 go 1.22.5
 

@@ -14,8 +14,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/FadhlanHawali/open-planner/internal/auth"
-	"github.com/FadhlanHawali/open-planner/internal/store"
+	"github.com/FadhlanHawali/lajurops/internal/auth"
+	"github.com/FadhlanHawali/lajurops/internal/store"
 )
 
 // Backups can be large; allow more than the default JSON body limit.
@@ -103,8 +103,8 @@ func (a *API) fetchBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var doc store.ExportDoc
-	if err := json.Unmarshal(body, &doc); err != nil || doc.Format != store.ExportFormat {
-		respond(w, nil, store.InvalidError{Msg: "the URL did not return an Open Planner workspace backup"})
+	if err := json.Unmarshal(body, &doc); err != nil || !store.IsBackupFormat(doc.Format) {
+		respond(w, nil, store.InvalidError{Msg: "the URL did not return a LajurOps workspace backup"})
 		return
 	}
 	writeJSON(w, http.StatusOK, doc)
