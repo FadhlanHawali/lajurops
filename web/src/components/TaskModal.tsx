@@ -3,11 +3,12 @@ import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
 import { ArrowLeft, CheckCircle2, ChevronRight, Hourglass, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { fromInput, toInput } from '../lib/dates'
-import { saveEnvironments, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
+import { saveEnvironments, useCategories, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
 import { canContain, defaultChildType, PRIORITIES, PROJECT_KINDS, STATUSES, TASK_TYPES, type Priority, type ProjectKind, type Status, type EnvironmentDraft, type Task, type TaskType } from '../lib/types'
 import { Comments } from './Comments'
 import { DateRangeField, HourlyScheduleField } from './DateTimePicker'
 import { ParentPicker } from './ParentPicker'
+import { ProjectProgress } from './ProjectProgress'
 import { Dependencies } from './Dependencies'
 import { EnvBadge, EnvironmentListEditor, EnvironmentPicker, ProjectEnvironments } from './Environments'
 import { MultiUserPicker } from './UserPicker'
@@ -136,6 +137,7 @@ interface FormState {
   description: string
   type: TaskType
   project_kind: ProjectKind
+  project_category_id: string
   environment_id: string
   parent_id: string
   status: Status
@@ -155,6 +157,7 @@ function initialForm(t: Partial<Task> | TaskCreate): FormState {
     description: t.description ?? '',
     type,
     project_kind: t.project_kind ?? 'short',
+    project_category_id: t.project_category_id ?? '',
     environment_id: t.environment_id ?? '',
     parent_id: t.parent_id ?? '',
     status: t.status ?? 'todo',
@@ -248,6 +251,16 @@ function TaskForm({
     if (rootProjectId || !f.parent_id) prevRoot.current = rootProjectId
   }, [rootProjectId, f.parent_id])
   const [envDrafts, setEnvDrafts] = useState<EnvironmentDraft[]>([])
+  const { data: categories = [] } = useCategories(workspaceId || undefined)
+  // Done/total of a project's daily/hourly tasks (children and grandchildren).
+  const { data: projectTasks = [] } = useTasks({ workspace_id: workspaceId, type: 'daily,hourly' }, task?.type === 'project')
+  const projectCounts = useMemo(() => {
+    if (task?.type !== 'project') return { done: 0, total: 0 }
+    const direct = projectTasks.filter((t) => t.parent_id === task.id)
+    const ids = new Set(direct.map((t) => t.id))
+    const inside = [...direct, ...projectTasks.filter((t) => t.parent_id && ids.has(t.parent_id))]
+    return { done: inside.filter((t) => t.status === 'done').length, total: inside.length }
+  }, [projectTasks, task])
   // Daily/hourly tasks that this one could wait for.
   const { data: workTasks = [] } = useTasks({ workspace_id: workspaceId, type: 'daily,hourly' }, !!task && task.type !== 'project')
   const parent = containers.find((c) => c.id === f.parent_id) ?? ancestors[ancestors.length - 1]
@@ -272,14 +285,14 @@ function TaskForm({
       type: f.type,
       ...(f.type === 'project' ? { project_kind: f.project_kind } : { environment_id: f.environment_id || null }),
       parent_id: f.parent_id || null,
-      status: f.status,
+      // A project's status and progress come from its tasks.
+      ...(f.type === 'project' ? { project_category_id: f.project_category_id || null } : { status: f.status, progress: f.progress }),
       priority: f.priority,
       assignee_ids: f.assignee_ids,
       start_at: startIso,
       end_at: endIso ?? (startIso && dateBased ? fromInput(f.start, f.type, true) : null),
       estimate_hours: num(f.estimate_hours),
       actual_hours: num(f.actual_hours),
-      progress: f.progress,
     }
     try {
       if (task) {
@@ -422,15 +435,28 @@ function TaskForm({
             </Field>
           )}
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Status">
-              <select className={inputCls} value={f.status} onChange={(e) => up('status', e.target.value as Status)}>
-                {STATUSES.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            {f.type === 'project' ? (
+              <Field label="Category">
+                <select className={inputCls} value={f.project_category_id} onChange={(e) => up('project_category_id', e.target.value)}>
+                  <option value="">Uncategorized</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : (
+              <Field label="Status">
+                <select className={inputCls} value={f.status} onChange={(e) => up('status', e.target.value as Status)}>
+                  {STATUSES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field label="Priority">
               <select className={inputCls} value={f.priority} onChange={(e) => up('priority', e.target.value as Priority)}>
                 {PRIORITIES.map((p) => (
@@ -463,9 +489,19 @@ function TaskForm({
               </Field>
             </div>
           )}
-          <Field label={`Progress · ${f.progress}%`}>
-            <input type="range" min={0} max={100} step={5} className="w-full" value={f.progress} onChange={(e) => up('progress', Number(e.target.value))} />
-          </Field>
+          {f.type === 'project' ? (
+            task?.type === 'project' && (
+              <Field label="Status & progress (from its tasks)">
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2">
+                  <ProjectProgress project={task} done={projectCounts.done} total={projectCounts.total} />
+                </div>
+              </Field>
+            )
+          ) : (
+            <Field label={`Progress · ${f.progress}%`}>
+              <input type="range" min={0} max={100} step={5} className="w-full" value={f.progress} onChange={(e) => up('progress', Number(e.target.value))} />
+            </Field>
+          )}
         </div>
       </div>
 

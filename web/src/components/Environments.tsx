@@ -60,7 +60,37 @@ export function EnvBadge({ name, color, size = 'sm', className }: { name: string
  * Edits a project's environment list. Controlled: the caller decides whether
  * changes are saved immediately (existing project) or after creation.
  */
-export function EnvironmentListEditor({ items, onChange, busy }: { items: EnvironmentDraft[]; onChange: (items: EnvironmentDraft[]) => void; busy?: boolean }) {
+/** Wording and suggestions for a list editor (environments by default). */
+export interface ListEditorText {
+  noun: string // "environment"
+  usedBy: string // "task(s)"
+  empty: string
+  presets: { name: string; color: EnvColor }[]
+  starter?: { label: string; names: string[] }
+  guess?: (name: string, taken: EnvColor[]) => EnvColor
+}
+
+const ENV_TEXT: ListEditorText = {
+  noun: 'environment',
+  usedBy: 'task(s)',
+  empty: 'No environments yet. Add the ones this project goes through, in order.',
+  presets: PRESETS,
+  starter: { label: 'Use Dev → UAT → Pilot → Production', names: STANDARD },
+  guess: guessColor,
+}
+
+export function EnvironmentListEditor({
+  items,
+  onChange,
+  busy,
+  text = ENV_TEXT,
+}: {
+  items: EnvironmentDraft[]
+  onChange: (items: EnvironmentDraft[]) => void
+  busy?: boolean
+  text?: ListEditorText
+}) {
+  const guess = text.guess ?? ((_n: string, taken: EnvColor[]) => COLORS.find((c) => !taken.includes(c)) ?? 'slate')
   const [name, setName] = useState('')
   const [editing, setEditing] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
@@ -68,11 +98,11 @@ export function EnvironmentListEditor({ items, onChange, busy }: { items: Enviro
 
   const add = (n: string, color?: EnvColor) => {
     if (!n.trim() || has(n)) return
-    onChange([...items, { id: '', name: n.trim(), color: color ?? guessColor(n, items.map((e) => e.color)) }])
+    onChange([...items, { id: '', name: n.trim(), color: color ?? guess(n, items.map((e) => e.color)) }])
   }
   const remove = (i: number) => {
     const e = items[i]
-    if (e.task_count && !confirm(`Remove "${e.name}"? ${e.task_count} task(s) use it and will have no environment.`)) return
+    if (e.task_count && !confirm(`Remove "${e.name}"? ${e.task_count} ${text.usedBy} use it and will have no ${text.noun}.`)) return
     onChange(items.filter((_, j) => j !== i))
   }
   const move = (i: number, d: -1 | 1) => {
@@ -90,7 +120,7 @@ export function EnvironmentListEditor({ items, onChange, busy }: { items: Enviro
     onChange(items.map((e, j) => (j === i ? { ...e, name: n } : e)))
   }
 
-  const missingPresets = PRESETS.filter((p) => !has(p.name))
+  const missingPresets = text.presets.filter((p) => !has(p.name))
 
   return (
     <div className={clsx('space-y-2', busy && 'pointer-events-none opacity-70')}>
@@ -145,7 +175,7 @@ export function EnvironmentListEditor({ items, onChange, busy }: { items: Enviro
           ))}
         </ol>
       ) : (
-        <p className="text-xs text-slate-400">No environments yet. Add the ones this project goes through, in order.</p>
+        <p className="text-xs text-slate-400">{text.empty}</p>
       )}
 
       <div className="flex flex-wrap items-center gap-1.5">
@@ -153,7 +183,7 @@ export function EnvironmentListEditor({ items, onChange, busy }: { items: Enviro
           <Plus size={12} className="text-slate-400" />
           <input
             className="w-36 bg-transparent py-0.5 text-sm focus:outline-none"
-            placeholder="Add environment…"
+            placeholder={`Add ${text.noun}…`}
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
@@ -165,13 +195,13 @@ export function EnvironmentListEditor({ items, onChange, busy }: { items: Enviro
             }}
           />
         </div>
-        {items.length === 0 ? (
+        {items.length === 0 && text.starter ? (
           <button
             type="button"
-            onClick={() => onChange(STANDARD.map((n) => ({ id: '', name: n, color: guessColor(n) })))}
+            onClick={() => onChange(text.starter!.names.map((n) => ({ id: '', name: n, color: guess(n, []) })))}
             className="rounded-full border border-dashed border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-600 hover:border-slate-400 hover:bg-slate-50"
           >
-            Use Dev → UAT → Pilot → Production
+            {text.starter.label}
           </button>
         ) : (
           missingPresets.map((p) => (

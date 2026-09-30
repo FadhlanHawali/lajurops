@@ -11,7 +11,10 @@ A self-hosted planner in the spirit of Jira/Trello, built for teams that mix
 - **Three task types**, nested **Project → Daily → Hourly**:
   - `project`: the big picture; groups daily and hourly tasks (shown as a summary bar on the timeline).
     Each project is either **long** (a quarter or more) or **short** (short notice, about a month);
-    the dialog suggests switching when the timeline doesn't match
+    the dialog suggests switching when the timeline doesn't match.
+    Projects belong to a **category** (default *KPI Project*, *Enhancement Project*, *Ad Hoc Project*;
+    customisable per workspace); the board shows projects in category columns. A project's **status and
+    progress are derived from its daily/hourly tasks** (all done → done, any started → in progress)
   - `daily`: requests and deliverables, scheduled by whole days (start date → due date)
   - `hourly`: implementation / deployment / support, with exact start and end times (snapped to 15 min on the hour zoom)
 
@@ -190,6 +193,8 @@ POST   /api/tasks               { workspace_id | parent_id, title, type: project
 GET    /api/tasks/{id}          includes subtasks, ancestors, waiting_for and blocking
 PATCH  /api/tasks/{id}          partial update (incl. type, parent_id; nesting is validated); null clears a field
 DELETE /api/tasks/{id}          also deletes everything inside it
+GET    /api/workspaces/{id}/categories              project categories (with project counts)
+PUT    /api/workspaces/{id}/categories              [{ id?, name, color }]  replaces the list, in order
 GET    /api/workspaces/{id}/export                  backup (JSON)
 POST   /api/workspaces/import?key=&name=&dry_run=   body: backup; creates a new workspace
 POST   /api/import/fetch        { url }             download a backup server-side (private addresses blocked)

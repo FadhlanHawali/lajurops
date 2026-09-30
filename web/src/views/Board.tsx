@@ -3,12 +3,19 @@ import clsx from 'clsx'
 import { FolderKanban, Hourglass, MessageSquare, Plus } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
 import { EnvBadge } from '../components/Environments'
+import ProjectBoard from './ProjectBoard'
 import { AvatarStack, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
 import { formatSchedule } from '../lib/dates'
 import { useTaskFilters, useTasks, useUpdateTask } from '../lib/queries'
 import { STATUSES, type Status, type Task } from '../lib/types'
 
+/** Projects are grouped by category; daily/hourly work by status. */
 export default function Board({ workspaceId }: { workspaceId: string }) {
+  const { assignee, type } = useTaskFilters()
+  return type === 'project' ? <ProjectBoard workspaceId={workspaceId} assignee={assignee} /> : <TaskBoard workspaceId={workspaceId} />
+}
+
+function TaskBoard({ workspaceId }: { workspaceId: string }) {
   const { assignee, type } = useTaskFilters()
   const [projectFilter, setProjectFilter] = useState('') // '' = all, 'none' = independent, else project id
   const [envFilter, setEnvFilter] = useState('') // environment name, matched across projects

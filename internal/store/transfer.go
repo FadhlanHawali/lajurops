@@ -31,6 +31,16 @@ type ExportDoc struct {
 	Environments []ExportEnvironment `json:"environments"`
 	Dependencies []ExportDependency  `json:"dependencies"`
 	Comments     []ExportComment     `json:"comments"`
+	// Categories were added after version 1 shipped; older backups get the
+	// default categories on import.
+	Categories []ExportCategory `json:"project_categories,omitempty"`
+}
+
+type ExportCategory struct {
+	Ref      string `json:"ref"`
+	Name     string `json:"name"`
+	Color    string `json:"color"`
+	Position int    `json:"position"`
 }
 
 type ExportWorkspaceInfo struct {
@@ -60,6 +70,7 @@ type ExportTask struct {
 	Assignees     []string   `json:"assignees"`
 	Reporter      *string    `json:"reporter"`
 	Environment   *string    `json:"environment"`
+	Category      *string    `json:"project_category,omitempty"`
 	StartAt       *time.Time `json:"start_at"`
 	EndAt         *time.Time `json:"end_at"`
 	EstimateHours *float64   `json:"estimate_hours"`
@@ -97,7 +108,7 @@ func (s *Store) ExportWorkspaceData(ctx context.Context, id, exportedBy string) 
 	doc := ExportDoc{
 		Format: ExportFormat, Version: ExportVersion, ExportedAt: time.Now().UTC(), ExportedBy: exportedBy,
 		Users: []ExportUser{}, Tasks: []ExportTask{}, Environments: []ExportEnvironment{},
-		Dependencies: []ExportDependency{}, Comments: []ExportComment{},
+		Dependencies: []ExportDependency{}, Comments: []ExportComment{}, Categories: []ExportCategory{},
 	}
 	err := s.db.QueryRow(ctx, `SELECT key, name, description FROM workspaces WHERE id = $1`, id).
 		Scan(&doc.Workspace.Key, &doc.Workspace.Name, &doc.Workspace.Description)
@@ -116,7 +127,7 @@ func (s *Store) ExportWorkspaceData(ctx context.Context, id, exportedBy string) 
 
 	rows, err := s.db.Query(ctx, `
 		SELECT t.id::text, t.number, t.parent_id::text, t.title, t.description, t.type, t.project_kind,
-		       t.status, t.priority, t.reporter_id::text, t.environment_id::text,
+		       t.status, t.priority, t.reporter_id::text, t.environment_id::text, t.project_category_id::text,
 		       t.start_at, t.end_at, t.estimate_hours::float8, t.actual_hours::float8, t.progress, t.position,
 		       t.completed_at, t.created_at, t.updated_at,
 		       (SELECT coalesce(array_agg(a.user_id::text ORDER BY a.assigned_at), '{}') FROM task_assignees a WHERE a.task_id = t.id)
@@ -127,7 +138,7 @@ func (s *Store) ExportWorkspaceData(ctx context.Context, id, exportedBy string) 
 	for rows.Next() {
 		var t ExportTask
 		if err := rows.Scan(&t.Ref, &t.Number, &t.Parent, &t.Title, &t.Description, &t.Type, &t.ProjectKind,
-			&t.Status, &t.Priority, &t.Reporter, &t.Environment,
+			&t.Status, &t.Priority, &t.Reporter, &t.Environment, &t.Category,
 			&t.StartAt, &t.EndAt, &t.EstimateHours, &t.ActualHours, &t.Progress, &t.Position,
 			&t.CompletedAt, &t.CreatedAt, &t.UpdatedAt, &t.Assignees); err != nil {
 			rows.Close()
@@ -143,6 +154,20 @@ func (s *Store) ExportWorkspaceData(ctx context.Context, id, exportedBy string) 
 	if err := rows.Err(); err != nil {
 		return doc, err
 	}
+
+	rows, err = s.db.Query(ctx, `SELECT id::text, name, color, position FROM project_categories WHERE workspace_id = $1 ORDER BY position`, id)
+	if err != nil {
+		return doc, err
+	}
+	for rows.Next() {
+		var c ExportCategory
+		if err := rows.Scan(&c.Ref, &c.Name, &c.Color, &c.Position); err != nil {
+			rows.Close()
+			return doc, err
+		}
+		doc.Categories = append(doc.Categories, c)
+	}
+	rows.Close()
 
 	rows, err = s.db.Query(ctx, `
 		SELECT e.id::text, e.project_id::text, e.name, e.color, e.position
@@ -364,6 +389,31 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 		return res, mapConstraintErr(err)
 	}
 
+	// Project categories: from the backup, or the defaults for older backups.
+	catID := map[string]string{}
+	if len(doc.Categories) == 0 {
+		if err := seedCategories(ctx, tx, wsID, DefaultCategories); err != nil {
+			return res, err
+		}
+	}
+	catNames := map[string]bool{}
+	for _, c := range doc.Categories {
+		c.Name = strings.TrimSpace(c.Name)
+		if c.Name == "" || len(c.Name) > 40 || catNames[strings.ToLower(c.Name)] {
+			return res, bad("project category names must be 1-40 characters and unique (%q)", c.Name)
+		}
+		catNames[strings.ToLower(c.Name)] = true
+		if !envColors[c.Color] {
+			c.Color = "slate"
+		}
+		var id string
+		if err := tx.QueryRow(ctx, `INSERT INTO project_categories (workspace_id, name, color, position) VALUES ($1, $2, $3, $4) RETURNING id::text`,
+			wsID, c.Name, c.Color, c.Position).Scan(&id); err != nil {
+			return res, mapConstraintErr(err)
+		}
+		catID[c.Ref] = id
+	}
+
 	taskID := map[string]string{}
 	for _, t := range order {
 		t.Title = strings.TrimSpace(t.Title)
@@ -427,6 +477,13 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 		}
 		taskID[t.Ref] = id
 		res.Tasks++
+		if t.Category != nil && t.Type == "project" {
+			if cid, ok := catID[*t.Category]; ok {
+				if _, err := tx.Exec(ctx, `UPDATE tasks SET project_category_id = $2 WHERE id = $1`, id, cid); err != nil {
+					return res, err
+				}
+			}
+		}
 
 		seen := map[string]bool{}
 		for _, a := range t.Assignees {
@@ -553,6 +610,17 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 			return res, err
 		}
 		res.Comments++
+	}
+
+	// Derive the imported projects' status/progress from their tasks.
+	projects := []string{}
+	for ref, t := range byRef {
+		if t.Type == "project" {
+			projects = append(projects, taskID[ref])
+		}
+	}
+	if err := recomputeProjects(ctx, tx, projects...); err != nil {
+		return res, err
 	}
 
 	sort.Strings(res.UnknownUsers)

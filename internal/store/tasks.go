@@ -48,6 +48,10 @@ type Task struct {
 	EnvironmentID    *string `json:"environment_id"`
 	EnvironmentName  *string `json:"environment_name"`
 	EnvironmentColor *string `json:"environment_color"`
+	// Category of a project (KPI, Enhancement, ...); nil for other tasks.
+	ProjectCategoryID    *string `json:"project_category_id"`
+	ProjectCategoryName  *string `json:"project_category_name"`
+	ProjectCategoryColor *string `json:"project_category_color"`
 }
 
 type TaskInput struct {
@@ -57,16 +61,17 @@ type TaskInput struct {
 	Description string  `json:"description"`
 	Type        string  `json:"type"`
 	// ProjectKind is "long" or "short" for project tasks, nil otherwise.
-	ProjectKind   *string    `json:"project_kind"`
-	Status        string     `json:"status"`
-	Priority      string     `json:"priority"`
-	AssigneeIDs   []string   `json:"assignee_ids"`
-	StartAt       *time.Time `json:"start_at"`
-	EndAt         *time.Time `json:"end_at"`
-	EstimateHours *float64   `json:"estimate_hours"`
-	ActualHours   *float64   `json:"actual_hours"`
-	Progress      int        `json:"progress"`
-	EnvironmentID *string    `json:"environment_id"`
+	ProjectKind       *string    `json:"project_kind"`
+	Status            string     `json:"status"`
+	Priority          string     `json:"priority"`
+	AssigneeIDs       []string   `json:"assignee_ids"`
+	StartAt           *time.Time `json:"start_at"`
+	EndAt             *time.Time `json:"end_at"`
+	EstimateHours     *float64   `json:"estimate_hours"`
+	ActualHours       *float64   `json:"actual_hours"`
+	Progress          int        `json:"progress"`
+	EnvironmentID     *string    `json:"environment_id"`
+	ProjectCategoryID *string    `json:"project_category_id"`
 }
 
 type TaskFilter struct {
@@ -98,10 +103,12 @@ const taskCols = `t.id::text, t.workspace_id::text, p.key, t.parent_id::text, t.
 	(SELECT coalesce(array_agg(d.depends_on_id::text), '{}') FROM task_dependencies d WHERE d.task_id = t.id),
 	(SELECT count(*) FROM task_dependencies d JOIN tasks b ON b.id = d.depends_on_id
 	  WHERE d.task_id = t.id AND b.status <> 'done'),
-	t.environment_id::text, e.name, e.color`
+	t.environment_id::text, e.name, e.color,
+	t.project_category_id::text, pc.name, pc.color`
 
 const taskFrom = ` FROM tasks t JOIN workspaces p ON p.id = t.workspace_id
-	LEFT JOIN project_environments e ON e.id = t.environment_id`
+	LEFT JOIN project_environments e ON e.id = t.environment_id
+	LEFT JOIN project_categories pc ON pc.id = t.project_category_id`
 
 func scanTask(row pgx.Row) (Task, error) {
 	var t Task
@@ -110,7 +117,8 @@ func scanTask(row pgx.Row) (Task, error) {
 		&t.AssigneeIDs, &t.ReporterID, &t.StartAt, &t.EndAt,
 		&t.EstimateHours, &t.ActualHours, &t.Progress, &t.Position,
 		&t.CompletedAt, &t.CreatedAt, &t.UpdatedAt, &t.SubtaskCount, &t.SubtaskDone, &t.CommentCount,
-		&t.BlockedBy, &t.OpenBlockers, &t.EnvironmentID, &t.EnvironmentName, &t.EnvironmentColor)
+		&t.BlockedBy, &t.OpenBlockers, &t.EnvironmentID, &t.EnvironmentName, &t.EnvironmentColor,
+		&t.ProjectCategoryID, &t.ProjectCategoryName, &t.ProjectCategoryColor)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
 	}
@@ -256,6 +264,20 @@ func (s *Store) CreateTask(ctx context.Context, in TaskInput, reporterID string)
 	if err := setAssignees(ctx, tx, id, in.AssigneeIDs); err != nil {
 		return Task{}, err
 	}
+	if cat := emptyToNil(in.ProjectCategoryID); cat != nil {
+		if err := checkCategory(ctx, tx, in.Type, in.WorkspaceID, *cat); err != nil {
+			return Task{}, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE tasks SET project_category_id = $2 WHERE id = $1`, id, *cat); err != nil {
+			return Task{}, mapConstraintErr(err)
+		}
+	}
+	// A new task changes its project's derived status/progress.
+	if root, err := rootProject(ctx, tx, &id); err != nil {
+		return Task{}, err
+	} else if err := recomputeProjects(ctx, tx, root); err != nil {
+		return Task{}, err
+	}
 	if env := emptyToNil(in.EnvironmentID); env != nil {
 		if err := checkEnvironment(ctx, tx, in.Type, in.ParentID, *env); err != nil {
 			return Task{}, err
@@ -285,6 +307,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 	var assignees *[]string
 	var newKind *string
 	var newEnv **string
+	var newCategory **string
 
 	for k, raw := range patch {
 		switch k {
@@ -307,6 +330,13 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 			}
 			newType = &v
 			set("type", v)
+		case "project_category_id":
+			var v *string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return Task{}, invalid("project_category_id must be a string or null")
+			}
+			v = emptyToNil(v)
+			newCategory = &v
 		case "environment_id":
 			var v *string
 			if err := json.Unmarshal(raw, &v); err != nil {
@@ -387,7 +417,7 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 	case newType != nil:
 		sets = append(sets, "project_kind = coalesce(project_kind, 'short')")
 	}
-	if len(sets) == 0 && assignees == nil && newEnv == nil {
+	if len(sets) == 0 && assignees == nil && newEnv == nil && newCategory == nil {
 		return s.GetTask(ctx, id)
 	}
 
@@ -401,6 +431,14 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 		if err := validateMove(ctx, tx, id, newType, newParent); err != nil {
 			return Task{}, err
 		}
+	}
+	// The project this task counted towards before the change.
+	oldRoot, err := rootProject(ctx, tx, &id)
+	if err != nil {
+		return Task{}, err
+	}
+	if newType != nil && *newType != "project" {
+		sets = append(sets, "project_category_id = NULL")
 	}
 
 	args = append(args, id)
@@ -422,6 +460,29 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 		if err := syncEnvironment(ctx, tx, id, newParent != nil || newType != nil, newEnv); err != nil {
 			return Task{}, err
 		}
+	}
+	if newCategory != nil {
+		var typ, ws string
+		if err := tx.QueryRow(ctx, `SELECT type, workspace_id::text FROM tasks WHERE id = $1`, id).Scan(&typ, &ws); err != nil {
+			return Task{}, mapConstraintErr(err)
+		}
+		if *newCategory != nil {
+			if err := checkCategory(ctx, tx, typ, ws, **newCategory); err != nil {
+				return Task{}, err
+			}
+		}
+		if _, err := tx.Exec(ctx, `UPDATE tasks SET project_category_id = $2 WHERE id = $1`, id, *newCategory); err != nil {
+			return Task{}, mapConstraintErr(err)
+		}
+	}
+	// Projects' status/progress follow their tasks (this also overrides
+	// any status set directly on a project).
+	newRoot, err := rootProject(ctx, tx, &id)
+	if err != nil {
+		return Task{}, err
+	}
+	if err := recomputeProjects(ctx, tx, oldRoot, newRoot); err != nil {
+		return Task{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Task{}, err
@@ -510,14 +571,28 @@ func validateMove(ctx context.Context, tx pgx.Tx, id string, newType *string, ne
 }
 
 func (s *Store) DeleteTask(ctx context.Context, id string) error {
-	tag, err := s.db.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, id)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
+	}
+	defer tx.Rollback(ctx)
+	root, err := rootProject(ctx, tx, &id)
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, id)
+	if err != nil {
+		return mapConstraintErr(err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	if root != id {
+		if err := recomputeProjects(ctx, tx, root); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func mapConstraintErr(err error) error {
@@ -525,6 +600,9 @@ func mapConstraintErr(err error) error {
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 		case "23514": // check_violation
+			if pgErr.ConstraintName == "tasks_category_only_projects" {
+				return invalid("only projects have a category")
+			}
 			if pgErr.ConstraintName == "tasks_project_kind_matches_type" {
 				return invalid("only project tasks have a project kind (long or short)")
 			}

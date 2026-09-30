@@ -123,6 +123,19 @@ export interface Task {
   environment_id: string | null
   environment_name: string | null
   environment_color: EnvColor | null
+  /** Category of a project (KPI, Enhancement, ...); null for other tasks. */
+  project_category_id: string | null
+  project_category_name: string | null
+  project_category_color: EnvColor | null
+}
+
+export interface ProjectCategory {
+  id: string
+  workspace_id: string
+  name: string
+  color: EnvColor
+  position: number
+  project_count: number
 }
 
 export type EnvColor = 'slate' | 'green' | 'blue' | 'amber' | 'violet' | 'red' | 'teal' | 'pink'

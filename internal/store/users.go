@@ -275,5 +275,21 @@ func (s *Store) PurgeUser(ctx context.Context, id string, deleteTasks bool) (Pur
 	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id); err != nil {
 		return res, err
 	}
+	if deleteTasks {
+		var projects []string
+		rows, err := tx.Query(ctx, `SELECT id::text FROM tasks WHERE type = 'project'`)
+		if err != nil {
+			return res, err
+		}
+		for rows.Next() {
+			var p string
+			rows.Scan(&p)
+			projects = append(projects, p)
+		}
+		rows.Close()
+		if err := recomputeProjects(ctx, tx, projects...); err != nil {
+			return res, err
+		}
+	}
 	return res, tx.Commit(ctx)
 }

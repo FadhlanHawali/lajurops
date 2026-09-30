@@ -47,6 +47,8 @@ func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *k
 			r.Patch("/workspaces/{id}", a.updateWorkspace)
 			r.Delete("/workspaces/{id}", a.deleteWorkspace)
 			r.Get("/workspaces/{id}/export", a.exportWorkspace)
+			r.Get("/workspaces/{id}/categories", a.listCategories)
+			r.Put("/workspaces/{id}/categories", a.setCategories)
 			r.Post("/workspaces/import", a.importWorkspace)
 			r.Post("/import/fetch", a.fetchBackup)
 

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { AdminUser, AdminUserInput, Comment, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, Comment, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -71,6 +71,7 @@ export type TaskPatch = Partial<
     | 'parent_id'
     | 'project_kind'
     | 'environment_id'
+    | 'project_category_id'
     | 'description'
     | 'type'
     | 'status'
@@ -317,3 +318,25 @@ export const fetchBackupFromUrl = (url: string) => api<WorkspaceBackup>('/import
 
 export const importWorkspace = (doc: WorkspaceBackup, opts: { key: string; name: string; dryRun: boolean }) =>
   api<ImportResult>('/workspaces/import', { method: 'POST', body: doc, query: { key: opts.key, name: opts.name, dry_run: opts.dryRun } })
+
+// --- project categories (per workspace) ---
+
+export const useCategories = (workspaceId: string | undefined) =>
+  useQuery({
+    queryKey: ['categories', workspaceId],
+    queryFn: () => api<ProjectCategory[]>(`/workspaces/${workspaceId}/categories`),
+    enabled: !!workspaceId,
+  })
+
+export function useSetCategories(workspaceId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (list: { id: string; name: string; color: string }[]) =>
+      api<ProjectCategory[]>(`/workspaces/${workspaceId}/categories`, { method: 'PUT', body: list.map(({ id, name, color }) => ({ id, name, color })) }),
+    onSuccess: (data) => qc.setQueryData(['categories', workspaceId], data),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['categories', workspaceId] })
+      invalidateTaskData(qc) // projects may have lost a removed category
+    },
+  })
+}

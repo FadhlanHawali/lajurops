@@ -70,8 +70,13 @@ func (s *Store) CreateWorkspace(ctx context.Context, in WorkspaceInput, createdB
 	if in.Name == "" {
 		return Workspace{}, invalid("workspace name is required")
 	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Workspace{}, err
+	}
+	defer tx.Rollback(ctx)
 	var id string
-	err := s.db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO workspaces (key, name, description, created_by)
 		VALUES ($1, $2, $3, $4) RETURNING id::text`,
 		in.Key, in.Name, in.Description, nullString(createdBy),
@@ -81,6 +86,12 @@ func (s *Store) CreateWorkspace(ctx context.Context, in WorkspaceInput, createdB
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return Workspace{}, invalid("workspace key " + in.Key + " is already taken")
 		}
+		return Workspace{}, err
+	}
+	if err := seedCategories(ctx, tx, id, DefaultCategories); err != nil {
+		return Workspace{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return Workspace{}, err
 	}
 	return s.GetWorkspace(ctx, id)
