@@ -18,12 +18,30 @@
       "directAccessGrantsEnabled": false,
       "implicitFlowEnabled": false,
       "rootUrl": "http://localhost:8080",
-      "redirectUris": ["http://localhost:8080/*", "http://localhost:5173/*"],
-      "webOrigins": ["+"],
+      "redirectUris": [
+        "http://localhost:8080/*",
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "http://localhost:8080/*##http://localhost:5173/*"
       }
+    },
+    {
+      "clientId": "open-planner-admin",
+      "name": "Open Planner user management",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${PLANNER_ADMIN_CLIENT_SECRET}",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "protocol": "openid-connect"
     }
   ],
   "users": [
@@ -34,7 +52,17 @@
       "lastName": "Anderson",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [{ "type": "password", "value": "alice123", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-open-planner",
+        "planner-admin"
+      ]
     },
     {
       "username": "bob",
@@ -43,7 +71,37 @@
       "lastName": "Brown",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [{ "type": "password", "value": "bob123", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-open-planner"
+      ]
+    },
+    {
+      "username": "service-account-open-planner-admin",
+      "enabled": true,
+      "serviceAccountClientId": "open-planner-admin",
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "query-users",
+          "manage-users",
+          "view-realm"
+        ]
+      }
     }
-  ]
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "planner-admin",
+        "description": "Can manage Open Planner users"
+      }
+    ]
+  }
 }

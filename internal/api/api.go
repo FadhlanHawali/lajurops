@@ -13,6 +13,7 @@ import (
 
 	"github.com/FadhlanHawali/open-planner/internal/auth"
 	"github.com/FadhlanHawali/open-planner/internal/config"
+	"github.com/FadhlanHawali/open-planner/internal/keycloak"
 	"github.com/FadhlanHawali/open-planner/internal/store"
 )
 
@@ -20,11 +21,12 @@ type API struct {
 	cfg   config.Config
 	store *store.Store
 	auth  *auth.Authenticator
+	kc    *keycloak.Client // nil when user management is not configured
 }
 
 // Router mounts the JSON API under /api and serves the SPA for everything else.
-func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, spa http.Handler) http.Handler {
-	a := &API{cfg: cfg, store: st, auth: authn}
+func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *keycloak.Client, spa http.Handler) http.Handler {
+	a := &API{cfg: cfg, store: st, auth: authn, kc: kc}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP, middleware.Recoverer, middleware.Compress(5))
@@ -53,6 +55,14 @@ func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, spa h
 
 			r.Get("/reports/workload", a.workloadReport)
 			r.Get("/reports/workload/{userID}/tasks", a.workloadTasks)
+
+			r.Route("/admin", func(r chi.Router) {
+				r.Use(a.adminOnly)
+				r.Get("/users", a.adminListUsers)
+				r.Post("/users", a.adminCreateUser)
+				r.Patch("/users/{id}", a.adminUpdateUser)
+				r.Delete("/users/{id}", a.adminDeleteUser)
+			})
 		})
 
 		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
@@ -71,11 +81,12 @@ func (a *API) getConfig(w http.ResponseWriter, _ *http.Request) {
 		"keycloak_url":      url,
 		"keycloak_realm":    realm,
 		"keycloak_clientId": a.cfg.OIDCClientID,
+		"user_management":   a.kc != nil,
 	})
 }
 
 func (a *API) getMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, auth.UserFrom(r.Context()))
+	writeJSON(w, http.StatusOK, auth.From(r.Context()))
 }
 
 func (a *API) listUsers(w http.ResponseWriter, r *http.Request) {

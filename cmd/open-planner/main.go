@@ -14,6 +14,7 @@ import (
 	"github.com/FadhlanHawali/open-planner/internal/auth"
 	"github.com/FadhlanHawali/open-planner/internal/config"
 	"github.com/FadhlanHawali/open-planner/internal/db"
+	"github.com/FadhlanHawali/open-planner/internal/keycloak"
 	"github.com/FadhlanHawali/open-planner/internal/store"
 	"github.com/FadhlanHawali/open-planner/web"
 )
@@ -47,9 +48,14 @@ func run() error {
 	}
 
 	st := store.New(pool)
+	var kc *keycloak.Client
+	if cfg.UserManagementEnabled() {
+		_, realm, _ := cfg.KeycloakURLAndRealm()
+		kc = keycloak.New(cfg.KeycloakAdminURL, realm, cfg.KeycloakAdminClientID, cfg.KeycloakAdminClientSecret)
+	}
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.Router(cfg, st, auth.New(ctx, cfg, st), web.Handler()),
+		Handler:           api.Router(cfg, st, auth.New(ctx, cfg, st), kc, web.Handler()),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -60,7 +66,7 @@ func run() error {
 		srv.Shutdown(shutdownCtx)
 	}()
 
-	slog.Info("open-planner listening", "version", version, "addr", cfg.Addr, "auth", !cfg.AuthDisabled)
+	slog.Info("open-planner listening", "version", version, "addr", cfg.Addr, "auth", !cfg.AuthDisabled, "user_management", kc != nil)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

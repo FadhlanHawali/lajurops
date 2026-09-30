@@ -5,12 +5,17 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import { initAuth } from './lib/auth'
 import { queryClient } from './lib/queries'
+import Login from './views/Login'
 import './index.css'
 
 const root = createRoot(document.getElementById('root')!)
 
 initAuth()
-  .then(() =>
+  .then((authenticated) => {
+    if (!authenticated) {
+      root.render(<Login />)
+      return
+    }
     root.render(
       <StrictMode>
         <QueryClientProvider client={queryClient}>
@@ -19,8 +24,8 @@ initAuth()
           </BrowserRouter>
         </QueryClientProvider>
       </StrictMode>,
-    ),
-  )
+    )
+  })
   .catch((err) => {
     console.error(err)
     root.render(

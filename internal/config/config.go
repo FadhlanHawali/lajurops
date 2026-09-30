@@ -26,6 +26,22 @@ type Config struct {
 	// OIDCClientID is the public client used by the frontend. Access tokens
 	// must be issued to this client (azp claim).
 	OIDCClientID string
+
+	// AdminRole is the Keycloak realm role that grants access to user management.
+	AdminRole string
+	// KeycloakAdminURL is the Keycloak base URL the backend uses for the Admin
+	// REST API (e.g. http://keycloak:8080). Defaults to the issuer's base URL.
+	KeycloakAdminURL string
+	// KeycloakAdminClientID/Secret are a confidential client with a service
+	// account holding realm-management roles. User management is disabled
+	// when the secret is empty.
+	KeycloakAdminClientID     string
+	KeycloakAdminClientSecret string
+}
+
+// UserManagementEnabled reports whether the Keycloak Admin API is configured.
+func (c Config) UserManagementEnabled() bool {
+	return !c.AuthDisabled && c.KeycloakAdminClientSecret != ""
 }
 
 func Load() (Config, error) {
@@ -35,6 +51,11 @@ func Load() (Config, error) {
 		OIDCIssuer:   strings.TrimRight(os.Getenv("OIDC_ISSUER"), "/"),
 		OIDCJWKSURL:  os.Getenv("OIDC_JWKS_URL"),
 		OIDCClientID: env("OIDC_CLIENT_ID", "open-planner"),
+
+		AdminRole:                 env("ADMIN_ROLE", "planner-admin"),
+		KeycloakAdminURL:          strings.TrimRight(os.Getenv("KEYCLOAK_ADMIN_URL"), "/"),
+		KeycloakAdminClientID:     env("KEYCLOAK_ADMIN_CLIENT_ID", "open-planner-admin"),
+		KeycloakAdminClientSecret: os.Getenv("KEYCLOAK_ADMIN_CLIENT_SECRET"),
 	}
 	c.AuthDisabled, _ = strconv.ParseBool(os.Getenv("AUTH_DISABLED"))
 
@@ -47,6 +68,9 @@ func Load() (Config, error) {
 		}
 		if c.OIDCJWKSURL == "" {
 			c.OIDCJWKSURL = c.OIDCIssuer + "/protocol/openid-connect/certs"
+		}
+		if c.KeycloakAdminURL == "" {
+			c.KeycloakAdminURL, _, _ = c.KeycloakURLAndRealm()
 		}
 	}
 	return c, nil

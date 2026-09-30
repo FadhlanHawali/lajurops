@@ -2,18 +2,20 @@ import { useMemo } from 'react'
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { Project, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, Me, Project, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
 })
 
-export const useMe = () => useQuery({ queryKey: ['me'], queryFn: () => api<User>('/me') })
+export const useMe = () => useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me') })
 
 export function useUsers() {
   const q = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/users') })
   const byId = useMemo(() => new Map((q.data ?? []).map((u) => [u.id, u])), [q.data])
-  return { ...q, users: q.data ?? [], byId }
+  // Inactive users (disabled/deleted in Keycloak) stay resolvable by id for history.
+  const active = useMemo(() => (q.data ?? []).filter((u) => u.active), [q.data])
+  return { ...q, users: active, byId }
 }
 
 export const useProjects = () => useQuery({ queryKey: ['projects'], queryFn: () => api<Project[]>('/projects') })
@@ -151,4 +153,38 @@ export function useTaskFilters() {
       { replace: true },
     )
   return { assignee, type, setAssignee: (v: string) => set('assignee', v), setType: (v: string) => set('type', v) }
+}
+
+// --- user management (Keycloak admin API, admins only) ---
+
+export const useAdminUsers = (search: string, first: number, max: number) =>
+  useQuery({
+    queryKey: ['admin-users', search, first, max],
+    queryFn: () => api<{ users: AdminUser[]; total: number }>('/admin/users', { query: { search, first, max } }),
+    placeholderData: (prev) => prev,
+    retry: false,
+  })
+
+function invalidateUsers(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: ['admin-users'] })
+  qc.invalidateQueries({ queryKey: ['users'] })
+}
+
+export function useSaveAdminUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, input }: { id?: string; input: AdminUserInput }) =>
+      id
+        ? api<AdminUser>(`/admin/users/${id}`, { method: 'PATCH', body: input })
+        : api<AdminUser>('/admin/users', { method: 'POST', body: input }),
+    onSettled: () => invalidateUsers(qc),
+  })
+}
+
+export function useDeleteAdminUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api(`/admin/users/${id}`, { method: 'DELETE' }),
+    onSettled: () => invalidateUsers(qc),
+  })
 }

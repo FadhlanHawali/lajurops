@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import clsx from 'clsx'
-import { BarChart3, CalendarDays, FolderKanban, GanttChart, KanbanSquare, LogOut, Plus, Trash2 } from 'lucide-react'
+import { BarChart3, CalendarDays, FolderKanban, GanttChart, KanbanSquare, LogOut, Plus, Settings, Trash2, Users as UsersIcon } from 'lucide-react'
 import { TaskModalProvider, useTaskModal } from './components/TaskModal'
 import { Avatar, Button, Field, inputCls, userName } from './components/ui'
-import { authEnabled, logout } from './lib/auth'
+import { accountUrl, authEnabled, logout } from './lib/auth'
 import { useCreateProject, useDeleteProject, useMe, useProject, useProjects } from './lib/queries'
 import Board from './views/Board'
 import Calendar from './views/Calendar'
 import Gantt from './views/Gantt'
 import Reports from './views/Reports'
+import Users from './views/Users'
 
 export default function App() {
   return (
@@ -35,6 +36,16 @@ export default function App() {
                 <Page title="Workload" subtitle="Tasks and hourly support hours per member">
                   <div className="h-full overflow-y-auto">
                     <Reports />
+                  </div>
+                </Page>
+              }
+            />
+            <Route
+              path="/admin/users"
+              element={
+                <Page title="Users" subtitle="Manage who can sign in to Open Planner (stored in Keycloak)">
+                  <div className="h-full overflow-y-auto">
+                    <Users />
                   </div>
                 </Page>
               }
@@ -67,6 +78,11 @@ function Sidebar() {
         <NavLink to="/reports" className={link}>
           <BarChart3 size={16} /> Workload
         </NavLink>
+        {me?.is_admin && (
+          <NavLink to="/admin/users" className={link}>
+            <UsersIcon size={16} /> Users
+          </NavLink>
+        )}
         <div className="flex items-center justify-between px-2.5 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
           Projects
           <button className="rounded p-0.5 hover:bg-slate-800 hover:text-white" title="New project" onClick={() => setCreating(true)}>
@@ -89,9 +105,14 @@ function Sidebar() {
             <div className="truncate text-xs text-slate-500">{me.email}</div>
           </div>
           {authEnabled() && (
-            <button className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white" title="Sign out" onClick={logout}>
-              <LogOut size={16} />
-            </button>
+            <>
+              <a className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white" title="Account & password" href={accountUrl()} target="_blank" rel="noreferrer">
+                <Settings size={16} />
+              </a>
+              <button className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white" title="Sign out" onClick={logout}>
+                <LogOut size={16} />
+              </button>
+            </>
           )}
         </div>
       )}

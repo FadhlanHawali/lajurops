@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,22 +17,34 @@ import (
 
 type ctxKey struct{}
 
-// UserFrom returns the authenticated user stored by Middleware.
-func UserFrom(ctx context.Context) store.User {
-	u, _ := ctx.Value(ctxKey{}).(store.User)
-	return u
+// Principal is the authenticated caller.
+type Principal struct {
+	store.User
+	// Sub is the Keycloak user id (the token's sub claim).
+	Sub     string `json:"-"`
+	IsAdmin bool   `json:"is_admin"`
 }
+
+// From returns the principal stored by Middleware.
+func From(ctx context.Context) Principal {
+	p, _ := ctx.Value(ctxKey{}).(Principal)
+	return p
+}
+
+// UserFrom returns the authenticated user stored by Middleware.
+func UserFrom(ctx context.Context) store.User { return From(ctx).User }
 
 type Authenticator struct {
 	verifier *oidc.IDTokenVerifier
-	clientID string
-	disabled bool
+	clientID  string
+	adminRole string
+	disabled  bool
 	store    *store.Store
 	cache    sync.Map // sub -> cachedUser
 }
 
 func New(ctx context.Context, cfg config.Config, st *store.Store) *Authenticator {
-	a := &Authenticator{clientID: cfg.OIDCClientID, disabled: cfg.AuthDisabled, store: st}
+	a := &Authenticator{clientID: cfg.OIDCClientID, adminRole: cfg.AdminRole, disabled: cfg.AuthDisabled, store: st}
 	if a.disabled {
 		slog.Warn("AUTH_DISABLED=true: every request is treated as the local dev user")
 		return a
@@ -45,6 +58,7 @@ func New(ctx context.Context, cfg config.Config, st *store.Store) *Authenticator
 	return a
 }
 
+// claims is the profile part of the token; kept comparable for the cache.
 type claims struct {
 	Sub               string `json:"sub"`
 	Azp               string `json:"azp"`
@@ -53,11 +67,20 @@ type claims struct {
 	Name              string `json:"name"`
 }
 
+type tokenClaims struct {
+	claims
+	RealmAccess struct {
+		Roles []string `json:"roles"`
+	} `json:"realm_access"`
+}
+
 func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var c claims
+		var isAdmin bool
 		if a.disabled {
 			c = claims{Sub: "dev", PreferredUsername: "dev", Name: "Local Developer", Email: "dev@localhost"}
+			isAdmin = true
 		} else {
 			raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if !ok || raw == "" {
@@ -70,10 +93,13 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return
 			}
-			if err := tok.Claims(&c); err != nil || (c.Azp != "" && c.Azp != a.clientID) {
+			var tc tokenClaims
+			if err := tok.Claims(&tc); err != nil || (tc.Azp != "" && tc.Azp != a.clientID) {
 				http.Error(w, `{"error":"token not issued for this client"}`, http.StatusUnauthorized)
 				return
 			}
+			c = tc.claims
+			isAdmin = slices.Contains(tc.RealmAccess.Roles, a.adminRole)
 		}
 		if c.PreferredUsername == "" {
 			c.PreferredUsername = c.Sub
@@ -85,7 +111,8 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, u)))
+		p := Principal{User: u, Sub: c.Sub, IsAdmin: isAdmin}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 	})
 }
 
@@ -94,6 +121,9 @@ type cachedUser struct {
 	claims  claims
 	expires time.Time
 }
+
+// Forget drops a cached identity so the next request re-syncs it.
+func (a *Authenticator) Forget(sub string) { a.cache.Delete(sub) }
 
 // user maps token claims to a local user row, upserting at most once every
 // few minutes per identity (or immediately when profile claims change).

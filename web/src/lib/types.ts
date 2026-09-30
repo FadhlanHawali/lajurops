@@ -7,7 +7,37 @@ export interface User {
   username: string
   email: string
   display_name: string
+  active: boolean
   last_seen_at: string
+}
+
+export interface Me extends User {
+  is_admin: boolean
+}
+
+/** A Keycloak user as returned by the admin API. */
+export interface AdminUser {
+  id: string
+  username: string
+  email: string
+  first_name: string
+  last_name: string
+  enabled: boolean
+  email_verified: boolean
+  is_admin: boolean
+  required_actions: string[]
+  created_at: string | null
+}
+
+export interface AdminUserInput {
+  username?: string
+  email?: string
+  first_name?: string
+  last_name?: string
+  enabled?: boolean
+  is_admin?: boolean
+  password?: string
+  temporary_password?: boolean
 }
 
 export interface Project {

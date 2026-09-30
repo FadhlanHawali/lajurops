@@ -12,7 +12,8 @@ A self-hosted planner in the spirit of Jira/Trello, built for teams that mix
   - `hourly`: exact start/end timestamps, snapped to 15 min on the hour zoom
   - `daily`: whole days (start date → due date)
 - **Workload report**: per user, per week or month: hourly support hours, hourly/daily task counts, completion; drill down and export CSV
-- **Keycloak** login (OIDC + PKCE); users are provisioned on first login
+- **Keycloak** sign-in (OIDC + PKCE) with an in-app sign-in screen
+- **User management** for admins: create, edit, disable, delete users, reset passwords and grant the admin role (via the Keycloak Admin API)
 
 It ships as a **single binary**: the React frontend is compiled by Vite and embedded
 into the Go server with `go:embed`, the same approach [Radar](https://github.com/skyhook-io/radar) uses.
@@ -29,7 +30,8 @@ into the Go server with `go:embed`, the same approach [Radar](https://github.com
 ```
 cmd/open-planner/     main: config, DB, HTTP server
 internal/api/         REST handlers (/api/...)
-internal/auth/        Keycloak JWT verification middleware
+internal/auth/        Keycloak JWT verification middleware (+ admin role)
+internal/keycloak/    Keycloak Admin REST API client (user management)
 internal/store/       SQL queries (projects, tasks, users, reports)
 internal/db/          pool + embedded SQL migrations
 web/                  React app; web/dist is embedded into the binary
@@ -43,14 +45,33 @@ cp .env.example .env   # optional
 docker compose up -d --build
 ```
 
-| Service  | URL |
-|----------|-----|
-| App      | http://localhost:8080 |
-| Keycloak | http://localhost:8081 (admin console: `admin` / `KEYCLOAK_ADMIN_PASSWORD`) |
+| Service       | URL / purpose |
+|---------------|-----|
+| `app`         | http://localhost:8080 |
+| `keycloak`    | http://localhost:8081 (admin console: `admin` / `KEYCLOAK_ADMIN_PASSWORD`) |
+| `planner-db`  | PostgreSQL for the planner (volume `planner-db`) |
+| `keycloak-db` | PostgreSQL for Keycloak (volume `keycloak-db`) |
 
-The `open-planner` realm is imported with two demo users, **alice** and **bob**. Their
-passwords are in [deploy/keycloak/realm-open-planner.json](deploy/keycloak/realm-open-planner.json).
+The `open-planner` realm is imported with two demo users: **alice** (planner admin) and
+**bob** (member). Their passwords are in [deploy/keycloak/realm-open-planner.json](deploy/keycloak/realm-open-planner.json).
 Change or remove them before exposing the stack.
+
+> The realm file is imported only when the realm doesn't exist yet. After changing it,
+> recreate Keycloak's database: `docker compose down -v` (this also wipes the planner DB)
+> or `docker compose rm -sf keycloak keycloak-db && docker volume rm open-planner_keycloak-db`.
+
+## Sign-in and user management
+
+Opening the app shows a sign-in screen; **Sign in** redirects to Keycloak's login page
+(passwords never touch the planner), then back to the app. Users can change their own
+password from the ⚙ link in the sidebar (Keycloak account console).
+
+Users with the Keycloak realm role **`planner-admin`** get a **Users** page to create, edit,
+disable and delete accounts, reset passwords (optionally forcing a change at next sign-in) and
+grant or revoke the admin role. The backend performs these calls with the service account of
+the confidential client `open-planner-admin` (realm-management roles `view-users`,
+`query-users`, `manage-users`, `view-realm`). Users created there can be assigned tasks
+immediately; deleted or disabled users disappear from assignee lists but keep their history.
 
 ## Local development
 
@@ -81,6 +102,10 @@ make build        # web/dist + bin/open-planner
 | `OIDC_ISSUER`    | (required) | Realm URL **as the browser sees it**, e.g. `https://sso.example.com/realms/open-planner` |
 | `OIDC_JWKS_URL`  | `<issuer>/protocol/openid-connect/certs` | Where the server fetches signing keys; set it when the backend reaches Keycloak on an internal hostname |
 | `OIDC_CLIENT_ID` | `open-planner` | Public client used by the SPA; tokens must have `azp` = this |
+| `ADMIN_ROLE`     | `planner-admin` | Realm role that unlocks the Users page |
+| `KEYCLOAK_ADMIN_URL` | issuer base URL | Keycloak base URL the backend uses for the Admin API (e.g. `http://keycloak:8080`) |
+| `KEYCLOAK_ADMIN_CLIENT_ID` | `open-planner-admin` | Confidential client with a service account |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` | (empty) | Its secret; user management is disabled when empty |
 | `AUTH_DISABLED`  | `false` | Local development only: skip Keycloak entirely |
 
 The frontend gets its Keycloak settings at runtime from `GET /api/config`, so
@@ -91,7 +116,11 @@ one build works in every environment.
 1. Create a client `open-planner`: *Client authentication* off (public), *Standard flow* on.
 2. Valid redirect URIs: `https://planner.example.com/*`; Web origins: `+`.
 3. Advanced → *Proof Key for Code Exchange*: `S256`.
-4. Run the app with `OIDC_ISSUER=https://<keycloak>/realms/<realm>`.
+4. Create a realm role `planner-admin` and assign it to your administrators.
+5. For user management, create a confidential client `open-planner-admin` with *Service accounts* on
+   (standard flow off), and give its service account the `realm-management` client roles
+   `view-users`, `query-users`, `manage-users`, `view-realm`.
+6. Run the app with `OIDC_ISSUER=https://<keycloak>/realms/<realm>` and `KEYCLOAK_ADMIN_CLIENT_SECRET=<secret>`.
 
 ### Production notes
 
@@ -121,4 +150,10 @@ PATCH  /api/tasks/{id}          partial update; null clears a field
 DELETE /api/tasks/{id}          also deletes subtasks
 GET    /api/reports/workload?from=&to=&project_id=
 GET    /api/reports/workload/{userId}/tasks?from=&to=&project_id=
+
+# planner-admin only
+GET    /api/admin/users?search=&first=&max=
+POST   /api/admin/users         { username, email, first_name, last_name, password, temporary_password, is_admin, enabled }
+PATCH  /api/admin/users/{id}    any of the above except username; password resets it
+DELETE /api/admin/users/{id}
 ```
