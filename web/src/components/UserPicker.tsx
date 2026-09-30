@@ -33,7 +33,7 @@ export function MultiUserPicker({ value, onChange, placeholder = 'Unassigned' }:
       matchWidth
       trigger={(props, isOpen) => (
         <TriggerButton icon={Users} placeholder={placeholder} open={isOpen} onClear={() => onChange([])} {...props}>
-          {selected.length > 0 && (
+          {selected.length > 0 ? (
             <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1 pr-5">
               {selected.map((u) => (
                 <span key={u.id} className="inline-flex items-center gap-1 rounded-full bg-slate-100 py-0.5 pr-2 pl-0.5 text-xs font-medium text-slate-700">
@@ -42,7 +42,7 @@ export function MultiUserPicker({ value, onChange, placeholder = 'Unassigned' }:
                 </span>
               ))}
             </span>
-          )}
+          ) : undefined /* undefined (not false) so the placeholder shows */}
         </TriggerButton>
       )}
     >
