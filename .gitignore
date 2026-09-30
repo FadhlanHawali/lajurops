@@ -4,3 +4,8 @@
 !/web/dist/.gitkeep
 .env
 *.exe
+/scripts/demo/node_modules/
+/scripts/demo/videos/
+/scripts/demo/gifs/
+/scripts/demo/shots/
+/scripts/demo/package-lock.json

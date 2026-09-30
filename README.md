@@ -1,8 +1,88 @@
-# Open Planner
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo.svg" alt="Open Planner" width="330">
+  </picture>
+</p>
 
-A self-hosted planner in the spirit of Jira/Trello, built for teams that mix
-**scheduled, hour-level work** (support, deployments, implementations) with
-**date-level work** (requests, deliverables).
+<p align="center">
+  <b>Self-hosted planning for teams that mix hour-level work (support, deployments, implementations)<br>
+  with date-level work (requests, deliverables)</b><br>
+  Board · Projects · Timeline down to the hour · Calendar · Workload · Keycloak · single binary
+</p>
+
+<p align="center">
+  <img src="docs/media/hero-timeline.png" alt="Open Planner timeline with projects, environments and dependencies" width="900">
+</p>
+
+<p align="center">
+  <a href="#quick-start-docker-compose">Quick start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#api">API</a>
+</p>
+
+## Features
+
+### Board
+Kanban for daily and hourly work (To Do → In Progress → In Review → Done). Drag cards between columns; filter
+by assignee, type, project or environment. Cards show the project, environment, owners, comments and what a
+task is waiting for.
+
+<img src="docs/media/board.gif" alt="Board: drag between columns, filter by environment and type" width="900">
+
+### Projects, categories and environments
+A task is a **Project**, **Daily** or **Hourly** item, nested Project → Daily → Hourly. Projects are **long**
+(a quarter or more) or **short** (about a month) and belong to a **category** (KPI, Enhancement, Ad Hoc, or your
+own). A project's **status and progress come from its tasks**. Each project defines its **environments**
+(Dev → SIT → UAT → Pilot → Production) and its tasks are grouped by environment; opening a task from a project
+stacks it, with a way back.
+
+<img src="docs/media/projects.gif" alt="Projects by category, tasks grouped by environment, stacked task dialogs" width="900">
+
+### Timeline (Gantt) down to the hour
+Zoom from **month → week → day → 6 hours → hour**. Drag bars to reschedule and edges to resize (hourly work snaps
+to 15 minutes). Projects show a summary bar, and **dependencies** are drawn as arrows, red when a task is scheduled
+to start before the task it waits for ends.
+
+<img src="docs/media/timeline.gif" alt="Timeline zooming from weeks to hours with dependency arrows" width="900">
+
+### Calendar
+Month, week, day and agenda views. Daily tasks are all-day events and hourly tasks are timed; drag or resize to
+reschedule, or select a slot to create a task.
+
+<img src="docs/media/calendar.gif" alt="Calendar: month and week views, selecting a slot creates an hourly task" width="900">
+
+### Creating tasks
+Pick the type, search for the project (or daily task) it belongs to, choose the environment, schedule it with the
+date/time pickers (type times like `9:30pm`, one-click durations) and assign several owners.
+
+<img src="docs/media/create-task.gif" alt="Creating an hourly task with parent search, environment, schedule and owners" width="900">
+
+### Markdown comments
+Comment on projects, daily and hourly tasks in GitHub-flavoured Markdown (checklists, tables, code) with a
+toolbar, shortcuts and preview.
+
+<img src="docs/media/comments.gif" alt="Writing and previewing a Markdown comment" width="900">
+
+### Workload report
+Per person, per week or month: hourly support hours, hourly/daily task counts and completion. Drill into a
+person's tasks and export CSV.
+
+<img src="docs/media/workload.gif" alt="Workload report: weekly and monthly, per-person drill-down" width="900">
+
+### Backup and restore
+Export a workspace to JSON and import it (from a file or a URL) as a new workspace, with a preview first.
+
+<img src="docs/media/backup.gif" alt="Exporting a workspace and importing the backup as a new workspace" width="900">
+
+### Sign-in and user management
+Sign in with **Keycloak** (OIDC + PKCE). Admins manage users from the app (create, disable, reset passwords,
+grant admin) and can sync with Keycloak to clean up people deleted there.
+
+<img src="docs/media/sign-in.png" alt="Sign-in screen" width="900">
+
+### At a glance
 
 - **Board**: Kanban (To Do → In Progress → In Review → Done) with drag & drop
 - **Timeline (Gantt)**: zoom from **month → week → day → 6 hours → hour**; drag to reschedule, drag edges to resize, Ctrl+scroll to zoom
