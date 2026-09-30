@@ -590,6 +590,7 @@ function AddChildRow({ parent, environmentId, environmentName, compact }: { pare
   const [open, setOpen] = useState(!compact)
   const [title, setTitle] = useState('')
   const [type, setType] = useState<TaskType>(defaultChildType(parent.type))
+  const inputRef = useRef<HTMLInputElement>(null)
   const create = useCreateTask()
   const allowed = useMemo(() => TASK_TYPES.filter((t) => canContain(parent.type, t.id)), [parent.type])
 
@@ -616,10 +617,22 @@ function AddChildRow({ parent, environmentId, environmentName, compact }: { pare
     )
   }
   return (
-    <li className="flex items-center gap-2 px-2 py-1.5">
+    <li
+      className="flex items-center gap-2 px-2 py-1.5"
+      // Collapse an empty compact row only when focus leaves the whole row,
+      // so the type dropdown can be used.
+      onBlur={(e) => compact && !title.trim() && !e.currentTarget.contains(e.relatedTarget as Node | null) && setOpen(false)}
+    >
       <Plus size={14} className="text-slate-400" />
       {allowed.length > 1 && (
-        <select className="rounded border border-slate-200 bg-white px-1 py-0.5 text-xs" value={type} onChange={(e) => setType(e.target.value as TaskType)}>
+        <select
+          className="rounded border border-slate-200 bg-white px-1 py-0.5 text-xs"
+          value={type}
+          onChange={(e) => {
+            setType(e.target.value as TaskType)
+            inputRef.current?.focus()
+          }}
+        >
           {allowed.map((t) => (
             <option key={t.id} value={t.id}>
               {t.label}
@@ -628,12 +641,12 @@ function AddChildRow({ parent, environmentId, environmentName, compact }: { pare
         </select>
       )}
       <input
+        ref={inputRef}
         autoFocus={compact}
         className="flex-1 bg-transparent text-sm focus:outline-none"
-        placeholder={`Add a ${type} task${environmentName ? ` in ${environmentName}` : ''} and press Enter`}
+        placeholder={`Add ${type === 'hourly' ? 'an' : 'a'} ${type} task${environmentName ? ` in ${environmentName}` : ''} and press Enter`}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        onBlur={() => compact && !title.trim() && setOpen(false)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.nativeEvent.isComposing) add()
           if (e.key === 'Escape' && compact) {
