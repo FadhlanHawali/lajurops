@@ -43,6 +43,7 @@ export function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60)
   const m = Math.round(minutes % 60)
   if (h >= 24 && m === 0 && h % 24 === 0) return `${h / 24}d (${h}h)`
+  if (h === 0) return `${m}m`
   return m ? `${h}h ${m}m` : `${h}h`
 }
 

@@ -2,9 +2,10 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
 import { ChevronRight, Loader2, Plus, Trash2, X } from 'lucide-react'
-import { fromInput, formatDuration, toInput } from '../lib/dates'
+import { fromInput, toInput } from '../lib/dates'
 import { useCreateTask, useDeleteTask, useTask, useTasks, useUpdateTask, useUsers, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
 import { canContain, defaultChildType, PRIORITIES, STATUSES, TASK_TYPES, type Priority, type Status, type Task, type TaskType } from '../lib/types'
+import { DateRangeField, HourlyScheduleField } from './DateTimePicker'
 import { Avatar, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge, UserSelect } from './ui'
 
 type ModalState = { mode: 'edit'; id: string } | { mode: 'create'; defaults: TaskCreate } | null
@@ -21,7 +22,7 @@ export function TaskModalProvider({ children }: { children: ReactNode }) {
   const close = () => setState(null)
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close()
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !e.defaultPrevented && close()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
@@ -321,13 +322,15 @@ function TaskForm({
           <Field label={f.type === 'project' ? 'Owner' : 'Assignee'}>
             <UserSelect value={f.assignee_id} onChange={(v) => up('assignee_id', v)} />
           </Field>
-          <Field label={dateBased ? 'Start date' : 'Start'}>
-            <input type={dateBased ? 'date' : 'datetime-local'} className={inputCls} value={f.start} onChange={(e) => up('start', e.target.value)} />
-          </Field>
-          <Field label={dateBased ? (f.type === 'project' ? 'Target date' : 'Due date') : 'End'}>
-            <input type={dateBased ? 'date' : 'datetime-local'} className={inputCls} value={f.end} min={f.start} onChange={(e) => up('end', e.target.value)} />
-          </Field>
-          {durationMin > 0 && <p className="-mt-1 text-xs text-slate-500">Duration: {formatDuration(durationMin)}</p>}
+          {dateBased ? (
+            <Field label={f.type === 'project' ? 'Timeline' : 'Start → due date'}>
+              <DateRangeField start={f.start} end={f.end} onChange={(start, end) => setF((s) => ({ ...s, start, end }))} placeholder="Not scheduled" />
+            </Field>
+          ) : (
+            <Field label="Schedule">
+              <HourlyScheduleField start={f.start} end={f.end} onChange={(start, end) => setF((s) => ({ ...s, start, end }))} />
+            </Field>
+          )}
           {f.type !== 'project' && (
             <div className="grid grid-cols-2 gap-2">
               <Field label="Estimate (h)">

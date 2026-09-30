@@ -33,3 +33,58 @@
 .planner-calendar .fc-event {
   cursor: pointer;
 }
+
+/* Date picker (react-day-picker) */
+.planner-rdp {
+  --rdp-accent-color: #2563eb;
+  --rdp-accent-background-color: #dbeafe;
+  --rdp-today-color: #2563eb;
+  --rdp-day-height: 36px;
+  --rdp-day-width: 36px;
+  --rdp-day_button-height: 32px;
+  --rdp-day_button-width: 32px;
+  --rdp-day_button-border-radius: 8px;
+  --rdp-nav-height: 32px;
+  --rdp-nav_button-height: 28px;
+  --rdp-nav_button-width: 28px;
+  --rdp-range_middle-background-color: #eff6ff;
+  --rdp-range_start-date-background-color: #2563eb;
+  --rdp-range_end-date-background-color: #2563eb;
+  --rdp-selected-border: 0;
+  --rdp-outside-opacity: 0.35;
+  --rdp-weekday-opacity: 0.6;
+  padding: 10px 12px 12px;
+  font-size: 0.85rem;
+}
+.planner-rdp .rdp-month_caption {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding-left: 4px;
+}
+.planner-rdp .rdp-weekday {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.planner-rdp .rdp-day_button:hover:not([disabled]) {
+  background: #f1f5f9;
+}
+.planner-rdp .rdp-selected .rdp-day_button {
+  background: var(--rdp-accent-color);
+  color: #fff;
+  font-weight: 600;
+}
+.planner-rdp .rdp-range_middle .rdp-day_button {
+  background: transparent;
+  color: #1e3a8a;
+  font-weight: 500;
+}
+.planner-rdp .rdp-today:not(.rdp-selected) .rdp-day_button {
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px #93c5fd;
+}
+.planner-rdp .rdp-chevron {
+  fill: #64748b;
+  width: 16px;
+  height: 16px;
+}
