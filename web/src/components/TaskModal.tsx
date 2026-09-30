@@ -1,7 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
-import { ChevronRight, Hourglass, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Hourglass, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { fromInput, toInput } from '../lib/dates'
 import { saveEnvironments, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
 import { canContain, defaultChildType, PRIORITIES, PROJECT_KINDS, STATUSES, TASK_TYPES, type Priority, type ProjectKind, type Status, type EnvironmentDraft, type Task, type TaskType } from '../lib/types'
@@ -13,7 +13,7 @@ import { EnvBadge, EnvironmentListEditor, EnvironmentPicker, ProjectEnvironments
 import { MultiUserPicker } from './UserPicker'
 import { AvatarStack, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge } from './ui'
 
-type ModalState = { mode: 'edit'; id: string } | { mode: 'create'; defaults: TaskCreate } | null
+type Entry = { key: number; mode: 'edit'; id: string } | { key: number; mode: 'create'; defaults: TaskCreate }
 
 const Ctx = createContext<{ openTask: (id: string) => void; createTask: (defaults: TaskCreate) => void }>({
   openTask: () => {},
@@ -22,12 +22,43 @@ const Ctx = createContext<{ openTask: (id: string) => void; createTask: (default
 
 export const useTaskModal = () => useContext(Ctx)
 
+/**
+ * Task dialogs form a stack: opening a task from inside another (e.g. a daily
+ * task from its project) stacks it on top, and Save/Cancel/Escape return to
+ * the one below. Lower dialogs stay mounted (hidden) so their unsaved edits
+ * and scroll position survive.
+ */
 export function TaskModalProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<ModalState>(null)
-  const close = () => setState(null)
+  const [stack, setStack] = useState<Entry[]>([])
+  const nextKey = useRef(1)
+  const overlay = useRef<HTMLDivElement>(null)
+  const scrolls = useRef(new Map<number, number>())
+  const top = stack[stack.length - 1]
+
+  const rememberScroll = () => {
+    if (top && overlay.current) scrolls.current.set(top.key, overlay.current.scrollTop)
+  }
+  const entry = (e: { mode: 'edit'; id: string } | { mode: 'create'; defaults: TaskCreate }): Entry => ({ ...e, key: nextKey.current++ }) as Entry
+
+  const closeAll = () => setStack([])
+  const back = () => setStack((s) => s.slice(0, -1))
+  // From inside a dialog: jump back if the task is already open below, else stack it.
+  const openWithin = (id: string) => {
+    rememberScroll()
+    setStack((s) => {
+      const i = s.findIndex((e) => e.mode === 'edit' && e.id === id)
+      return i >= 0 ? s.slice(0, i + 1) : [...s, entry({ mode: 'edit', id })]
+    })
+  }
+  const replaceTop = (id: string) => setStack((s) => [...s.slice(0, -1), entry({ mode: 'edit', id })])
+
+  // Restore the scroll position of whichever dialog is now on top.
+  useLayoutEffect(() => {
+    if (top && overlay.current) overlay.current.scrollTop = scrolls.current.get(top.key) ?? 0
+  }, [top?.key])
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !e.defaultPrevented && close()
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !e.defaultPrevented && back()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
@@ -35,19 +66,27 @@ export function TaskModalProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider
       value={{
-        openTask: (id) => setState({ mode: 'edit', id }),
-        createTask: (defaults) => setState({ mode: 'create', defaults }),
+        openTask: (id) => setStack([entry({ mode: 'edit', id })]),
+        createTask: (defaults) => setStack([entry({ mode: 'create', defaults })]),
       }}
     >
       {children}
-      {state && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 pt-[6vh]" onMouseDown={close}>
-          <div className="w-full max-w-4xl rounded-xl bg-white shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
-            {state.mode === 'edit' ? (
-              <EditTask key={state.id} id={state.id} onClose={close} onOpen={(id) => setState({ mode: 'edit', id })} />
-            ) : (
-              <TaskForm initial={state.defaults} onClose={close} onSaved={(t) => setState({ mode: 'edit', id: t.id })} />
-            )}
+      {stack.length > 0 && (
+        <div ref={overlay} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 pt-[6vh]" onMouseDown={closeAll}>
+          <div className="w-full max-w-4xl" onMouseDown={(e) => e.stopPropagation()}>
+            {stack.map((e, i) => {
+              const below = stack[i - 1]
+              const backId = below?.mode === 'edit' ? below.id : undefined
+              return (
+                <div key={e.key} className={clsx('rounded-xl bg-white shadow-2xl', i !== stack.length - 1 && 'hidden')}>
+                  {e.mode === 'edit' ? (
+                    <EditTask id={e.id} onClose={back} onCloseAll={closeAll} onOpen={openWithin} backId={backId} />
+                  ) : (
+                    <TaskForm initial={e.defaults} onClose={back} onCloseAll={closeAll} onSaved={(t) => replaceTop(t.id)} backId={backId} />
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
@@ -55,7 +94,19 @@ export function TaskModalProvider({ children }: { children: ReactNode }) {
   )
 }
 
-function EditTask({ id, onClose, onOpen }: { id: string; onClose: () => void; onOpen: (id: string) => void }) {
+function EditTask({
+  id,
+  onClose,
+  onCloseAll,
+  onOpen,
+  backId,
+}: {
+  id: string
+  onClose: () => void
+  onCloseAll: () => void
+  onOpen: (id: string) => void
+  backId?: string
+}) {
   const { data, isLoading, error } = useTask(id)
   if (isLoading)
     return (
@@ -73,7 +124,9 @@ function EditTask({ id, onClose, onOpen }: { id: string; onClose: () => void; on
       waitingFor={data.waiting_for}
       blocking={data.blocking}
       onClose={onClose}
+      onCloseAll={onCloseAll}
       onOpen={onOpen}
+      backId={backId}
     />
   )
 }
@@ -142,8 +195,10 @@ function TaskForm({
   waitingFor = [],
   blocking = [],
   onClose,
+  onCloseAll,
   onOpen,
   onSaved,
+  backId,
 }: {
   task?: Task
   initial?: TaskCreate
@@ -151,9 +206,14 @@ function TaskForm({
   ancestors?: Task[]
   waitingFor?: Task[]
   blocking?: Task[]
+  /** Leave this dialog (back to the one below, if any). */
   onClose: () => void
+  /** Close every stacked dialog. */
+  onCloseAll?: () => void
   onOpen?: (id: string) => void
   onSaved?: (t: Task) => void
+  /** Task of the dialog below this one, for the "Back to" button. */
+  backId?: string
 }) {
   const [f, setF] = useState<FormState>(() => initialForm(task ?? initial ?? { title: '' }))
   const [err, setErr] = useState('')
@@ -241,7 +301,7 @@ function TaskForm({
     if (!confirm(`Delete ${task.key}${extra}?`)) return
     await del.mutateAsync(task.id)
     const p = ancestors[ancestors.length - 1]
-    if (p && onOpen) onOpen(p.id)
+    if (!backId && p && onOpen) onOpen(p.id)
     else onClose()
   }
 
@@ -254,6 +314,7 @@ function TaskForm({
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
       }}
     >
+      {backId && <BackBar id={backId} onBack={onClose} />}
       <div className="flex items-center gap-1.5 border-b border-slate-200 px-5 py-3 text-sm text-slate-500">
         {ancestors.map((a) => (
           <span key={a.id} className="flex items-center gap-1.5">
@@ -272,7 +333,7 @@ function TaskForm({
               <Trash2 size={16} />
             </Button>
           )}
-          <Button variant="ghost" onClick={onClose} title="Close (Esc)">
+          <Button variant="ghost" onClick={onCloseAll ?? onClose} title={backId ? 'Close all' : 'Close (Esc)'}>
             <X size={16} />
           </Button>
         </div>
@@ -693,5 +754,31 @@ function ProjectKindField({ value, onChange, days }: { value: ProjectKind; onCha
         </p>
       )}
     </div>
+  )
+}
+
+/** "Back to <parent>" strip shown on a dialog opened from another one. */
+function BackBar({ id, onBack }: { id: string; onBack: () => void }) {
+  const { data } = useTask(id) // already cached by the dialog below
+  return (
+    <button
+      type="button"
+      onClick={onBack}
+      title="Back (Esc)"
+      className="flex w-full items-center gap-2 rounded-t-xl border-b border-slate-200 bg-slate-50 px-5 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+    >
+      <ArrowLeft size={15} />
+      <span>
+        Back to{' '}
+        {data ? (
+          <>
+            <span className="font-semibold text-slate-800">{data.key}</span> · {data.title}
+          </>
+        ) : (
+          '…'
+        )}
+      </span>
+      <kbd className="ml-auto rounded border border-slate-300 bg-white px-1.5 text-[10px] text-slate-500">Esc</kbd>
+    </button>
   )
 }
