@@ -7,6 +7,7 @@ import { useCreateTask, useDeleteTask, useTask, useTasks, useUpdateTask, useUser
 import { canContain, defaultChildType, PRIORITIES, STATUSES, TASK_TYPES, type Priority, type Status, type Task, type TaskType } from '../lib/types'
 import { Comments } from './Comments'
 import { DateRangeField, HourlyScheduleField } from './DateTimePicker'
+import { ParentPicker } from './ParentPicker'
 import { Avatar, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge, UserSelect } from './ui'
 
 type ModalState = { mode: 'edit'; id: string } | { mode: 'create'; defaults: TaskCreate } | null
@@ -145,7 +146,6 @@ function TaskForm({
   // Possible parents: project and daily tasks in the same workspace.
   const { data: containers = [] } = useTasks({ workspace_id: workspaceId, type: 'project,daily' }, !!workspaceId)
   const parent = containers.find((c) => c.id === f.parent_id) ?? ancestors[ancestors.length - 1]
-  const parentOptions = containers.filter((c) => c.id !== task?.id && canContain(c.type, f.type))
   // A type is allowed if the parent can hold it and it can hold the existing children.
   const typeAllowed = (t: TaskType) =>
     (!f.parent_id || !parent || canContain(parent.type, t)) && childTasks.every((c) => canContain(t, c.type))
@@ -289,20 +289,14 @@ function TaskForm({
           </Field>
           {f.type !== 'project' && (
             <Field label={f.type === 'daily' ? 'Part of project' : 'Part of project / daily task'}>
-              <select className={inputCls} value={f.parent_id} onChange={(e) => up('parent_id', e.target.value)} disabled={!workspaceId}>
-                <option value="">None (independent)</option>
-                {parentOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.type === 'project' ? '▣' : '▢'} {c.key} · {c.title}
-                  </option>
-                ))}
-                {/* Keep the current parent selectable even while the list loads. */}
-                {f.parent_id && !parentOptions.some((c) => c.id === f.parent_id) && parent && (
-                  <option value={parent.id}>
-                    {parent.key} · {parent.title}
-                  </option>
-                )}
-              </select>
+              <ParentPicker
+                value={f.parent_id}
+                onChange={(id) => up('parent_id', id)}
+                childType={f.type}
+                containers={parent && !containers.some((c) => c.id === parent.id) ? [...containers, parent] : containers}
+                excludeId={task?.id}
+                disabled={!workspaceId}
+              />
             </Field>
           )}
           <div className="grid grid-cols-2 gap-2">

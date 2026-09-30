@@ -1,21 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { DayPicker, type DateRange } from 'react-day-picker'
 import 'react-day-picker/style.css'
-import {
-  autoUpdate,
-  flip,
-  FloatingFocusManager,
-  FloatingPortal,
-  offset,
-  shift,
-  size,
-  useClick,
-  useDismiss,
-  useFloating,
-  useInteractions,
-  useRole,
-} from '@floating-ui/react'
 import {
   addDays,
   addMinutes,
@@ -30,8 +16,9 @@ import {
   startOfMonth,
   startOfWeek,
 } from 'date-fns'
-import { ArrowRight, CalendarDays, Clock, X } from 'lucide-react'
+import { ArrowRight, CalendarDays, Clock } from 'lucide-react'
 import { formatDuration } from '../lib/dates'
+import { Popover, TriggerButton } from './Popover'
 
 // Values use the same string formats as native inputs so forms stay simple:
 // dates are "yyyy-MM-dd", date-times are "yyyy-MM-dd'T'HH:mm" (local time).
@@ -67,110 +54,6 @@ export function parseTime(input: string): [number, number] | null {
   }
   if (h > 23 || min > 59) return null
   return [h, min]
-}
-
-// --- popover -----------------------------------------------------------------
-
-function Popover({
-  trigger,
-  children,
-  open,
-  onOpenChange,
-}: {
-  trigger: (props: Record<string, unknown>, open: boolean) => ReactNode
-  children: ReactNode
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const { refs, floatingStyles, context } = useFloating({
-    open,
-    onOpenChange,
-    placement: 'bottom-start',
-    whileElementsMounted: autoUpdate,
-    middleware: [
-      offset(6),
-      flip({ padding: 8 }),
-      shift({ padding: 8 }),
-      size({
-        padding: 8,
-        apply: ({ availableHeight, elements }) => {
-          elements.floating.style.maxHeight = `${Math.max(availableHeight, 260)}px`
-        },
-      }),
-    ],
-  })
-  // Escape is handled below so it closes only the popover, not the task dialog.
-  const { getReferenceProps, getFloatingProps } = useInteractions([useClick(context), useDismiss(context, { escapeKey: false }), useRole(context, { role: 'dialog' })])
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape' && open) {
-      e.preventDefault()
-      e.stopPropagation()
-      onOpenChange(false)
-    }
-  }
-
-  return (
-    <>
-      {trigger({ ref: refs.setReference, ...getReferenceProps({ onKeyDown }) }, open)}
-      {open && (
-        <FloatingPortal>
-          <FloatingFocusManager context={context} modal={false} initialFocus={-1}>
-            <div
-              ref={refs.setFloating}
-              style={floatingStyles}
-              {...getFloatingProps({ onKeyDown })}
-              className="z-[70] overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/5"
-            >
-              {children}
-            </div>
-          </FloatingFocusManager>
-        </FloatingPortal>
-      )}
-    </>
-  )
-}
-
-function TriggerButton({
-  icon: Icon,
-  children,
-  placeholder,
-  open,
-  onClear,
-  className,
-  ...props
-}: {
-  icon: typeof CalendarDays
-  children?: ReactNode
-  placeholder: string
-  open: boolean
-  onClear?: () => void
-  className?: string
-} & Record<string, unknown>) {
-  return (
-    <div className={clsx('group relative', className)}>
-      <button
-        type="button"
-        {...props}
-        className={clsx(
-          'flex w-full items-center gap-2 rounded-md border bg-white px-2.5 py-1.5 text-left text-sm shadow-sm transition',
-          open ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-300 hover:border-slate-400',
-        )}
-      >
-        <Icon size={15} className="shrink-0 text-slate-400" />
-        {children ?? <span className="text-slate-400">{placeholder}</span>}
-      </button>
-      {onClear && children && (
-        <button
-          type="button"
-          title="Clear"
-          onClick={onClear}
-          className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 rounded p-0.5 text-slate-400 group-hover:block hover:bg-slate-100 hover:text-slate-600"
-        >
-          <X size={14} />
-        </button>
-      )}
-    </div>
-  )
 }
 
 function Presets({ items }: { items: { label: string; onClick: () => void; active?: boolean }[] }) {
