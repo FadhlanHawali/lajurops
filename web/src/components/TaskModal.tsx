@@ -1,15 +1,15 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
-import { ChevronRight, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { ChevronRight, Hourglass, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { fromInput, toInput } from '../lib/dates'
-import { saveEnvironments, useCreateTask, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
+import { saveEnvironments, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
 import { canContain, defaultChildType, PRIORITIES, PROJECT_KINDS, STATUSES, TASK_TYPES, type Priority, type ProjectKind, type Status, type EnvironmentDraft, type Task, type TaskType } from '../lib/types'
 import { Comments } from './Comments'
 import { DateRangeField, HourlyScheduleField } from './DateTimePicker'
 import { ParentPicker } from './ParentPicker'
 import { Dependencies } from './Dependencies'
-import { EnvironmentListEditor, EnvironmentPicker, ProjectEnvironments } from './Environments'
+import { EnvBadge, EnvironmentListEditor, EnvironmentPicker, ProjectEnvironments } from './Environments'
 import { MultiUserPicker } from './UserPicker'
 import { AvatarStack, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge } from './ui'
 
@@ -422,31 +422,21 @@ function TaskForm({
   )
 }
 
-/** Tasks inside a project (daily/hourly) or a daily task (hourly). */
+/**
+ * Tasks inside a project (daily/hourly) or a daily task (hourly). In a
+ * project with environments, tasks are grouped per environment in the
+ * project's order; drag a task to another group to change its environment.
+ */
 function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; onOpen: (id: string) => void }) {
-  const [title, setTitle] = useState('')
-  const [type, setType] = useState<TaskType>(defaultChildType(parent.type))
-  const create = useCreateTask()
+  const { data: envs = [] } = useEnvironments(parent.type === 'project' ? parent.id : undefined)
   const update = useUpdateTask()
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overGroup, setOverGroup] = useState<string | null>(null)
   const done = items.filter((s) => s.status === 'done').length
-  const allowed = useMemo(() => TASK_TYPES.filter((t) => canContain(parent.type, t.id)), [parent.type])
+  const grouped = parent.type === 'project' && envs.length > 0
 
-  const add = async () => {
-    if (!title.trim()) return
-    await create.mutateAsync({
-      title: title.trim(),
-      parent_id: parent.id,
-      type,
-      assignee_ids: parent.assignee_ids,
-      priority: parent.priority,
-      // Hourly work under a daily task usually happens in the same environment.
-      environment_id: parent.type === 'daily' ? parent.environment_id : null,
-    })
-    setTitle('')
-  }
-
-  return (
-    <div>
+  const header = (
+    <>
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-700">{parent.type === 'project' ? 'Tasks in this project' : 'Hourly tasks'}</h3>
         {items.length > 0 && (
@@ -460,47 +450,200 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
           <div className="h-full bg-emerald-500 transition-all" style={{ width: `${(done / items.length) * 100}%` }} />
         </div>
       )}
-      <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
-        {items.map((s) => (
-          <li key={s.id} className="flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-slate-50">
-            <input type="checkbox" checked={s.status === 'done'} onChange={(e) => update.mutate({ id: s.id, patch: { status: e.target.checked ? 'done' : 'todo' } })} />
-            <button className="text-xs font-medium text-blue-600 hover:underline" onClick={() => onOpen(s.id)}>
-              {s.key}
-            </button>
-            <button className={clsx('min-w-0 flex-1 truncate text-left', s.status === 'done' && 'text-slate-400 line-through')} onClick={() => onOpen(s.id)}>
-              {s.title}
-            </button>
-            {s.subtask_count > 0 && (
-              <span className="text-[11px] text-slate-400">
-                {s.subtask_done}/{s.subtask_count}
-              </span>
-            )}
-            <TypeBadge type={s.type} kind={s.project_kind} />
-            <PriorityIcon priority={s.priority} />
-            <AvatarStack ids={s.assignee_ids} />
-          </li>
-        ))}
-        <li className="flex items-center gap-2 px-2 py-1.5">
-          <Plus size={14} className="text-slate-400" />
-          {allowed.length > 1 && (
-            <select className="rounded border border-slate-200 bg-white px-1 py-0.5 text-xs" value={type} onChange={(e) => setType(e.target.value as TaskType)}>
-              {allowed.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          )}
-          <input
-            className="flex-1 bg-transparent text-sm focus:outline-none"
-            placeholder={`Add a ${type} task and press Enter`}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && add()}
-          />
-        </li>
-      </ul>
+    </>
+  )
+
+  if (!grouped) {
+    return (
+      <div>
+        {header}
+        <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
+          {items.map((s) => (
+            <ChildRow key={s.id} task={s} onOpen={onOpen} />
+          ))}
+          <AddChildRow parent={parent} environmentId={parent.type === 'daily' ? parent.environment_id : null} />
+        </ul>
+      </div>
+    )
+  }
+
+  const sections = [{ id: '', name: 'No environment', color: null }, ...envs]
+  const drop = (envId: string) => {
+    const task = items.find((t) => t.id === dragId)
+    setDragId(null)
+    setOverGroup(null)
+    if (task && (task.environment_id ?? '') !== envId) update.mutate({ id: task.id, patch: { environment_id: envId || null } })
+  }
+
+  return (
+    <div>
+      {header}
+      <div className="space-y-3">
+        {sections.map((sec) => {
+          const list = items.filter((t) => (t.environment_id ?? '') === sec.id)
+          // "No environment" only shows when it has tasks, or while dragging.
+          if (!sec.id && list.length === 0 && !dragId) return null
+          const secDone = list.filter((t) => t.status === 'done').length
+          return (
+            <section
+              key={sec.id || 'none'}
+              onDragOver={(e) => {
+                if (!dragId) return
+                e.preventDefault()
+                setOverGroup(sec.id)
+              }}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) setOverGroup((g) => (g === sec.id ? null : g))
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                drop(sec.id)
+              }}
+            >
+              <div className="mb-1 flex items-center gap-2">
+                {sec.id ? <EnvBadge name={sec.name} color={sec.color} /> : <span className="text-xs font-semibold text-slate-500">No environment</span>}
+                <span className="text-[11px] text-slate-400">
+                  {list.length === 0 ? 'no tasks' : `${list.length} task${list.length === 1 ? '' : 's'} · ${secDone} done`}
+                </span>
+              </div>
+              <ul
+                className={clsx(
+                  'divide-y divide-slate-100 rounded-md border transition',
+                  overGroup === sec.id ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-400/30' : 'border-slate-200',
+                )}
+              >
+                {list.map((s) => (
+                  <ChildRow
+                    key={s.id}
+                    task={s}
+                    onOpen={onOpen}
+                    dragging={dragId === s.id}
+                    onDragStart={() => setDragId(s.id)}
+                    onDragEnd={() => {
+                      setDragId(null)
+                      setOverGroup(null)
+                    }}
+                  />
+                ))}
+                <AddChildRow parent={parent} environmentId={sec.id || null} environmentName={sec.id ? sec.name : undefined} compact />
+              </ul>
+            </section>
+          )
+        })}
+      </div>
+      <p className="mt-2 text-[11px] text-slate-400">Drag a task to another environment to move it.</p>
     </div>
+  )
+}
+
+function ChildRow({
+  task: s,
+  onOpen,
+  dragging,
+  onDragStart,
+  onDragEnd,
+}: {
+  task: Task
+  onOpen: (id: string) => void
+  dragging?: boolean
+  onDragStart?: () => void
+  onDragEnd?: () => void
+}) {
+  const update = useUpdateTask()
+  return (
+    <li
+      draggable={!!onDragStart}
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', s.id)
+        e.dataTransfer.effectAllowed = 'move'
+        onDragStart?.()
+      }}
+      onDragEnd={onDragEnd}
+      className={clsx('flex items-center gap-2 bg-white px-2 py-1.5 text-sm hover:bg-slate-50', onDragStart && 'cursor-grab active:cursor-grabbing', dragging && 'opacity-40')}
+    >
+      <input type="checkbox" checked={s.status === 'done'} onChange={(e) => update.mutate({ id: s.id, patch: { status: e.target.checked ? 'done' : 'todo' } })} />
+      <button className="text-xs font-medium text-blue-600 hover:underline" onClick={() => onOpen(s.id)}>
+        {s.key}
+      </button>
+      <button className={clsx('min-w-0 flex-1 truncate text-left', s.status === 'done' && 'text-slate-400 line-through')} onClick={() => onOpen(s.id)}>
+        {s.title}
+      </button>
+      {s.open_blockers > 0 && s.status !== 'done' && (
+        <span title="Waiting for other tasks">
+          <Hourglass size={12} className="text-amber-500" />
+        </span>
+      )}
+      {s.subtask_count > 0 && (
+        <span className="text-[11px] text-slate-400">
+          {s.subtask_done}/{s.subtask_count}
+        </span>
+      )}
+      <TypeBadge type={s.type} kind={s.project_kind} />
+      <PriorityIcon priority={s.priority} />
+      <AvatarStack ids={s.assignee_ids} />
+    </li>
+  )
+}
+
+/** Quick-add row; tasks added here get the given environment. */
+function AddChildRow({ parent, environmentId, environmentName, compact }: { parent: Task; environmentId: string | null; environmentName?: string; compact?: boolean }) {
+  const [open, setOpen] = useState(!compact)
+  const [title, setTitle] = useState('')
+  const [type, setType] = useState<TaskType>(defaultChildType(parent.type))
+  const create = useCreateTask()
+  const allowed = useMemo(() => TASK_TYPES.filter((t) => canContain(parent.type, t.id)), [parent.type])
+
+  const add = async () => {
+    if (!title.trim()) return
+    await create.mutateAsync({
+      title: title.trim(),
+      parent_id: parent.id,
+      type,
+      assignee_ids: parent.assignee_ids,
+      priority: parent.priority,
+      environment_id: environmentId,
+    })
+    setTitle('')
+  }
+
+  if (!open) {
+    return (
+      <li>
+        <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs text-slate-400 hover:bg-slate-50 hover:text-slate-600">
+          <Plus size={13} /> Add task{environmentName ? ` to ${environmentName}` : ''}
+        </button>
+      </li>
+    )
+  }
+  return (
+    <li className="flex items-center gap-2 px-2 py-1.5">
+      <Plus size={14} className="text-slate-400" />
+      {allowed.length > 1 && (
+        <select className="rounded border border-slate-200 bg-white px-1 py-0.5 text-xs" value={type} onChange={(e) => setType(e.target.value as TaskType)}>
+          {allowed.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      )}
+      <input
+        autoFocus={compact}
+        className="flex-1 bg-transparent text-sm focus:outline-none"
+        placeholder={`Add a ${type} task${environmentName ? ` in ${environmentName}` : ''} and press Enter`}
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={() => compact && !title.trim() && setOpen(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) add()
+          if (e.key === 'Escape' && compact) {
+            e.preventDefault()
+            e.stopPropagation()
+            setOpen(false)
+          }
+        }}
+      />
+    </li>
   )
 }
 
