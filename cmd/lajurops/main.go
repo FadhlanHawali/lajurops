@@ -29,7 +29,19 @@ func main() {
 	}
 }
 
+// setupLogging applies LOG_LEVEL (debug, info, warn, error; default info).
+func setupLogging() {
+	var level slog.Level
+	if v := os.Getenv("LOG_LEVEL"); v != "" {
+		if err := level.UnmarshalText([]byte(v)); err != nil {
+			slog.Warn("ignoring invalid LOG_LEVEL", "value", v)
+		}
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+}
+
 func run() error {
+	setupLogging()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

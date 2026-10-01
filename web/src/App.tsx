@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import clsx from 'clsx'
-import { BarChart3, CalendarDays, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Settings, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
+import { AlertTriangle, BarChart3, CalendarDays, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Settings, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
 import { ImportDialog } from './components/ImportDialog'
 import { TaskModalProvider, useTaskModal } from './components/TaskModal'
 import { Avatar, Button, Field, inputCls, userName } from './components/ui'
+import { AUTH_ERROR_EVENT } from './lib/api'
 import { accountUrl, authEnabled, logout } from './lib/auth'
 import { downloadWorkspaceBackup, useCreateWorkspace, useDeleteWorkspace, useMe, useWorkspace, useWorkspaces } from './lib/queries'
 import Board from './views/Board'
@@ -18,44 +19,70 @@ export default function App() {
     <TaskModalProvider>
       <div className="flex h-screen bg-slate-50 text-slate-800">
         <Sidebar />
-        <main className="min-w-0 flex-1 overflow-hidden">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/w/:workspaceId" element={<Navigate to="board" replace />} />
-            <Route path="/w/:workspaceId/:view" element={<WorkspacePage />} />
-            <Route
-              path="/calendar"
-              element={
-                <Page title="Calendar" subtitle="Tasks across all workspaces">
-                  <Calendar />
-                </Page>
-              }
-            />
-            <Route
-              path="/reports"
-              element={
-                <Page title="Workload" subtitle="Tasks and hourly support hours per member">
-                  <div className="h-full overflow-y-auto">
-                    <Reports />
-                  </div>
-                </Page>
-              }
-            />
-            <Route
-              path="/admin/users"
-              element={
-                <Page title="Users" subtitle="Manage who can sign in to LajurOps (stored in Keycloak)">
-                  <div className="h-full overflow-y-auto">
-                    <Users />
-                  </div>
-                </Page>
-              }
-            />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <AuthErrorBanner />
+          <div className="min-h-0 flex-1">
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/w/:workspaceId" element={<Navigate to="board" replace />} />
+              <Route path="/w/:workspaceId/:view" element={<WorkspacePage />} />
+              <Route
+                path="/calendar"
+                element={
+                  <Page title="Calendar" subtitle="Tasks across all workspaces">
+                    <Calendar />
+                  </Page>
+                }
+              />
+              <Route
+                path="/reports"
+                element={
+                  <Page title="Workload" subtitle="Tasks and hourly support hours per member">
+                    <div className="h-full overflow-y-auto">
+                      <Reports />
+                    </div>
+                  </Page>
+                }
+              />
+              <Route
+                path="/admin/users"
+                element={
+                  <Page title="Users" subtitle="Manage who can sign in to LajurOps (stored in Keycloak)">
+                    <div className="h-full overflow-y-auto">
+                      <Users />
+                    </div>
+                  </Page>
+                }
+              />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </div>
         </main>
       </div>
     </TaskModalProvider>
+  )
+}
+
+/** Explains why the server rejects our token, instead of failing silently. */
+function AuthErrorBanner() {
+  const [message, setMessage] = useState('')
+  useEffect(() => {
+    const on = (e: Event) => setMessage((e as CustomEvent<string>).detail)
+    window.addEventListener(AUTH_ERROR_EVENT, on)
+    return () => window.removeEventListener(AUTH_ERROR_EVENT, on)
+  }, [])
+  if (!message) return null
+  return (
+    <div className="flex items-start gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
+      <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <b>The server rejected your sign-in.</b> <span className="break-words">{message}</span>
+        <div className="text-xs text-red-700">The server log has more detail; ask your administrator to check the OIDC settings.</div>
+      </div>
+      <button className="text-xs font-medium underline" onClick={() => setMessage('')}>
+        Dismiss
+      </button>
+    </div>
   )
 }
 

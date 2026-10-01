@@ -78,6 +78,12 @@ services:
       ADMIN_ROLE: lajurops-admin
       # Allow "import from URL" to reach private/internal addresses (off by default).
       IMPORT_ALLOW_PRIVATE_URLS: ${IMPORT_ALLOW_PRIVATE_URLS:-false}
+      # debug, info, warn or error. Rejected sign-in tokens are logged at warn with the reason.
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Corporate networks often inject HTTP(S)_PROXY into containers. Keep the
+      # calls to the other compose services off the proxy, or token checks fail (401).
+      NO_PROXY: keycloak,planner-db,localhost,127.0.0.1
+      no_proxy: keycloak,planner-db,localhost,127.0.0.1
     ports:
       - "8080:8080"
     depends_on:

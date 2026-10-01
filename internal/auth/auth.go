@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -41,10 +42,15 @@ type Authenticator struct {
 	disabled  bool
 	store     *store.Store
 	cache     sync.Map // sub -> cachedUser
+
+	issuer  string
+	jwksURL string
+	rejects rejectLog
 }
 
 func New(ctx context.Context, cfg config.Config, st *store.Store) *Authenticator {
-	a := &Authenticator{clientID: cfg.OIDCClientID, adminRole: cfg.AdminRole, disabled: cfg.AuthDisabled, store: st}
+	a := &Authenticator{clientID: cfg.OIDCClientID, adminRole: cfg.AdminRole, disabled: cfg.AuthDisabled, store: st,
+		issuer: cfg.OIDCIssuer, jwksURL: cfg.OIDCJWKSURL}
 	if a.disabled {
 		slog.Warn("AUTH_DISABLED=true: every request is treated as the local dev user")
 		return a
@@ -55,6 +61,8 @@ func New(ctx context.Context, cfg config.Config, st *store.Store) *Authenticator
 	// Keycloak access tokens carry aud=account by default; the client is
 	// identified by azp instead, which Middleware checks.
 	a.verifier = oidc.NewVerifier(cfg.OIDCIssuer, keys, &oidc.Config{SkipClientIDCheck: true})
+	slog.Info("auth: OIDC configured", "issuer", cfg.OIDCIssuer, "jwks_url", cfg.OIDCJWKSURL, "client_id", cfg.OIDCClientID, "admin_role", cfg.AdminRole)
+	go a.probe(ctx)
 	return a
 }
 
@@ -84,22 +92,30 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		} else {
 			raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if !ok || raw == "" {
-				http.Error(w, `{"error":"missing bearer token"}`, http.StatusUnauthorized)
+				a.reject(w, r, http.StatusUnauthorized, "missing bearer token", "the request has no Authorization: Bearer header")
 				return
 			}
 			tok, err := a.verifier.Verify(r.Context(), raw)
 			if err != nil {
-				slog.Debug("token rejected", "err", err)
-				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+				t, parsed := peek(raw)
+				a.reject(w, r, http.StatusUnauthorized, "invalid token", a.explain(err, t, parsed),
+					"err", err, "token_iss", t.Iss, "expected_iss", a.issuer, "token_azp", t.Azp, "kid", t.Kid, "alg", t.Alg,
+					"token_exp", unixTime(t.Exp), "server_time", time.Now().UTC().Format(time.RFC3339), "jwks_url", a.jwksURL)
 				return
 			}
 			var tc tokenClaims
-			if err := tok.Claims(&tc); err != nil || (tc.Azp != "" && tc.Azp != a.clientID) {
-				http.Error(w, `{"error":"token not issued for this client"}`, http.StatusUnauthorized)
+			if err := tok.Claims(&tc); err != nil {
+				a.reject(w, r, http.StatusUnauthorized, "invalid token", "cannot read token claims: "+err.Error())
+				return
+			}
+			if tc.Azp != "" && tc.Azp != a.clientID {
+				a.reject(w, r, http.StatusUnauthorized, "token not issued for this client",
+					fmt.Sprintf("token was issued to client %q but OIDC_CLIENT_ID is %q", tc.Azp, a.clientID))
 				return
 			}
 			c = tc.claims
 			isAdmin = slices.Contains(tc.RealmAccess.Roles, a.adminRole)
+			slog.Debug("auth: token accepted", "sub", c.Sub, "username", c.PreferredUsername, "admin", isAdmin, "path", r.URL.Path)
 		}
 		if c.PreferredUsername == "" {
 			c.PreferredUsername = c.Sub
@@ -140,4 +156,11 @@ func (a *Authenticator) user(ctx context.Context, c claims) (store.User, error) 
 	}
 	a.cache.Store(c.Sub, cachedUser{user: u, claims: c, expires: time.Now().Add(5 * time.Minute)})
 	return u, nil
+}
+
+func unixTime(sec int64) string {
+	if sec == 0 {
+		return ""
+	}
+	return time.Unix(sec, 0).UTC().Format(time.RFC3339)
 }

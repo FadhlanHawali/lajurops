@@ -223,9 +223,10 @@ make build        # web/dist + bin/lajurops
 | `KEYCLOAK_ADMIN_CLIENT_SECRET` | (empty) | Its secret; user management is disabled when empty |
 | `IMPORT_ALLOW_PRIVATE_URLS` | `false` | Let "import from URL" fetch from private/internal addresses (e.g. an intranet file server) |
 | `AUTH_DISABLED`  | `false` | Local development only: skip Keycloak entirely |
+| `LOG_LEVEL`      | `info` | `debug`, `info`, `warn` or `error`. Rejected sign-in tokens are logged at `warn` with the reason |
 
 Docker Compose reads `LAJUROPS_DB_PASSWORD`, `KEYCLOAK_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`,
-`LAJUROPS_SERVICE_CLIENT_SECRET` and `PUBLIC_KEYCLOAK_URL` from `.env` (see `.env.example`).
+`LAJUROPS_SERVICE_CLIENT_SECRET`, `PUBLIC_KEYCLOAK_URL` and `LOG_LEVEL` from `.env` (see `.env.example`).
 
 The frontend gets its Keycloak settings at runtime from `GET /api/config`, so
 one build works in every environment.
@@ -246,6 +247,28 @@ one build works in every environment.
 - Run Keycloak with `start` (not `start-dev`), TLS, and `KC_HOSTNAME` set to its public URL.
 - Put the app behind TLS; set `PUBLIC_KEYCLOAK_URL` and update the client's redirect URIs.
 - Change every default password in `.env` and the realm file.
+
+### Troubleshooting sign-in (401 "invalid token")
+
+If you can sign in but every API call fails with 401, the server rejects Keycloak's token.
+The app shows the reason in a red banner, and the server logs it:
+
+```bash
+docker compose logs app | grep auth:
+```
+
+At startup the app also checks that it can fetch the signing keys
+(`auth: OIDC signing keys reachable` or `auth: cannot fetch OIDC signing keys`). Common causes:
+
+| Log says | Fix |
+|----------|-----|
+| `cannot fetch signing keys ... requests go through proxy ...` | A corporate `HTTP_PROXY`/`HTTPS_PROXY` reached the container. Add the Keycloak host (`keycloak` in compose) to `NO_PROXY`. The bundled compose file already does this; check `~/.docker/config.json` or your own overrides |
+| `issuer mismatch: the token was issued by "X" but OIDC_ISSUER is "Y"` | Set `PUBLIC_KEYCLOAK_URL` (compose) or `OIDC_ISSUER` to exactly the Keycloak URL the browser uses (scheme, host and port), then `docker compose up -d` |
+| `token expired ...` / `issued in the future` | The server's and Keycloak's clocks disagree; enable NTP |
+| `signature does not match any key` | `OIDC_JWKS_URL` points at a different realm or Keycloak than `OIDC_ISSUER` |
+| `token was issued to client "X"` | Set `OIDC_CLIENT_ID` to the client the frontend signs in with |
+
+Set `LOG_LEVEL=debug` for a log line per accepted token as well.
 
 ### Upgrading from Open Planner
 

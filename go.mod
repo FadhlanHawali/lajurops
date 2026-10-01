@@ -6,6 +6,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.11.0
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/jackc/pgx/v5 v5.6.0
+	golang.org/x/net v0.27.0
 )
 
 require (
