@@ -228,7 +228,7 @@ make build        # web/dist + bin/lajurops
 | `LOG_LEVEL`      | `info` | `debug`, `info`, `warn` or `error`. Rejected sign-in tokens are logged at `warn` with the reason |
 
 Docker Compose reads `LAJUROPS_DB_PASSWORD`, `KEYCLOAK_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`,
-`LAJUROPS_SERVICE_CLIENT_SECRET`, `PUBLIC_KEYCLOAK_URL` and `LOG_LEVEL` from `.env` (see `.env.example`).
+`LAJUROPS_SERVICE_CLIENT_SECRET`, `PUBLIC_KEYCLOAK_URL`, `LOG_LEVEL`, `KEYCLOAK_CA_CERT` and `KEYCLOAK_TLS_SKIP_VERIFY` from `.env` (see `.env.example`).
 
 The frontend gets its Keycloak settings at runtime from `GET /api/config`, so
 one build works in every environment.
