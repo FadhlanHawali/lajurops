@@ -76,6 +76,11 @@ services:
       KEYCLOAK_ADMIN_CLIENT_ID: lajurops-service
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${LAJUROPS_SERVICE_CLIENT_SECRET:-dev-admin-secret-change-me}
       ADMIN_ROLE: lajurops-admin
+      # When the server reaches Keycloak over HTTPS with a company/internal CA:
+      # mount the CA's PEM file and point KEYCLOAK_CA_CERT at it (see README),
+      # or, as a last resort, skip certificate verification.
+      KEYCLOAK_CA_CERT: ${KEYCLOAK_CA_CERT:-}
+      KEYCLOAK_TLS_SKIP_VERIFY: ${KEYCLOAK_TLS_SKIP_VERIFY:-false}
       # Allow "import from URL" to reach private/internal addresses (off by default).
       IMPORT_ALLOW_PRIVATE_URLS: ${IMPORT_ALLOW_PRIVATE_URLS:-false}
       # debug, info, warn or error. Rejected sign-in tokens are logged at warn with the reason.

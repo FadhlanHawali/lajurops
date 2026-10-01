@@ -69,7 +69,7 @@ func (a *Authenticator) explain(err error, t peekedToken, ok bool) string {
 		return fmt.Sprintf("token issued in the future (iat %s, server time %s): the server and Keycloak clocks disagree",
 			time.Unix(t.Iat, 0).UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
 	case strings.Contains(msg, "fetching keys") || strings.Contains(msg, "get keys"):
-		return fmt.Sprintf("cannot fetch signing keys from OIDC_JWKS_URL %s%s: %s", a.jwksURL, proxyHint(a.jwksURL), msg)
+		return fmt.Sprintf("cannot fetch signing keys from OIDC_JWKS_URL %s%s%s: %s", a.jwksURL, proxyHint(a.jwksURL), tlsHint(msg), msg)
 	case strings.Contains(msg, "failed to verify signature"):
 		return fmt.Sprintf("signature does not match any key at OIDC_JWKS_URL %s (token kid %q); check it points at the same realm as OIDC_ISSUER: %s",
 			a.jwksURL, t.Kid, msg)
@@ -92,6 +92,14 @@ func proxyHint(rawURL string) string {
 	}
 	host := u.Hostname()
 	return fmt.Sprintf(" (requests go through proxy %s; add %q to NO_PROXY if Keycloak is internal)", p.Redacted(), host)
+}
+
+// tlsHint suggests the TLS settings when Keycloak's certificate is not trusted.
+func tlsHint(msg string) string {
+	if !strings.Contains(msg, "x509") && !strings.Contains(msg, "tls:") {
+		return ""
+	}
+	return " (Keycloak's TLS certificate is not trusted: set KEYCLOAK_CA_CERT to your CA's PEM file, or KEYCLOAK_TLS_SKIP_VERIFY=true as a last resort)"
 }
 
 // rejectLog logs each distinct rejection reason at Warn at most once a
@@ -134,9 +142,9 @@ func (a *Authenticator) probe(ctx context.Context) {
 	var jwks struct {
 		Keys []json.RawMessage `json:"keys"`
 	}
-	if err := getJSON(ctx, a.jwksURL, &jwks); err != nil {
+	if err := a.getJSON(ctx, a.jwksURL, &jwks); err != nil {
 		slog.Error("auth: cannot fetch OIDC signing keys; every API request will be rejected with 401",
-			"jwks_url", a.jwksURL, "err", err, "hint", "check OIDC_JWKS_URL is reachable from this container"+proxyHint(a.jwksURL))
+			"jwks_url", a.jwksURL, "err", err, "hint", "check OIDC_JWKS_URL is reachable from this container"+proxyHint(a.jwksURL)+tlsHint(err.Error()))
 		return
 	}
 	slog.Info("auth: OIDC signing keys reachable", "jwks_url", a.jwksURL, "keys", len(jwks.Keys))
@@ -151,7 +159,7 @@ func (a *Authenticator) probe(ctx context.Context) {
 	var disc struct {
 		Issuer string `json:"issuer"`
 	}
-	if err := getJSON(ctx, base+"/.well-known/openid-configuration", &disc); err != nil {
+	if err := a.getJSON(ctx, base+"/.well-known/openid-configuration", &disc); err != nil {
 		slog.Debug("auth: issuer discovery skipped", "err", err)
 		return
 	}
@@ -162,12 +170,12 @@ func (a *Authenticator) probe(ctx context.Context) {
 	}
 }
 
-func getJSON(ctx context.Context, url string, v any) error {
+func (a *Authenticator) getJSON(ctx context.Context, url string, v any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
-	res, err := http.DefaultClient.Do(req)
+	res, err := a.hc.Do(req)
 	if err != nil {
 		return err
 	}

@@ -71,7 +71,7 @@ func fakeKeycloak(t *testing.T) (*httptest.Server, *int) {
 func TestClient(t *testing.T) {
 	srv, tokens := fakeKeycloak(t)
 	ctx := context.Background()
-	c := New(srv.URL, "r", "admin-client", "s3cret")
+	c := New(srv.URL, "r", "admin-client", "s3cret", http.DefaultClient)
 
 	id, err := c.CreateUser(ctx, User{Username: "jdoe", Enabled: true}, "password1", true)
 	if err != nil || id != "new-id" {
@@ -100,7 +100,7 @@ func TestClient(t *testing.T) {
 
 func TestBadSecret(t *testing.T) {
 	srv, _ := fakeKeycloak(t)
-	_, err := New(srv.URL, "r", "admin-client", "wrong").ListUsers(context.Background(), "", 0, 10)
+	_, err := New(srv.URL, "r", "admin-client", "wrong", http.DefaultClient).ListUsers(context.Background(), "", 0, 10)
 	var ke *Error
 	if !errors.As(err, &ke) || ke.Status != http.StatusUnauthorized || ke.Message != "Invalid client secret" {
 		t.Fatalf("expected unauthorized error, got %v", err)

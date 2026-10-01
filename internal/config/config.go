@@ -38,6 +38,13 @@ type Config struct {
 	KeycloakAdminClientID     string
 	KeycloakAdminClientSecret string
 
+	// KeycloakCACert is a PEM file with extra CAs to trust when the server
+	// calls Keycloak over HTTPS (e.g. a company's internal CA).
+	KeycloakCACert string
+	// KeycloakTLSSkipVerify disables certificate verification for calls to
+	// Keycloak. Insecure; prefer KeycloakCACert.
+	KeycloakTLSSkipVerify bool
+
 	// ImportAllowPrivateURLs lets "import from URL" reach private/internal
 	// addresses (e.g. an intranet file server). Off by default to prevent
 	// the server being used to probe internal services.
@@ -61,7 +68,9 @@ func Load() (Config, error) {
 		KeycloakAdminURL:          strings.TrimRight(os.Getenv("KEYCLOAK_ADMIN_URL"), "/"),
 		KeycloakAdminClientID:     env("KEYCLOAK_ADMIN_CLIENT_ID", "lajurops-service"),
 		KeycloakAdminClientSecret: os.Getenv("KEYCLOAK_ADMIN_CLIENT_SECRET"),
+		KeycloakCACert:            os.Getenv("KEYCLOAK_CA_CERT"),
 	}
+	c.KeycloakTLSSkipVerify, _ = strconv.ParseBool(os.Getenv("KEYCLOAK_TLS_SKIP_VERIFY"))
 	c.AuthDisabled, _ = strconv.ParseBool(os.Getenv("AUTH_DISABLED"))
 	c.ImportAllowPrivateURLs, _ = strconv.ParseBool(os.Getenv("IMPORT_ALLOW_PRIVATE_URLS"))
 

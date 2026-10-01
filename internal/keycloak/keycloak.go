@@ -27,13 +27,13 @@ type Client struct {
 	expiry time.Time
 }
 
-func New(baseURL, realm, clientID, clientSecret string) *Client {
+func New(baseURL, realm, clientID, clientSecret string, hc *http.Client) *Client {
 	return &Client{
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		realm:        realm,
 		clientID:     clientID,
 		clientSecret: clientSecret,
-		hc:           &http.Client{Timeout: 15 * time.Second},
+		hc:           hc,
 	}
 }
 

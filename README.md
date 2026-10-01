@@ -221,6 +221,8 @@ make build        # web/dist + bin/lajurops
 | `KEYCLOAK_ADMIN_URL` | issuer base URL | Keycloak base URL the backend uses for the Admin API (e.g. `http://keycloak:8080`) |
 | `KEYCLOAK_ADMIN_CLIENT_ID` | `lajurops-service` | Confidential client with a service account |
 | `KEYCLOAK_ADMIN_CLIENT_SECRET` | (empty) | Its secret; user management is disabled when empty |
+| `KEYCLOAK_CA_CERT` | (empty) | PEM file with extra CA certificates to trust when the server calls Keycloak over HTTPS (internal/company CA) |
+| `KEYCLOAK_TLS_SKIP_VERIFY` | `false` | Don't verify Keycloak's TLS certificate at all. Insecure; prefer `KEYCLOAK_CA_CERT` |
 | `IMPORT_ALLOW_PRIVATE_URLS` | `false` | Let "import from URL" fetch from private/internal addresses (e.g. an intranet file server) |
 | `AUTH_DISABLED`  | `false` | Local development only: skip Keycloak entirely |
 | `LOG_LEVEL`      | `info` | `debug`, `info`, `warn` or `error`. Rejected sign-in tokens are logged at `warn` with the reason |
@@ -267,8 +269,24 @@ At startup the app also checks that it can fetch the signing keys
 | `token expired ...` / `issued in the future` | The server's and Keycloak's clocks disagree; enable NTP |
 | `signature does not match any key` | `OIDC_JWKS_URL` points at a different realm or Keycloak than `OIDC_ISSUER` |
 | `token was issued to client "X"` | Set `OIDC_CLIENT_ID` to the client the frontend signs in with |
+| `x509: certificate signed by unknown authority` | Keycloak uses a certificate from an internal CA. Trust it with `KEYCLOAK_CA_CERT` (below), or set `KEYCLOAK_TLS_SKIP_VERIFY=true` as a last resort |
 
 Set `LOG_LEVEL=debug` for a log line per accepted token as well.
+
+To trust an internal CA with Docker Compose, put its certificate (PEM) next to the compose file
+and add a `docker-compose.override.yml`:
+
+```yaml
+services:
+  app:
+    volumes:
+      - ./company-ca.pem:/certs/company-ca.pem:ro
+    environment:
+      KEYCLOAK_CA_CERT: /certs/company-ca.pem
+```
+
+These settings cover the server's calls to Keycloak (signing keys and user management).
+The browser must trust the certificate on its own, through the OS or browser certificate store.
 
 ### Upgrading from Open Planner
 

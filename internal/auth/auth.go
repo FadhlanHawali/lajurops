@@ -45,19 +45,21 @@ type Authenticator struct {
 
 	issuer  string
 	jwksURL string
+	hc      *http.Client
 	rejects rejectLog
 }
 
-func New(ctx context.Context, cfg config.Config, st *store.Store) *Authenticator {
+// New sets up token verification; hc is used for every call to Keycloak.
+func New(ctx context.Context, cfg config.Config, st *store.Store, hc *http.Client) *Authenticator {
 	a := &Authenticator{clientID: cfg.OIDCClientID, adminRole: cfg.AdminRole, disabled: cfg.AuthDisabled, store: st,
-		issuer: cfg.OIDCIssuer, jwksURL: cfg.OIDCJWKSURL}
+		issuer: cfg.OIDCIssuer, jwksURL: cfg.OIDCJWKSURL, hc: hc}
 	if a.disabled {
 		slog.Warn("AUTH_DISABLED=true: every request is treated as the local dev user")
 		return a
 	}
 	// Verify against the public issuer, but fetch keys from OIDC_JWKS_URL, which
 	// may use an internal hostname (e.g. http://keycloak:8080 inside compose).
-	keys := oidc.NewRemoteKeySet(ctx, cfg.OIDCJWKSURL)
+	keys := oidc.NewRemoteKeySet(oidc.ClientContext(ctx, hc), cfg.OIDCJWKSURL)
 	// Keycloak access tokens carry aud=account by default; the client is
 	// identified by azp instead, which Middleware checks.
 	a.verifier = oidc.NewVerifier(cfg.OIDCIssuer, keys, &oidc.Config{SkipClientIDCheck: true})

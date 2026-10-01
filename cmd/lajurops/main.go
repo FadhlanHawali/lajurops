@@ -60,14 +60,21 @@ func run() error {
 	}
 
 	st := store.New(pool)
+	kcHTTP, err := cfg.KeycloakHTTPClient()
+	if err != nil {
+		return err
+	}
+	if cfg.KeycloakTLSSkipVerify && !cfg.AuthDisabled {
+		slog.Warn("KEYCLOAK_TLS_SKIP_VERIFY=true: Keycloak's TLS certificate is NOT verified; prefer KEYCLOAK_CA_CERT")
+	}
 	var kc *keycloak.Client
 	if cfg.UserManagementEnabled() {
 		_, realm, _ := cfg.KeycloakURLAndRealm()
-		kc = keycloak.New(cfg.KeycloakAdminURL, realm, cfg.KeycloakAdminClientID, cfg.KeycloakAdminClientSecret)
+		kc = keycloak.New(cfg.KeycloakAdminURL, realm, cfg.KeycloakAdminClientID, cfg.KeycloakAdminClientSecret, kcHTTP)
 	}
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.Router(cfg, st, auth.New(ctx, cfg, st), kc, web.Handler()),
+		Handler:           api.Router(cfg, st, auth.New(ctx, cfg, st, kcHTTP), kc, web.Handler()),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
