@@ -57,9 +57,12 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
   }, [tasks])
 
   const drop = (status: Status, index: number, id: string) => {
+    // index counts the dragged card itself; shift it once that card is taken out.
+    const from = columns[status].findIndex((t) => t.id === id)
+    const at = from >= 0 && from < index ? index - 1 : index
     const list = columns[status].filter((t) => t.id !== id)
-    const before = list[index - 1]?.position
-    const after = list[index]?.position
+    const before = list[at - 1]?.position
+    const after = list[at]?.position
     const position =
       before === undefined && after === undefined ? 1 : before === undefined ? after! - 1 : after === undefined ? before + 1 : (before + after) / 2
     const task = tasks.find((t) => t.id === id)
@@ -115,7 +118,8 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/task-id', t.id)
                         e.dataTransfer.effectAllowed = 'move'
-                        setDrag({ id: t.id, status: col.id, index: i })
+                        // Re-render after the browser has started the drag, not during dragstart.
+                        setTimeout(() => setDrag({ id: t.id, status: col.id, index: i }))
                       }}
                       onDragOver={(e) => {
                         if (!drag) return

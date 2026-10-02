@@ -20,8 +20,8 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
   const update = useUpdateTask()
   const modal = useTaskModal()
   const [editing, setEditing] = useState(false)
-  const [dragId, setDragId] = useState<string | null>(null)
-  const [over, setOver] = useState<string | null>(null)
+  // Where a dragged project would land: a category column and an index among its open projects.
+  const [drag, setDrag] = useState<{ id: string; col: string; index: number } | null>(null)
   // Columns whose done projects are expanded; collapsed by default so finished work doesn't pile up.
   const [showDone, setShowDone] = useState<Set<string>>(new Set())
   const toggleDone = (id: string) =>
@@ -45,16 +45,41 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
 
   const projects = all.filter((t) => t.type === 'project' && (!assignee || t.assignee_ids.includes(assignee)))
   // Uncategorized comes first so projects still needing a category stand out.
-  const columns = [{ id: '', name: 'Uncategorized', color: null }, ...categories.map((c) => ({ id: c.id, name: c.name, color: c.color }))]
+  // When empty it only appears while dragging, as a drop target on the right:
+  // adding it on the left would shift every card out from under the cursor,
+  // and the browser cancels a drag whose source moves away at dragstart.
+  const uncategorized = { id: '', name: 'Uncategorized', color: null }
+  const hasUncategorized = projects.some((p) => !p.project_category_id)
+  const columns = [
+    ...(hasUncategorized ? [uncategorized] : []),
+    ...categories.map((c) => ({ id: c.id, name: c.name, color: c.color })),
+    ...(!hasUncategorized && drag ? [uncategorized] : []),
+  ]
 
-  const drop = (categoryId: string) => {
-    const p = projects.find((t) => t.id === dragId)
-    setDragId(null)
-    setOver(null)
-    if (p && (p.project_category_id ?? '') !== categoryId) update.mutate({ id: p.id, patch: { project_category_id: categoryId || null } })
+  const openIn = (col: string) =>
+    projects.filter((p) => (p.project_category_id ?? '') === col && p.status !== 'done').sort((a, b) => a.position - b.position || a.number - b.number)
+
+  // Same ordering scheme as the task board: a position between the neighbours.
+  const drop = () => {
+    if (!drag) return
+    const { id, col, index } = drag
+    setDrag(null)
+    const p = projects.find((t) => t.id === id)
+    if (!p) return
+    // index counts the dragged card itself; shift it once that card is taken out.
+    const from = openIn(col).findIndex((t) => t.id === id)
+    const at = from >= 0 && from < index ? index - 1 : index
+    const list = openIn(col).filter((t) => t.id !== id)
+    const before = list[at - 1]?.position
+    const after = list[at]?.position
+    const position =
+      before === undefined && after === undefined ? 1 : before === undefined ? after! - 1 : after === undefined ? before + 1 : (before + after) / 2
+    const moved = (p.project_category_id ?? '') !== col
+    if (!moved && p.position === position) return
+    update.mutate({ id, patch: moved ? { project_category_id: col || null, position } : { position } })
   }
 
-  const card = (p: Task) => {
+  const card = (p: Task, col: string, index: number) => {
     const c = counts.get(p.id) ?? { done: 0, total: 0 }
     return (
       <div
@@ -63,16 +88,22 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData('text/plain', p.id)
-          setDragId(p.id)
+          e.dataTransfer.effectAllowed = 'move'
+          // Re-render after the browser has started the drag, not during dragstart.
+          setTimeout(() => setDrag({ id: p.id, col, index }))
         }}
-        onDragEnd={() => {
-          setDragId(null)
-          setOver(null)
+        onDragOver={(e) => {
+          if (!drag) return
+          // Done cards (index -1) can't be reordered; dropping on them appends.
+          const r = e.currentTarget.getBoundingClientRect()
+          const at = index < 0 ? openIn(col).length : e.clientY < r.top + r.height / 2 ? index : index + 1
+          if (drag.col !== col || drag.index !== at) setDrag({ ...drag, col, index: at })
         }}
+        onDragEnd={() => setDrag(null)}
         onClick={() => modal.openTask(p.id)}
         className={clsx(
           'cursor-pointer space-y-2 rounded-md border border-slate-200 bg-white p-2.5 shadow-sm transition hover:border-blue-300 hover:shadow',
-          dragId === p.id && 'opacity-40',
+          drag?.id === p.id && 'opacity-40',
         )}
       >
         <p className="text-sm leading-snug font-medium text-slate-800">{p.title}</p>
@@ -101,23 +132,22 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-1">
         {columns.map((col) => {
           const list = projects.filter((p) => (p.project_category_id ?? '') === col.id)
-          if (!col.id && list.length === 0 && !dragId) return null
-          const open = list.filter((p) => p.status !== 'done')
+          const open = openIn(col.id)
           const done = list.filter((p) => p.status === 'done')
           const expanded = showDone.has(col.id)
           return (
             <div
               key={col.id || 'none'}
-              className={clsx('flex w-72 shrink-0 flex-col rounded-lg bg-slate-100 p-2', over === col.id && 'ring-2 ring-blue-400')}
+              className={clsx('flex w-72 shrink-0 flex-col rounded-lg bg-slate-100 p-2', drag?.col === col.id && 'ring-2 ring-blue-400')}
               onDragOver={(e) => {
-                if (!dragId) return
+                if (!drag) return
                 e.preventDefault()
-                setOver(col.id)
+                // Over empty space in another column: land at its end.
+                if (drag.col !== col.id && !(e.target as HTMLElement).closest('[data-card]')) setDrag({ ...drag, col: col.id, index: open.length })
               }}
-              onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver((o) => (o === col.id ? null : o))}
               onDrop={(e) => {
                 e.preventDefault()
-                drop(col.id)
+                drop()
               }}
             >
               <div className="mb-2 flex items-center justify-between px-1">
@@ -137,7 +167,13 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
               </div>
               <div className="flex-1 space-y-2 overflow-y-auto">
                 {isLoading && <div className="h-20 animate-pulse rounded-md bg-white/70" />}
-                {open.map(card)}
+                {open.map((p, i) => (
+                  <div key={p.id}>
+                    {drag?.col === col.id && drag.index === i && <DropMarker />}
+                    {card(p, col.id, i)}
+                  </div>
+                ))}
+                {drag?.col === col.id && drag.index >= open.length && <DropMarker />}
                 {!isLoading && open.length === 0 && (
                   <p className="px-1 py-6 text-center text-xs text-slate-400">{done.length ? 'No open projects' : 'No projects'}</p>
                 )}
@@ -153,14 +189,16 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
                     {done.length} done
                   </button>
                 )}
-                {expanded && done.map(card)}
+                {expanded && done.map((p) => card(p, col.id, -1))}
               </div>
             </div>
           )
         })}
       </div>
-      <p className="text-[11px] text-slate-400">A project's status and progress come from the tasks inside it. Drag a project to change its category.</p>
+      <p className="text-[11px] text-slate-400">A project's status and progress come from the tasks inside it. Drag projects to reorder them or change their category.</p>
       {editing && <ProjectCategoriesDialog workspaceId={workspaceId} onClose={() => setEditing(false)} />}
     </div>
   )
 }
+
+const DropMarker = () => <div className="my-1 h-1 rounded bg-blue-500" />
