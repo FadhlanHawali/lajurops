@@ -318,8 +318,12 @@ Backups exported before the rename (`open-planner-workspace`) still import.
 ## How reporting counts work
 
 A task counts toward the week/month its **start** falls in (creation time if unscheduled),
-for its **assignee**. *Hourly hours* = `actual_hours` when recorded, otherwise the
-scheduled duration (`end - start`). Project tasks are containers and are not counted.
+for its **assignee**. Project tasks are containers and are not counted.
+
+*Hourly support hours* are the time a person spent on hourly tasks, with **overlapping tasks
+counted once**: support done in parallel isn't double-counted. For example, 09:00–11:00 and
+09:00–11:30 on the same day make 2.5 h, not 4.5 h. Each task covers its scheduled time, or
+`actual_hours` from its start when recorded. An unscheduled task adds its `actual_hours` on its own.
 A task with several owners counts fully for each of them.
 
 ## API

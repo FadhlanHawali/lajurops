@@ -117,7 +117,7 @@ export default function Reports() {
                   {open === r.user_id && (
                     <tr>
                       <td colSpan={7} className="bg-slate-50 px-4 py-3">
-                        <UserTasks userId={r.user_id} from={fromIso} to={toIso} workspaceId={workspaceId} />
+                        <UserTasks userId={r.user_id} from={fromIso} to={toIso} workspaceId={workspaceId} hours={r.hourly_hours} />
                       </td>
                     </tr>
                   )}
@@ -128,8 +128,8 @@ export default function Reports() {
         </div>
       )}
       <p className="text-xs text-slate-400">
-        Tasks count toward the period their start date falls in ({active.length} of {rows.length} members active). Hourly hours use the task's actual hours when
-        recorded, otherwise its scheduled duration.
+        Tasks count toward the period their start date falls in ({active.length} of {rows.length} members active). Hourly support is the time spent on hourly
+        tasks: each task's scheduled time (or its actual hours from the start), with overlapping tasks counted once.
       </p>
     </div>
   )
@@ -185,24 +185,32 @@ function UserRow({ r, maxHours, open, onToggle }: { r: Workload; maxHours: numbe
   )
 }
 
-function UserTasks({ userId, from, to, workspaceId }: { userId: string; from: string; to: string; workspaceId: string }) {
+function UserTasks({ userId, from, to, workspaceId, hours }: { userId: string; from: string; to: string; workspaceId: string; hours: number }) {
   const { data = [], isLoading } = useWorkloadTasks(userId, from, to, workspaceId)
   const modal = useTaskModal()
   if (isLoading) return <div className="text-sm text-slate-400">Loading…</div>
   if (!data.length) return <div className="text-sm text-slate-500">No tasks in this period.</div>
+  const taskSum = data.filter((t) => t.type === 'hourly').reduce((a, t) => a + (t.actual_hours ?? hoursBetween(t.start_at, t.end_at)), 0)
   return (
-    <ul className="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
-      {data.map((t) => (
-        <li key={t.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-blue-50/50" onClick={() => modal.openTask(t.id)}>
-          <TypeBadge type={t.type} kind={t.project_kind} />
-          <span className="w-20 shrink-0 text-xs font-medium text-slate-500">{t.key}</span>
-          <span className="min-w-0 flex-1 truncate">{t.title}</span>
-          {t.environment_name && <EnvBadge name={t.environment_name} color={t.environment_color} />}
-          <span className="text-xs text-slate-500">{formatSchedule(t)}</span>
-          {t.type === 'hourly' && <span className="w-14 text-right text-xs font-medium tabular-nums">{fmtH(t.actual_hours ?? hoursBetween(t.start_at, t.end_at))}</span>}
-          <StatusPill status={t.status} />
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-1.5">
+      <ul className="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+        {data.map((t) => (
+          <li key={t.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-blue-50/50" onClick={() => modal.openTask(t.id)}>
+            <TypeBadge type={t.type} kind={t.project_kind} />
+            <span className="w-20 shrink-0 text-xs font-medium text-slate-500">{t.key}</span>
+            <span className="min-w-0 flex-1 truncate">{t.title}</span>
+            {t.environment_name && <EnvBadge name={t.environment_name} color={t.environment_color} />}
+            <span className="text-xs text-slate-500">{formatSchedule(t)}</span>
+            {t.type === 'hourly' && <span className="w-14 text-right text-xs font-medium tabular-nums">{fmtH(t.actual_hours ?? hoursBetween(t.start_at, t.end_at))}</span>}
+            <StatusPill status={t.status} />
+          </li>
+        ))}
+      </ul>
+      {taskSum - hours > 0.01 && (
+        <p className="text-xs text-slate-500">
+          Hourly tasks add up to {fmtH(taskSum)}, but some ran at the same time; overlapping time is counted once, giving <b>{fmtH(hours)}</b>.
+        </p>
+      )}
+    </div>
   )
 }
