@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { FolderKanban, Hourglass, MessageSquare, Plus } from 'lucide-react'
-import { DateFilter, inDateRange, ProjectFilter, thisWeek, type DateRangeFilter } from '../components/BoardFilters'
+import { DateFilter, EnvironmentFilter, inDateRange, ProjectFilter, thisWeek, type DateRangeFilter } from '../components/BoardFilters'
 import { useTaskModal } from '../components/TaskModal'
 import { EnvBadge } from '../components/Environments'
 import ProjectBoard from './ProjectBoard'
@@ -71,17 +71,7 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
     <div className="flex h-full flex-col gap-3">
       <FilterBar>
         <ProjectFilter value={projectFilter} onChange={setProjectFilter} projects={projects} />
-        {envNames.length > 0 && (
-          <select className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm" value={envFilter} onChange={(e) => setEnvFilter(e.target.value)}>
-            <option value="">All environments</option>
-            <option value="none">No environment</option>
-            {envNames.map((n) => (
-              <option key={n.toLowerCase()} value={n.toLowerCase()}>
-                {n}
-              </option>
-            ))}
-          </select>
-        )}
+        {envNames.length > 0 && <EnvironmentFilter value={envFilter} onChange={setEnvFilter} names={envNames} />}
         <DateFilter value={dates} onChange={setDates} />
       </FilterBar>
 

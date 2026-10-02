@@ -1,7 +1,8 @@
 import clsx from 'clsx'
-import { ArrowDown, ArrowUp, CalendarRange, ChevronsUp, Clock, Equal, CalendarDays, FolderKanban, Zap } from 'lucide-react'
+import { ArrowDown, ArrowUp, CalendarRange, ChevronsUp, Clock, Equal, CalendarDays, FolderKanban, UserRound, Zap } from 'lucide-react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { useMe, useTaskFilters, useUsers } from '../lib/queries'
+import { SearchSelect } from './SearchSelect'
 import type { Priority, ProjectKind, Status, TaskType, User } from '../lib/types'
 import { statusLabel } from '../lib/types'
 
@@ -151,20 +152,33 @@ export function FilterBar({ children }: { children?: ReactNode }) {
   const { assignee, type, setAssignee, setType } = useTaskFilters()
   const me = useMe().data
   const { users } = useUsers()
-  const sel = 'rounded-md border border-slate-300 bg-white px-2 py-1 text-sm'
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <select className={sel} value={assignee} onChange={(e) => setAssignee(e.target.value)}>
-        <option value="">All assignees</option>
-        {me && <option value={me.id}>Only me</option>}
-        {users
-          .filter((u) => u.id !== me?.id)
-          .map((u) => (
-            <option key={u.id} value={u.id}>
-              {userName(u)}
-            </option>
-          ))}
-      </select>
+      <SearchSelect
+        value={assignee}
+        onChange={setAssignee}
+        icon={UserRound}
+        placeholder="All assignees"
+        noun="people"
+        options={[
+          { id: '', label: 'All assignees', fixed: true },
+          ...(me ? [{ id: me.id, label: 'Only me', fixed: true }] : []),
+          ...users
+            .filter((u) => u.id !== me?.id)
+            .map((u) => ({
+              id: u.id,
+              label: userName(u),
+              keywords: [u.username, u.email ?? ''],
+              row: (
+                <>
+                  <Avatar user={u} />
+                  <span className="min-w-0 flex-1 truncate text-slate-800">{userName(u)}</span>
+                  <span className="shrink-0 text-xs text-slate-400">@{u.username}</span>
+                </>
+              ),
+            })),
+        ]}
+      />
       <div className="inline-flex overflow-hidden rounded-md border border-slate-300 text-sm">
         {[
           ['', 'All types'],

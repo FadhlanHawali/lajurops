@@ -1,141 +1,49 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useState } from 'react'
 import clsx from 'clsx'
 import { DayPicker } from 'react-day-picker'
 import 'react-day-picker/style.css'
 import { addDays, addMonths, addWeeks, endOfMonth, endOfWeek, format, isSameDay, startOfDay, startOfMonth, startOfWeek } from 'date-fns'
-import { CalendarDays, Check, ChevronDown, CornerDownLeft, FolderKanban, Search } from 'lucide-react'
+import { CalendarDays, FolderKanban, Layers } from 'lucide-react'
 import type { Task } from '../lib/types'
-import { matchScore } from './ParentPicker'
 import { Popover } from './Popover'
+import { FilterTrigger, SearchSelect, type SearchOption } from './SearchSelect'
 import { taskColor } from './ui'
-
-/** Compact trigger matching the filter bar's selects. */
-function FilterTrigger({ icon: Icon, label, open, active, ...props }: { icon: typeof Search; label: React.ReactNode; open: boolean; active?: boolean } & Record<string, unknown>) {
-  return (
-    <button
-      type="button"
-      {...props}
-      className={clsx(
-        'flex max-w-72 items-center gap-1.5 rounded-md border bg-white px-2 py-1 text-sm transition',
-        open ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-300 hover:border-slate-400',
-        active && 'font-medium text-blue-700',
-      )}
-    >
-      <Icon size={14} className="shrink-0 text-slate-400" />
-      <span className="min-w-0 truncate">{label}</span>
-      <ChevronDown size={14} className="shrink-0 text-slate-400" />
-    </button>
-  )
-}
 
 // --- project filter ---------------------------------------------------------
 
 /** '' = all, 'none' = independent tasks, otherwise a project id. */
 export function ProjectFilter({ value, onChange, projects }: { value: string; onChange: (v: string) => void; projects: Task[] }) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const [active, setActive] = useState(0)
-  const listRef = useRef<HTMLUListElement>(null)
-
-  const fixed = [
-    { id: '', label: 'All projects' },
-    { id: 'none', label: 'Independent tasks' },
+  const options: SearchOption[] = [
+    { id: '', label: 'All projects', fixed: true },
+    { id: 'none', label: 'Independent tasks', fixed: true },
+    ...projects.map((p) => ({
+      id: p.id,
+      label: p.title,
+      keywords: [p.key],
+      dimmed: p.status === 'done',
+      row: (
+        <>
+          <span className={clsx('h-2 w-2 shrink-0 rounded-sm', taskColor(p))} />
+          <span className="w-14 shrink-0 text-xs font-medium text-slate-400">{p.key}</span>
+          <span className={clsx('min-w-0 flex-1 truncate', p.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-800')}>{p.title}</span>
+          <span className={clsx('shrink-0 text-[10px] font-medium uppercase', p.project_kind === 'short' ? 'text-orange-600' : 'text-amber-700')}>{p.project_kind}</span>
+        </>
+      ),
+    })),
   ]
-  const q = query.trim().toLowerCase()
-  const results = useMemo(() => {
-    const openFirst = (a: Task, b: Task) => Number(a.status === 'done') - Number(b.status === 'done')
-    if (!q) return [...projects].sort((a, b) => openFirst(a, b) || a.title.localeCompare(b.title))
-    return projects
-      .map((p) => ({ p, s: matchScore(p, q) }))
-      .filter((r) => r.s > 0)
-      .sort((a, b) => b.s - a.s || openFirst(a.p, b.p) || a.p.title.localeCompare(b.p.title))
-      .map((r) => r.p)
-  }, [projects, q])
-  // While searching only matching projects are listed; otherwise the two fixed rows come first.
-  const rows: { id: string; label: string; project?: Task }[] = [...(q ? [] : fixed), ...results.map((p) => ({ id: p.id, label: p.title, project: p }))]
+  return <SearchSelect value={value} onChange={onChange} options={options} icon={FolderKanban} placeholder="All projects" noun="projects" width="w-80" />
+}
 
-  useEffect(() => setActive(0), [q])
-  useEffect(() => {
-    listRef.current?.querySelector(`[data-row="${active}"]`)?.scrollIntoView({ block: 'nearest' })
-  }, [active])
+// --- environment filter -----------------------------------------------------
 
-  const pick = (id: string) => {
-    onChange(id)
-    setOpen(false)
-  }
-  const selected = projects.find((p) => p.id === value)
-  const label = selected ? selected.title : (fixed.find((f) => f.id === value)?.label ?? 'All projects')
-
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(o) => {
-        setOpen(o)
-        if (o) setQuery('')
-      }}
-      trigger={(props, isOpen) => <FilterTrigger icon={FolderKanban} label={label} open={isOpen} active={!!value} {...props} />}
-    >
-      <div className="w-80">
-        <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
-          <Search size={14} className="shrink-0 text-slate-400" />
-          <input
-            autoFocus
-            className="w-full bg-transparent text-sm focus:outline-none"
-            placeholder="Search projects…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowDown') {
-                e.preventDefault()
-                setActive((a) => Math.min(a + 1, rows.length - 1))
-              } else if (e.key === 'ArrowUp') {
-                e.preventDefault()
-                setActive((a) => Math.max(a - 1, 0))
-              } else if (e.key === 'Enter' && rows[active]) {
-                e.preventDefault()
-                pick(rows[active].id)
-              }
-            }}
-          />
-        </div>
-        <ul ref={listRef} className="max-h-72 overflow-y-auto p-1">
-          {rows.map((r, i) => (
-            <li
-              key={r.id || 'all'}
-              data-row={i}
-              role="option"
-              aria-selected={r.id === value}
-              onMouseEnter={() => setActive(i)}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick(r.id)}
-              className={clsx('flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm', i === active && 'bg-blue-50')}
-            >
-              {r.project ? (
-                <>
-                  <span className={clsx('h-2 w-2 shrink-0 rounded-sm', taskColor(r.project))} />
-                  <span className="w-14 shrink-0 text-xs font-medium text-slate-400">{r.project.key}</span>
-                  <span className={clsx('min-w-0 flex-1 truncate', r.project.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-800')}>{r.label}</span>
-                  <span className={clsx('shrink-0 text-[10px] font-medium uppercase', r.project.project_kind === 'short' ? 'text-orange-600' : 'text-amber-700')}>
-                    {r.project.project_kind}
-                  </span>
-                </>
-              ) : (
-                <span className="flex-1 text-slate-600">{r.label}</span>
-              )}
-              {r.id === value && <Check size={14} className="shrink-0 text-blue-600" />}
-            </li>
-          ))}
-          {rows.length === 0 && <li className="px-2 py-3 text-center text-sm text-slate-400">No matching projects</li>}
-        </ul>
-        <div className="flex justify-between border-t border-slate-100 px-3 py-1.5 text-[11px] text-slate-400">
-          <span>{q ? `${results.length} match${results.length === 1 ? '' : 'es'}` : `${projects.length} project${projects.length === 1 ? '' : 's'} · type to search`}</span>
-          <span className="flex items-center gap-1">
-            ↑↓ <CornerDownLeft size={10} />
-          </span>
-        </div>
-      </div>
-    </Popover>
-  )
+/** '' = all, 'none' = no environment, otherwise a lower-cased environment name. */
+export function EnvironmentFilter({ value, onChange, names }: { value: string; onChange: (v: string) => void; names: string[] }) {
+  const options: SearchOption[] = [
+    { id: '', label: 'All environments', fixed: true },
+    { id: 'none', label: 'No environment', fixed: true },
+    ...names.map((n) => ({ id: n.toLowerCase(), label: n })),
+  ]
+  return <SearchSelect value={value} onChange={onChange} options={options} icon={Layers} placeholder="All environments" noun="environments" width="w-64" />
 }
 
 // --- date filter ------------------------------------------------------------
