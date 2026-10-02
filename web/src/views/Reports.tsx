@@ -8,13 +8,17 @@ import { Avatar, Button, Empty, StatusPill, TypeBadge, userName } from '../compo
 import { formatSchedule, hoursBetween } from '../lib/dates'
 import { useWorkspaces, useUsers, useWorkload, useWorkloadTasks } from '../lib/queries'
 import type { Workload } from '../lib/types'
+import WeekGrid from './WeekGrid'
 
 type Period = 'week' | 'month'
 
 const fmtH = (h: number) => (Math.round(h * 10) / 10).toLocaleString() + 'h'
 
 export default function Reports() {
-  const [period, setPeriod] = useState<Period>('week')
+  const [view, setView] = useState<'person' | 'grid'>('person')
+  const [periodChoice, setPeriod] = useState<Period>('week')
+  // The week grid is always one week.
+  const period: Period = view === 'grid' ? 'week' : periodChoice
   const [anchor, setAnchor] = useState(() => new Date())
   const [workspaceId, setWorkspaceId] = useState('')
   const [open, setOpen] = useState<string | null>(null)
@@ -60,12 +64,26 @@ export default function Reports() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="inline-flex overflow-hidden rounded-md border border-slate-300 text-sm">
-          {(['week', 'month'] as const).map((p) => (
-            <button key={p} onClick={() => setPeriod(p)} className={clsx('px-3 py-1', period === p ? 'bg-slate-800 text-white' : 'bg-white text-slate-600')}>
-              {p === 'week' ? 'Weekly' : 'Monthly'}
+          {(
+            [
+              ['person', 'By person'],
+              ['grid', 'Week grid'],
+            ] as const
+          ).map(([v, label]) => (
+            <button key={v} onClick={() => setView(v)} className={clsx('px-3 py-1', view === v ? 'bg-slate-800 text-white' : 'bg-white text-slate-600')}>
+              {label}
             </button>
           ))}
         </div>
+        {view === 'person' && (
+          <div className="inline-flex overflow-hidden rounded-md border border-slate-300 text-sm">
+            {(['week', 'month'] as const).map((p) => (
+              <button key={p} onClick={() => setPeriod(p)} className={clsx('px-3 py-1', period === p ? 'bg-slate-800 text-white' : 'bg-white text-slate-600')}>
+                {p === 'week' ? 'Weekly' : 'Monthly'}
+              </button>
+            ))}
+          </div>
+        )}
         <Button variant="ghost" onClick={() => shift(-1)}>
           <ChevronLeft size={16} />
         </Button>
@@ -94,7 +112,9 @@ export default function Reports() {
         <Stat label="Completed" value={`${totals.done} / ${totals.total}`} accent="text-emerald-600" />
       </div>
 
-      {!isLoading && rows.length === 0 ? (
+      {view === 'grid' ? (
+        <WeekGrid from={from} rows={rows} workspaceId={workspaceId} />
+      ) : !isLoading && rows.length === 0 ? (
         <Empty>No users yet — users appear here after their first Keycloak login.</Empty>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
@@ -128,6 +148,7 @@ export default function Reports() {
         </div>
       )}
       <p className="text-xs text-slate-400">
+        {view === 'grid' && 'The grid shows hourly tasks on the day they start; click one to open it. '}
         Tasks count toward the period their start date falls in ({active.length} of {rows.length} members active). Hourly support is the time spent on hourly
         tasks: each task's scheduled time (or its actual hours from the start), with overlapping tasks counted once.
       </p>

@@ -113,6 +113,7 @@ grant admin) and can sync with Keycloak to clean up people deleted there.
 - **Comments** on projects, daily and hourly tasks, written in **Markdown** (GitHub flavoured: checklists, tables, code blocks) with a formatting toolbar and preview; authors can edit/delete their own comments, admins can delete any
 - **Backup & restore**: export a workspace to JSON; import a backup from a file or a URL as a new workspace
 - **Workload report**: per user, per week or month: hourly hours, hourly/daily task counts, completion; drill down and export CSV
+- **Week grid**: people × days for one week, listing each person's hourly tasks per day with daily and weekly hours (parallel work counted once)
 - **Keycloak** sign-in (OIDC + PKCE) with an in-app sign-in screen
 - **User management** for admins: create, edit, disable, delete users, reset passwords and grant the admin role (via the Keycloak Admin API)
 
