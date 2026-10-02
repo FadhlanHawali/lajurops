@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { FolderKanban, Hourglass, MessageSquare, Plus } from 'lucide-react'
+import { DateFilter, inDateRange, ProjectFilter, thisWeek, type DateRangeFilter } from '../components/BoardFilters'
 import { useTaskModal } from '../components/TaskModal'
 import { EnvBadge } from '../components/Environments'
 import ProjectBoard from './ProjectBoard'
@@ -19,6 +20,7 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
   const { assignee, type } = useTaskFilters()
   const [projectFilter, setProjectFilter] = useState('') // '' = all, 'none' = independent, else project id
   const [envFilter, setEnvFilter] = useState('') // environment name, matched across projects
+  const [dates, setDates] = useState<DateRangeFilter>(thisWeek)
   // Load every type so cards can show which project they belong to.
   const { data: all = [], isLoading } = useTasks({ workspace_id: workspaceId })
   const byId = useMemo(() => new Map(all.map((t) => [t.id, t])), [all])
@@ -40,7 +42,8 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
       (type ? t.type === type : t.type !== 'project') &&
       (!assignee || t.assignee_ids.includes(assignee)) &&
       (!projectFilter || (projectFilter === 'none' ? !projectOf(t) : projectOf(t)?.id === projectFilter)) &&
-      (!envFilter || (envFilter === 'none' ? !t.environment_name : t.environment_name?.toLowerCase() === envFilter)),
+      (!envFilter || (envFilter === 'none' ? !t.environment_name : t.environment_name?.toLowerCase() === envFilter)) &&
+      inDateRange(t, dates),
   )
   const update = useUpdateTask()
   const modal = useTaskModal()
@@ -67,24 +70,7 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
   return (
     <div className="flex h-full flex-col gap-3">
       <FilterBar>
-        <select className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
-          <option value="">All projects</option>
-          <option value="none">Independent tasks</option>
-          {(['long', 'short'] as const).map((kind) => {
-            const list = projects.filter((p) => p.project_kind === kind)
-            return (
-              list.length > 0 && (
-                <optgroup key={kind} label={kind === 'long' ? 'Long projects' : 'Short projects'}>
-                  {list.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.key} · {p.title}
-                    </option>
-                  ))}
-                </optgroup>
-              )
-            )
-          })}
-        </select>
+        <ProjectFilter value={projectFilter} onChange={setProjectFilter} projects={projects} />
         {envNames.length > 0 && (
           <select className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm" value={envFilter} onChange={(e) => setEnvFilter(e.target.value)}>
             <option value="">All environments</option>
@@ -96,6 +82,7 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
             ))}
           </select>
         )}
+        <DateFilter value={dates} onChange={setDates} />
       </FilterBar>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-x-auto md:grid-cols-4">
