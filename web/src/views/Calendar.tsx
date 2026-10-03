@@ -4,7 +4,7 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import listPlugin from '@fullcalendar/list'
-import type { EventInput, EventDropArg, DatesSetArg } from '@fullcalendar/core'
+import type { EventContentArg, EventInput, EventDropArg, DatesSetArg } from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import { useTaskModal } from '../components/TaskModal'
 import { FilterBar, userName } from '../components/ui'
@@ -88,6 +88,7 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
           slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
           events={events}
           datesSet={(arg: DatesSetArg) => setRange({ from: arg.start.toISOString(), to: arg.end.toISOString() })}
+          eventContent={renderEvent}
           eventClick={(arg) => modal.openTask(arg.event.id)}
           eventDrop={persist}
           eventResize={persist}
@@ -103,6 +104,36 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
             arg.view.calendar.unselect()
           }}
         />
+      </div>
+    </div>
+  )
+}
+
+/** Done tasks read "[DONE] ~~title~~"; everything else uses FullCalendar's default rendering. */
+function renderEvent(arg: EventContentArg) {
+  if ((arg.event.extendedProps.task as Task).status !== 'done') return true
+  const title = (
+    <>
+      <b className="mr-1 no-underline">[DONE]</b>
+      <span className="line-through">{arg.event.title}</span>
+    </>
+  )
+  // The list view lays out time and title itself; only the title is ours there.
+  if (arg.view.type.startsWith('list')) return title
+  // Timed events in the month grid are a dot + time + title on one line.
+  if (arg.view.type === 'dayGridMonth' && !arg.event.allDay)
+    return (
+      <>
+        <div className="fc-daygrid-event-dot" style={{ borderColor: arg.event.backgroundColor }} />
+        {arg.timeText && <div className="fc-event-time">{arg.timeText}</div>}
+        <div className="fc-event-title">{title}</div>
+      </>
+    )
+  return (
+    <div className="fc-event-main-frame">
+      {arg.timeText && <div className="fc-event-time">{arg.timeText}</div>}
+      <div className="fc-event-title-container">
+        <div className="fc-event-title fc-sticky">{title}</div>
       </div>
     </div>
   )
