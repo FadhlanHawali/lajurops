@@ -153,7 +153,12 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
           return (
             <div
               key={col.id || 'none'}
-              className={clsx('flex w-72 shrink-0 flex-col rounded-lg bg-slate-100 p-2', drag?.col === col.id && 'ring-2 ring-blue-400')}
+              className={clsx(
+                'flex flex-col rounded-lg bg-slate-100 p-2',
+                // Columns share the width like the task board; the drag-only drop zone stays narrow.
+                !col.id && list.length === 0 ? 'w-56 shrink-0' : 'max-w-xl min-w-72 flex-1 basis-0',
+                drag?.col === col.id && 'ring-2 ring-blue-400',
+              )}
               onDragOver={(e) => {
                 if (!drag) return
                 e.preventDefault()
