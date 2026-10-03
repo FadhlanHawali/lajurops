@@ -62,6 +62,7 @@ export function SearchSelect({
   noun,
   width = 'w-72',
   variant = 'filter',
+  search = true,
 }: {
   value: string
   onChange: (id: string) => void
@@ -73,6 +74,8 @@ export function SearchSelect({
   width?: string
   /** "filter": compact filter-bar trigger; "field": full-width form input. */
   variant?: 'filter' | 'field'
+  /** Show the search box; off for short fixed lists (keyboard still works). */
+  search?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -92,6 +95,10 @@ export function SearchSelect({
   }, [options, q])
 
   useEffect(() => setActive(0), [q])
+  // Without a search box the list takes focus so the arrow keys work.
+  useEffect(() => {
+    if (open && !search) requestAnimationFrame(() => listRef.current?.focus())
+  }, [open, search])
   useEffect(() => {
     listRef.current?.querySelector(`[data-row="${active}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [active])
@@ -100,6 +107,18 @@ export function SearchSelect({
     onChange(id)
     setOpen(false)
   }
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActive((a) => Math.min(a + 1, rows.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActive((a) => Math.max(a - 1, 0))
+    } else if (e.key === 'Enter' && rows[active]) {
+      e.preventDefault()
+      pick(rows[active].id)
+    }
+  }
   const selected = options.find((o) => o.id === value)
 
   return (
@@ -107,7 +126,11 @@ export function SearchSelect({
       open={open}
       onOpenChange={(o) => {
         setOpen(o)
-        if (o) setQuery('')
+        if (o) {
+          setQuery('')
+          // Without a search box, start on the current value.
+          if (!search) setActive(Math.max(0, options.findIndex((x) => x.id === value)))
+        }
       }}
       trigger={(props, isOpen) =>
         variant === 'field' ? (
@@ -130,29 +153,25 @@ export function SearchSelect({
       matchWidth={variant === 'field'}
     >
       <div className={variant === 'field' ? 'w-full' : width}>
-        <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
-          <Search size={14} className="shrink-0 text-slate-400" />
-          <input
-            autoFocus
-            className="w-full bg-transparent text-sm focus:outline-none"
-            placeholder={`Search ${noun}…`}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowDown') {
-                e.preventDefault()
-                setActive((a) => Math.min(a + 1, rows.length - 1))
-              } else if (e.key === 'ArrowUp') {
-                e.preventDefault()
-                setActive((a) => Math.max(a - 1, 0))
-              } else if (e.key === 'Enter' && rows[active]) {
-                e.preventDefault()
-                pick(rows[active].id)
-              }
-            }}
-          />
-        </div>
-        <ul ref={listRef} className="max-h-72 overflow-y-auto p-1">
+        {search && (
+          <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+            <Search size={14} className="shrink-0 text-slate-400" />
+            <input
+              autoFocus
+              className="w-full bg-transparent text-sm focus:outline-none"
+              placeholder={`Search ${noun}…`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onKeyDown}
+            />
+          </div>
+        )}
+        <ul
+          ref={listRef}
+          className="max-h-72 overflow-y-auto p-1 focus:outline-none"
+          role="listbox"
+          {...(!search && { tabIndex: -1, onKeyDown })}
+        >
           {rows.map((o, i) => (
             <li
               key={o.id || '__all'}
@@ -170,12 +189,14 @@ export function SearchSelect({
           ))}
           {rows.length === 0 && <li className="px-2 py-3 text-center text-sm text-slate-400">No matching {noun}</li>}
         </ul>
-        <div className="flex justify-between border-t border-slate-100 px-3 py-1.5 text-[11px] text-slate-400">
-          <span>{q ? `${rows.length} match${rows.length === 1 ? '' : 'es'}` : `${searchable.length} ${noun} · type to search`}</span>
-          <span className="flex items-center gap-1">
-            ↑↓ <CornerDownLeft size={10} />
-          </span>
-        </div>
+        {search && (
+          <div className="flex justify-between border-t border-slate-100 px-3 py-1.5 text-[11px] text-slate-400">
+            <span>{q ? `${rows.length} match${rows.length === 1 ? '' : 'es'}` : `${searchable.length} ${noun} · type to search`}</span>
+            <span className="flex items-center gap-1">
+              ↑↓ <CornerDownLeft size={10} />
+            </span>
+          </div>
+        )}
       </div>
     </Popover>
   )

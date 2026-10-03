@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
-import { ArrowLeft, CheckCircle2, ChevronRight, Hourglass, Loader2, Plus, Tags, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ChevronRight, CircleDot, Flag, Hourglass, Loader2, Plus, Tags, Trash2, X } from 'lucide-react'
 import { dotStyle } from '../lib/colors'
 import { fromInput, toInput } from '../lib/dates'
 import { saveEnvironments, useCategories, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
@@ -467,23 +467,42 @@ function TaskForm({
               </Field>
             ) : (
               <Field label="Status">
-                <select className={inputCls} value={f.status} onChange={(e) => up('status', e.target.value as Status)}>
-                  {STATUSES.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
+                <SearchSelect
+                  variant="field"
+                  search={false}
+                  value={f.status}
+                  onChange={(v) => up('status', v as Status)}
+                  icon={CircleDot}
+                  placeholder="Status"
+                  noun="statuses"
+                  options={STATUSES.map((st) => ({ id: st.id, label: st.label, icon: <StatusDot status={st.id} />, row: <StatusPill status={st.id} /> }))}
+                />
               </Field>
             )}
             <Field label="Priority">
-              <select className={inputCls} value={f.priority} onChange={(e) => up('priority', e.target.value as Priority)}>
-                {PRIORITIES.map((p) => (
-                  <option key={p} value={p}>
-                    {p[0].toUpperCase() + p.slice(1)}
-                  </option>
-                ))}
-              </select>
+              <SearchSelect
+                variant="field"
+                search={false}
+                value={f.priority}
+                onChange={(v) => up('priority', v as Priority)}
+                icon={Flag}
+                placeholder="Priority"
+                noun="priorities"
+                options={PRIORITIES.map((p) => {
+                  const label = p[0].toUpperCase() + p.slice(1)
+                  return {
+                    id: p,
+                    label,
+                    icon: <PriorityIcon priority={p} />,
+                    row: (
+                      <>
+                        <PriorityIcon priority={p} />
+                        <span className="flex-1 text-slate-800">{label}</span>
+                      </>
+                    ),
+                  }
+                })}
+              />
             </Field>
           </div>
           <Field label={f.type === 'project' ? 'Owners' : 'Assignees'}>
@@ -865,3 +884,6 @@ function BackBar({ id, onBack }: { id: string; onBack: () => void }) {
     </button>
   )
 }
+
+const STATUS_DOT: Record<Status, string> = { todo: 'bg-slate-400', in_progress: 'bg-blue-500', in_review: 'bg-amber-500', done: 'bg-emerald-500' }
+const StatusDot = ({ status }: { status: Status }) => <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-full', STATUS_DOT[status])} />
