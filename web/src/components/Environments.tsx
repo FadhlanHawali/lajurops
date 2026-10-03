@@ -2,19 +2,12 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { ChevronLeft, ChevronRight, Layers, Plus, X } from 'lucide-react'
 import { useEnvironments, useSetEnvironments } from '../lib/queries'
+import { dotStyle, PALETTE_NAMES, pillStyle } from '../lib/colors'
 import type { EnvColor, EnvironmentDraft } from '../lib/types'
+import { ColorPicker } from './ColorPicker'
 
-const ENV_CLS: Record<EnvColor, { pill: string; dot: string }> = {
-  slate: { pill: 'bg-slate-100 text-slate-700 ring-slate-300', dot: 'bg-slate-400' },
-  green: { pill: 'bg-emerald-100 text-emerald-800 ring-emerald-300', dot: 'bg-emerald-500' },
-  blue: { pill: 'bg-blue-100 text-blue-800 ring-blue-300', dot: 'bg-blue-500' },
-  amber: { pill: 'bg-amber-100 text-amber-800 ring-amber-300', dot: 'bg-amber-500' },
-  violet: { pill: 'bg-violet-100 text-violet-800 ring-violet-300', dot: 'bg-violet-500' },
-  red: { pill: 'bg-red-100 text-red-700 ring-red-300', dot: 'bg-red-500' },
-  teal: { pill: 'bg-teal-100 text-teal-800 ring-teal-300', dot: 'bg-teal-500' },
-  pink: { pill: 'bg-pink-100 text-pink-700 ring-pink-300', dot: 'bg-pink-500' },
-}
-const COLORS = Object.keys(ENV_CLS) as EnvColor[]
+// Guessing new colours goes through the palette in order; grey looks like "no colour", so it's skipped.
+const COLORS = PALETTE_NAMES.filter((c) => c !== 'slate')
 
 const PRESETS: { name: string; color: EnvColor }[] = [
   { name: 'Dev', color: 'green' },
@@ -40,13 +33,25 @@ export function guessColor(name: string, taken: EnvColor[] = []): EnvColor {
   return COLORS.find((c) => !taken.includes(c)) ?? 'slate'
 }
 
-export function EnvBadge({ name, color, size = 'sm', className }: { name: string; color: EnvColor | null; size?: 'xs' | 'sm'; className?: string }) {
+export function EnvBadge({
+  name,
+  color,
+  size = 'sm',
+  className,
+  title = `Environment: ${name}`,
+}: {
+  name: string
+  color: EnvColor | null
+  size?: 'xs' | 'sm'
+  className?: string
+  title?: string
+}) {
   return (
     <span
-      title={`Environment: ${name}`}
+      title={title}
+      style={pillStyle(color)}
       className={clsx(
-        'inline-flex max-w-32 shrink-0 items-center gap-1 truncate rounded font-semibold ring-1 ring-inset',
-        ENV_CLS[color ?? 'slate'].pill,
+        'inline-flex max-w-32 shrink-0 items-center gap-1 truncate rounded font-semibold',
         size === 'xs' ? 'px-1 py-px text-[9px] tracking-wide uppercase' : 'px-1.5 py-0.5 text-[11px]',
         className,
       )}
@@ -112,7 +117,7 @@ export function EnvironmentListEditor({
     ;[next[i], next[j]] = [next[j], next[i]]
     onChange(next)
   }
-  const cycleColor = (i: number) => onChange(items.map((e, j) => (j === i ? { ...e, color: COLORS[(COLORS.indexOf(e.color) + 1) % COLORS.length] } : e)))
+  const setColor = (i: number, color: EnvColor) => onChange(items.map((e, j) => (j === i ? { ...e, color } : e)))
   const rename = (i: number) => {
     const n = editName.trim()
     setEditing(null)
@@ -127,9 +132,9 @@ export function EnvironmentListEditor({
       {items.length > 0 ? (
         <ol className="flex flex-wrap items-center gap-1.5">
           {items.map((e, i) => (
-            <li key={e.id || `new-${e.name}`} className={clsx('group flex items-center gap-1 rounded-md py-1 pr-1 pl-1.5 text-sm ring-1 ring-inset', ENV_CLS[e.color].pill)}>
+            <li key={e.id || `new-${e.name}`} style={pillStyle(e.color)} className="group flex items-center gap-1 rounded-md py-1 pr-1 pl-1.5 text-sm">
               <span className="w-4 text-center text-[10px] font-medium opacity-50">{i + 1}</span>
-              <button type="button" title="Change colour" onClick={() => cycleColor(i)} className={clsx('h-2.5 w-2.5 rounded-full', ENV_CLS[e.color].dot)} />
+              <ColorPicker value={e.color} onChange={(c) => setColor(i, c)} size="sm" />
               {editing === i ? (
                 <input
                   autoFocus
@@ -160,7 +165,7 @@ export function EnvironmentListEditor({
                 </button>
               )}
               {!!e.task_count && <span className="text-[10px] opacity-60">{e.task_count}</span>}
-              <span className="hidden items-center group-hover:flex">
+              <span className="invisible flex items-center group-focus-within:visible group-hover:visible">
                 <button type="button" title="Move earlier" onClick={() => move(i, -1)} className="rounded p-0.5 hover:bg-white/60 disabled:opacity-30" disabled={i === 0}>
                   <ChevronLeft size={12} />
                 </button>
@@ -257,10 +262,11 @@ export function EnvironmentPicker({ projectId, value, onChange }: { projectId?: 
           onClick={() => onChange(e.id)}
           className={clsx(
             'flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ring-1 ring-inset transition',
-            value === e.id ? clsx(ENV_CLS[e.color].pill, 'ring-2') : 'text-slate-600 ring-slate-200 hover:bg-slate-50',
+            value === e.id ? '' : 'text-slate-600 ring-slate-200 hover:bg-slate-50',
           )}
+          style={value === e.id ? pillStyle(e.color, 2) : undefined}
         >
-          <span className={clsx('h-2 w-2 rounded-full', ENV_CLS[e.color].dot)} />
+          <span className="h-2 w-2 rounded-full" style={dotStyle(e.color)} />
           {e.name}
         </button>
       ))}

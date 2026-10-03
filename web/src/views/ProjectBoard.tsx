@@ -172,7 +172,7 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
             >
               <div className="mb-2 flex items-center justify-between px-1">
                 <span className="flex items-center gap-2">
-                  {col.id ? <EnvBadge name={col.name} color={col.color} /> : <span className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Uncategorized</span>}
+                  {col.id ? <EnvBadge name={col.name} color={col.color} title={`Category: ${col.name}`} /> : <span className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Uncategorized</span>}
                   <span className="text-xs text-slate-400" title={`${allOpen.length} open, ${allDone.length} done`}>
                     {view.filtering ? `${open.length} of ${allOpen.length}` : allOpen.length}
                   </span>

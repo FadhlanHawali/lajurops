@@ -412,7 +412,7 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 			return res, bad("project category names must be 1-40 characters and unique (%q)", c.Name)
 		}
 		catNames[strings.ToLower(c.Name)] = true
-		if !envColors[c.Color] {
+		if !validColor(c.Color) {
 			c.Color = "slate"
 		}
 		var id string
@@ -523,7 +523,7 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 			return res, bad("environment names must be 1-40 characters and unique per project (%q)", e.Name)
 		}
 		names[k] = true
-		if !envColors[e.Color] {
+		if !validColor(e.Color) {
 			e.Color = "slate"
 		}
 		var id string

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -26,7 +27,15 @@ type EnvironmentInput struct {
 
 const maxEnvironments = 12
 
-var envColors = set("slate", "green", "blue", "amber", "violet", "red", "teal", "pink")
+// envColors are the named palette entries (web/src/lib/colors.ts); a custom
+// "#rrggbb" is accepted too, see validColor.
+var envColors = set("slate", "green", "blue", "amber", "violet", "red", "teal", "pink",
+	"orange", "yellow", "lime", "cyan", "sky", "indigo", "purple", "fuchsia", "rose", "stone")
+
+var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+
+// validColor reports whether c is a palette name or a "#rrggbb" colour.
+func validColor(c string) bool { return envColors[c] || hexColor.MatchString(c) }
 
 func (s *Store) ListEnvironments(ctx context.Context, projectID string) ([]Environment, error) {
 	rows, err := s.db.Query(ctx, `
@@ -74,7 +83,7 @@ func (s *Store) SetEnvironments(ctx context.Context, projectID string, in []Envi
 		if in[i].Color == "" {
 			in[i].Color = "slate"
 		}
-		if !envColors[in[i].Color] {
+		if !validColor(in[i].Color) {
 			return nil, invalid("unknown environment colour " + in[i].Color)
 		}
 		if in[i].ID != "" {

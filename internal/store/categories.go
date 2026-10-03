@@ -93,7 +93,7 @@ func (s *Store) SetCategories(ctx context.Context, workspaceID string, in []Cate
 		if in[i].Color == "" {
 			in[i].Color = "slate"
 		}
-		if !envColors[in[i].Color] {
+		if !validColor(in[i].Color) {
 			return nil, invalid("unknown category colour " + in[i].Color)
 		}
 		if in[i].ID != "" {

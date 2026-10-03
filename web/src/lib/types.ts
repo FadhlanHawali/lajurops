@@ -138,7 +138,8 @@ export interface ProjectCategory {
   project_count: number
 }
 
-export type EnvColor = 'slate' | 'green' | 'blue' | 'amber' | 'violet' | 'red' | 'teal' | 'pink'
+/** A palette name (see lib/colors) or a custom "#rrggbb". */
+export type EnvColor = string
 
 export interface Environment {
   id: string
