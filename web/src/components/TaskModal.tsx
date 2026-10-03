@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
-import { ArrowLeft, CheckCircle2, ChevronRight, Hourglass, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ChevronRight, Hourglass, Loader2, Plus, Tags, Trash2, X } from 'lucide-react'
+import { dotStyle } from '../lib/colors'
 import { fromInput, toInput } from '../lib/dates'
 import { saveEnvironments, useCategories, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
 import { canContain, defaultChildType, PRIORITIES, PROJECT_KINDS, STATUSES, TASK_TYPES, type Priority, type ProjectKind, type Status, type EnvironmentDraft, type Task, type TaskType } from '../lib/types'
@@ -11,6 +12,7 @@ import { ParentPicker } from './ParentPicker'
 import { ProjectProgress } from './ProjectProgress'
 import { Dependencies } from './Dependencies'
 import { EnvBadge, EnvironmentListEditor, EnvironmentPicker, ProjectEnvironments } from './Environments'
+import { SearchSelect } from './SearchSelect'
 import { MultiUserPicker } from './UserPicker'
 import { AvatarStack, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge } from './ui'
 
@@ -437,14 +439,31 @@ function TaskForm({
           <div className="grid grid-cols-2 gap-2">
             {f.type === 'project' ? (
               <Field label="Category">
-                <select className={inputCls} value={f.project_category_id} onChange={(e) => up('project_category_id', e.target.value)}>
-                  <option value="">Uncategorized</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                <SearchSelect
+                  variant="field"
+                  value={f.project_category_id}
+                  onChange={(v) => up('project_category_id', v)}
+                  icon={Tags}
+                  placeholder="Uncategorized"
+                  noun="categories"
+                  options={[
+                    { id: '', label: 'Uncategorized', fixed: true },
+                    ...categories.map((c) => {
+                      const dot = <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={dotStyle(c.color)} />
+                      return {
+                        id: c.id,
+                        label: c.name,
+                        icon: dot,
+                        row: (
+                          <>
+                            {dot}
+                            <span className="min-w-0 flex-1 truncate text-slate-800">{c.name}</span>
+                          </>
+                        ),
+                      }
+                    }),
+                  ]}
+                />
               </Field>
             ) : (
               <Field label="Status">

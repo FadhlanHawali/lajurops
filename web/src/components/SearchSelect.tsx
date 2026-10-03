@@ -30,6 +30,8 @@ export interface SearchOption {
   keywords?: string[]
   /** Custom row content. */
   row?: ReactNode
+  /** Shown before the label on a "field" trigger, e.g. a colour dot. */
+  icon?: ReactNode
   /** Fixed rows (e.g. "All …") sit on top and are hidden while searching. */
   fixed?: boolean
   /** Sorts below the others (e.g. done projects). */
@@ -59,6 +61,7 @@ export function SearchSelect({
   placeholder,
   noun,
   width = 'w-72',
+  variant = 'filter',
 }: {
   value: string
   onChange: (id: string) => void
@@ -68,6 +71,8 @@ export function SearchSelect({
   /** Plural noun for the footer, e.g. "projects". */
   noun: string
   width?: string
+  /** "filter": compact filter-bar trigger; "field": full-width form input. */
+  variant?: 'filter' | 'field'
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -104,9 +109,27 @@ export function SearchSelect({
         setOpen(o)
         if (o) setQuery('')
       }}
-      trigger={(props, isOpen) => <FilterTrigger icon={icon} label={selected?.label ?? placeholder} open={isOpen} active={!!value} {...props} />}
+      trigger={(props, isOpen) =>
+        variant === 'field' ? (
+          <button
+            type="button"
+            {...props}
+            className={clsx(
+              'flex w-full items-center gap-2 rounded-md border bg-white px-2.5 py-1.5 text-left text-sm shadow-sm transition',
+              isOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-300 hover:border-slate-400',
+            )}
+          >
+            {selected?.icon}
+            <span className={clsx('min-w-0 flex-1 truncate', !selected?.id && 'text-slate-500')}>{selected?.label ?? placeholder}</span>
+            <ChevronDown size={14} className="shrink-0 text-slate-400" />
+          </button>
+        ) : (
+          <FilterTrigger icon={icon} label={selected?.label ?? placeholder} open={isOpen} active={!!value} {...props} />
+        )
+      }
+      matchWidth={variant === 'field'}
     >
-      <div className={width}>
+      <div className={variant === 'field' ? 'w-full' : width}>
         <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
           <Search size={14} className="shrink-0 text-slate-400" />
           <input
