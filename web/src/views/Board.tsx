@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { FolderKanban, Hourglass, MessageSquare, Plus } from 'lucide-react'
+import { ColumnSearch, ColumnToolButtons, useColumnViews } from '../components/ColumnTools'
 import { DateFilter, EnvironmentFilter, inDateRange, ProjectFilter, thisWeek, type DateRangeFilter } from '../components/BoardFilters'
 import { useTaskModal } from '../components/TaskModal'
 import { EnvBadge } from '../components/Environments'
@@ -56,7 +57,18 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
     return cols
   }, [tasks])
 
+  const viewOf = useColumnViews('status')
+  // Drag-to-reorder only makes sense in manual order with nothing filtered out.
+  const reorderable = (status: Status) => {
+    const v = viewOf(status)
+    return v.manual && !v.filtering
+  }
+
   const drop = (status: Status, index: number, id: string) => {
+    const task = tasks.find((t) => t.id === id)
+    if (!task || (task.status === status && !reorderable(status))) return
+    // Sorted/filtered columns can't be reordered: a task moved there goes to the end.
+    if (!reorderable(status)) index = columns[status].length
     // index counts the dragged card itself; shift it once that card is taken out.
     const from = columns[status].findIndex((t) => t.id === id)
     const at = from >= 0 && from < index ? index - 1 : index
@@ -65,8 +77,7 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
     const after = list[at]?.position
     const position =
       before === undefined && after === undefined ? 1 : before === undefined ? after! - 1 : after === undefined ? before + 1 : (before + after) / 2
-    const task = tasks.find((t) => t.id === id)
-    if (!task || (task.status === status && task.position === position)) return
+    if (task.status === status && task.position === position) return
     update.mutate({ id, patch: status === task.status ? { position } : { status, position } })
   }
 
@@ -80,35 +91,43 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-x-auto md:grid-cols-4">
         {STATUSES.map((col) => {
-          const items = columns[col.id]
+          const view = viewOf(col.id)
+          // Search and sort apply to every column, done included.
+          const items = view.apply(columns[col.id])
+          const marker = reorderable(col.id)
           return (
             <div
               key={col.id}
               className={clsx('flex min-h-40 min-w-64 flex-col rounded-lg bg-slate-100 p-2', drag?.status === col.id && 'ring-2 ring-blue-400')}
               onDragOver={(e) => {
                 e.preventDefault()
-                if (drag && drag.status !== col.id && !(e.target as HTMLElement).closest('[data-card]')) setDrag({ ...drag, status: col.id, index: items.length })
+                if (drag && drag.status !== col.id && !(e.target as HTMLElement).closest('[data-card]')) setDrag({ ...drag, status: col.id, index: columns[col.id].length })
               }}
               onDrop={(e) => {
                 e.preventDefault()
                 const id = e.dataTransfer.getData('text/task-id')
-                if (id && drag) drop(col.id, drag.status === col.id ? drag.index : items.length, id)
+                if (id && drag) drop(col.id, drag.status === col.id ? drag.index : columns[col.id].length, id)
                 setDrag(null)
               }}
             >
               <div className="mb-2 flex items-center justify-between px-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {col.label} <span className="ml-1 text-slate-400">{items.length}</span>
+                  {col.label}{' '}
+                  <span className="ml-1 text-slate-400">{view.filtering ? `${items.length} of ${columns[col.id].length}` : items.length}</span>
                 </span>
-                <button className="rounded p-1 text-slate-500 hover:bg-slate-200" title="Create task" onClick={() => modal.createTask({ title: '', workspace_id: workspaceId, status: col.id })}>
-                  <Plus size={14} />
-                </button>
+                <span className="flex items-center">
+                  <ColumnToolButtons view={view} />
+                  <button className="rounded p-1 text-slate-500 hover:bg-slate-200" title="Create task" onClick={() => modal.createTask({ title: '', workspace_id: workspaceId, status: col.id })}>
+                    <Plus size={14} />
+                  </button>
+                </span>
               </div>
+              <ColumnSearch view={view} />
               <div className="flex-1 space-y-2 overflow-y-auto">
                 {isLoading && <div className="h-16 animate-pulse rounded-md bg-white/70" />}
                 {items.map((t, i) => (
                   <div key={t.id}>
-                    {drag?.status === col.id && drag.index === i && <DropMarker />}
+                    {marker && drag?.status === col.id && drag.index === i && <DropMarker />}
                     <Card
                       task={t}
                       project={projectOf(t)}
@@ -124,14 +143,15 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
                       onDragOver={(e) => {
                         if (!drag) return
                         const r = e.currentTarget.getBoundingClientRect()
-                        const index = e.clientY < r.top + r.height / 2 ? i : i + 1
+                        const index = !reorderable(col.id) ? columns[col.id].length : e.clientY < r.top + r.height / 2 ? i : i + 1
                         if (drag.status !== col.id || drag.index !== index) setDrag({ ...drag, status: col.id, index })
                       }}
                       onDragEnd={() => setDrag(null)}
                     />
                   </div>
                 ))}
-                {drag?.status === col.id && drag.index >= items.length && <DropMarker />}
+                {marker && drag?.status === col.id && drag.index >= items.length && <DropMarker />}
+                {!isLoading && view.filtering && items.length === 0 && <p className="px-1 py-6 text-center text-xs text-slate-400">No matching tasks</p>}
               </div>
             </div>
           )

@@ -5,6 +5,7 @@ import { EnvBadge } from '../components/Environments'
 import { ProjectCategoriesDialog } from '../components/ProjectCategories'
 import { ProjectProgress } from '../components/ProjectProgress'
 import { useTaskModal } from '../components/TaskModal'
+import { ColumnSearch, ColumnToolButtons, useColumnViews } from '../components/ColumnTools'
 import { AvatarStack, Button, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
 import { formatSchedule } from '../lib/dates'
 import { useCategories, useTasks, useUpdateTask } from '../lib/queries'
@@ -56,6 +57,13 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
     ...(!hasUncategorized && drag ? [uncategorized] : []),
   ]
 
+  const viewOf = useColumnViews('category')
+  // Drag-to-reorder only makes sense in manual order with nothing filtered out.
+  const reorderable = (col: string) => {
+    const v = viewOf(col)
+    return v.manual && !v.filtering
+  }
+
   const openIn = (col: string) =>
     projects.filter((p) => (p.project_category_id ?? '') === col && p.status !== 'done').sort((a, b) => a.position - b.position || a.number - b.number)
 
@@ -66,6 +74,8 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
     setDrag(null)
     const p = projects.find((t) => t.id === id)
     if (!p) return
+    const moved = (p.project_category_id ?? '') !== col
+    if (!moved && !reorderable(col)) return
     // index counts the dragged card itself; shift it once that card is taken out.
     const from = openIn(col).findIndex((t) => t.id === id)
     const at = from >= 0 && from < index ? index - 1 : index
@@ -74,7 +84,6 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
     const after = list[at]?.position
     const position =
       before === undefined && after === undefined ? 1 : before === undefined ? after! - 1 : after === undefined ? before + 1 : (before + after) / 2
-    const moved = (p.project_category_id ?? '') !== col
     if (!moved && p.position === position) return
     update.mutate({ id, patch: moved ? { project_category_id: col || null, position } : { position } })
   }
@@ -94,9 +103,9 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
         }}
         onDragOver={(e) => {
           if (!drag) return
-          // Done cards (index -1) can't be reordered; dropping on them appends.
+          // Done cards (index -1) and sorted/filtered columns can't be reordered; dropping there appends.
           const r = e.currentTarget.getBoundingClientRect()
-          const at = index < 0 ? openIn(col).length : e.clientY < r.top + r.height / 2 ? index : index + 1
+          const at = index < 0 || !reorderable(col) ? openIn(col).length : e.clientY < r.top + r.height / 2 ? index : index + 1
           if (drag.col !== col || drag.index !== at) setDrag({ ...drag, col, index: at })
         }}
         onDragEnd={() => setDrag(null)}
@@ -131,10 +140,16 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
 
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-1">
         {columns.map((col) => {
+          const view = viewOf(col.id)
           const list = projects.filter((p) => (p.project_category_id ?? '') === col.id)
-          const open = openIn(col.id)
-          const done = list.filter((p) => p.status === 'done')
-          const expanded = showDone.has(col.id)
+          const allOpen = openIn(col.id)
+          const allDone = list.filter((p) => p.status === 'done')
+          // Search and sort apply to open and done projects alike.
+          const open = view.apply(allOpen)
+          const done = view.apply(allDone)
+          // While searching, matching done projects show without an extra click.
+          const expanded = showDone.has(col.id) || (view.filtering && done.length > 0)
+          const marker = reorderable(col.id)
           return (
             <div
               key={col.id || 'none'}
@@ -143,7 +158,7 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
                 if (!drag) return
                 e.preventDefault()
                 // Over empty space in another column: land at its end.
-                if (drag.col !== col.id && !(e.target as HTMLElement).closest('[data-card]')) setDrag({ ...drag, col: col.id, index: open.length })
+                if (drag.col !== col.id && !(e.target as HTMLElement).closest('[data-card]')) setDrag({ ...drag, col: col.id, index: allOpen.length })
               }}
               onDrop={(e) => {
                 e.preventDefault()
@@ -153,29 +168,35 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
               <div className="mb-2 flex items-center justify-between px-1">
                 <span className="flex items-center gap-2">
                   {col.id ? <EnvBadge name={col.name} color={col.color} /> : <span className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Uncategorized</span>}
-                  <span className="text-xs text-slate-400" title={`${open.length} open, ${done.length} done`}>
-                    {open.length}
+                  <span className="text-xs text-slate-400" title={`${allOpen.length} open, ${allDone.length} done`}>
+                    {view.filtering ? `${open.length} of ${allOpen.length}` : allOpen.length}
                   </span>
                 </span>
-                <button
-                  className="rounded p-1 text-slate-500 hover:bg-slate-200"
-                  title={`New ${col.id ? col.name : 'project'}`}
-                  onClick={() => modal.createTask({ title: '', workspace_id: workspaceId, type: 'project', project_category_id: col.id || null })}
-                >
-                  <Plus size={14} />
-                </button>
+                <span className="flex items-center">
+                  <ColumnToolButtons view={view} />
+                  <button
+                    className="rounded p-1 text-slate-500 hover:bg-slate-200"
+                    title={`New ${col.id ? col.name : 'project'}`}
+                    onClick={() => modal.createTask({ title: '', workspace_id: workspaceId, type: 'project', project_category_id: col.id || null })}
+                  >
+                    <Plus size={14} />
+                  </button>
+                </span>
               </div>
+              <ColumnSearch view={view} />
               <div className="flex-1 space-y-2 overflow-y-auto">
                 {isLoading && <div className="h-20 animate-pulse rounded-md bg-white/70" />}
                 {open.map((p, i) => (
                   <div key={p.id}>
-                    {drag?.col === col.id && drag.index === i && <DropMarker />}
+                    {marker && drag?.col === col.id && drag.index === i && <DropMarker />}
                     {card(p, col.id, i)}
                   </div>
                 ))}
-                {drag?.col === col.id && drag.index >= open.length && <DropMarker />}
+                {marker && drag?.col === col.id && drag.index >= open.length && <DropMarker />}
                 {!isLoading && open.length === 0 && (
-                  <p className="px-1 py-6 text-center text-xs text-slate-400">{done.length ? 'No open projects' : 'No projects'}</p>
+                  <p className="px-1 py-6 text-center text-xs text-slate-400">
+                    {view.filtering ? 'No matching open projects' : allDone.length ? 'No open projects' : 'No projects'}
+                  </p>
                 )}
                 {done.length > 0 && (
                   <button
@@ -195,7 +216,7 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
           )
         })}
       </div>
-      <p className="text-[11px] text-slate-400">A project's status and progress come from the tasks inside it. Drag projects to reorder them or change their category.</p>
+      <p className="text-[11px] text-slate-400">A project's status and progress come from the tasks inside it. Drag projects to reorder them (in manual order) or change their category.</p>
       {editing && <ProjectCategoriesDialog workspaceId={workspaceId} onClose={() => setEditing(false)} />}
     </div>
   )
