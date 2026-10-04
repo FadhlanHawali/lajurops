@@ -97,9 +97,27 @@ jobs:
           done
           (cd dist && sha256sum -- * > checksums.txt)
 
-      # ghcr.io image names must be lower-case.
-      - id: image
-        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      # The release text: docs/releases/<tag>.md when it exists (the highlights),
+      # then how to get it. GitHub appends the generated list of changes.
+      - name: Write release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          {
+            if [ -f "docs/releases/$TAG.md" ]; then cat "docs/releases/$TAG.md"; echo; fi
+            echo "## Downloads"
+            echo
+            echo "**Docker** (linux/amd64, linux/arm64):"
+            echo
+            echo '```bash'
+            echo "docker pull $image:${TAG#v}"
+            echo '```'
+            echo
+            echo "**Binaries** for Linux, macOS and Windows are attached below (\`checksums.txt\` has their SHA-256)."
+            echo "They need PostgreSQL and Keycloak; see the README's Configuration section."
+          } > release-notes.md
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -107,18 +125,5 @@ jobs:
           generate_release_notes: true
           # v1.2.0-rc.1 and similar are marked as pre-releases
           prerelease: ${{ contains(github.ref_name, '-') }}
-          body: |
-            ## Docker
-
-            ```bash
-            docker pull ${{ steps.image.outputs.name }}:${{ github.ref_name }}
-            ```
-
-            Or run the full stack (LajurOps, Keycloak and both databases) with the repository's
-            `docker-compose.yml`; see the README's Quick start.
-
-            ## Binaries
-
-            Single binaries for Linux, macOS and Windows are attached below. They need PostgreSQL
-            and Keycloak; see the README's Configuration section.
+          body_path: release-notes.md
           files: dist/*
