@@ -353,11 +353,15 @@ GET    /api/me | /api/users
 GET    /api/workspaces          POST /api/workspaces
 GET    /api/workspaces/{id}     PATCH/DELETE /api/workspaces/{id}
 GET    /api/tasks?workspace_id=&assignee_id=&type=daily,hourly&top_level=&parent_id=&from=&to=
+       &undated=open|all     with from/to, also tasks without dates (all, or not done)
+       &ancestors=true       also the parents/grandparents of the matches
+       &q=&limit=            search title or key ("APP-12"), best match first
 POST   /api/tasks               { workspace_id | parent_id, title, type: project|daily|hourly, project_kind: long|short, assignee_ids: [], environment_id, start_at, end_at, ... }
 GET    /api/tasks/{id}          includes subtasks, ancestors, waiting_for and blocking
 PATCH  /api/tasks/{id}          partial update (incl. type, parent_id; nesting is validated); null clears a field
 DELETE /api/tasks/{id}          also deletes everything inside it
 GET    /api/workspaces/{id}/categories              project categories (with project counts)
+GET    /api/workspaces/{id}/project-progress        done/total daily and hourly tasks inside each project
 PUT    /api/workspaces/{id}/categories              [{ id?, name, color }]  replaces the list, in order
 GET    /api/workspaces/{id}/export                  backup (JSON)
 POST   /api/workspaces/import?key=&name=&dry_run=   body: backup; creates a new workspace
