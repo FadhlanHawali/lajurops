@@ -310,21 +310,6 @@ services:
 These settings cover the server's calls to Keycloak (signing keys and user management).
 The browser must trust the certificate on its own, through the OS or browser certificate store.
 
-### Upgrading from Open Planner
-
-LajurOps was previously called *Open Planner*. An existing Docker Compose install keeps all its data:
-
-1. Stop the old stack; its volumes stay: `docker compose -p open-planner down`.
-2. Create the new stack without starting it (`docker compose create`) and copy each volume, e.g.
-   `docker run --rm -v open-planner_planner-db:/from:ro -v lajurops_planner-db:/to postgres:16-alpine cp -a /from/. /to/`
-   (same for `keycloak-db`).
-3. Start only Keycloak **without** the realm import and rename in place with `kcadm.sh`: realm
-   `open-planner` → `lajurops`, clients `open-planner` → `lajurops` and `open-planner-admin` → `lajurops-service`,
-   role `planner-admin` → `lajurops-admin`. Users, passwords and role assignments are kept.
-4. `docker compose up -d`. The realm import is skipped because `lajurops` now exists.
-
-Backups exported before the rename (`open-planner-workspace`) still import.
-
 ## Backup and restore
 
 - **Export**: the download button on a workspace page saves `<KEY>-<date>.json` with the workspace, all
