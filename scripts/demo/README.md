@@ -7,11 +7,11 @@ Requirements: Docker, Node 20+, Python 3, ffmpeg and Microsoft Edge (Playwright 
 so no browser download is needed; set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` when installing).
 
 ```bash
-# 1. demo instance on :8095 (uses the lajurops:latest image built by docker compose)
+# 1. demo instance on :8095 (uses the image built by `docker compose build app`)
 docker network create lajurops-demo
 docker run -d --name lajurops-demo-db --network lajurops-demo -e POSTGRES_USER=planner -e POSTGRES_PASSWORD=planner -e POSTGRES_DB=planner postgres:16-alpine
 docker run -d --name lajurops-demo-app --network lajurops-demo -p 8095:8080 -e AUTH_DISABLED=true \
-  -e "DATABASE_URL=postgres://planner:planner@lajurops-demo-db:5432/planner?sslmode=disable" lajurops:latest
+  -e "DATABASE_URL=postgres://planner:planner@lajurops-demo-db:5432/planner?sslmode=disable" ghcr.io/fadhlanhawali/lajurops:latest
 
 # 2. demo data: a product team building an app (dates are fixed around 2026-09-30; adjust seed.py for other "today"s)
 python seed.py > ws.txt   # prints the APP workspace id

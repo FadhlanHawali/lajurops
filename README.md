@@ -74,7 +74,20 @@ and export CSV.
 
 <img src="docs/media/workload.gif" alt="Workload report: weekly and monthly, per-person drill-down" width="900">
 
-### Backup and restore
+### Releasing
+
+Push a version tag; the [Release workflow](.github/workflows/release.yml) does the rest:
+
+```bash
+git tag -a v0.1.0 -m "LajurOps v0.1.0"
+git push origin v0.1.0
+```
+
+It builds and pushes the Docker image to `ghcr.io` (amd64 + arm64; `latest` only for non-pre-releases
+such as `v0.2.0-rc.1`) and creates a GitHub release with generated notes, the binaries and their
+checksums. New packages on ghcr.io start private: make it public once under the package's settings.
+
+## Backup and restore
 Export a workspace to JSON and import it (from a file or a URL) as a new workspace, with a preview first.
 
 <img src="docs/media/backup.gif" alt="Exporting a workspace and importing the backup as a new workspace" width="900">
@@ -144,10 +157,20 @@ scripts/demo/         seeds a demo instance and records the README media
 
 ## Quick start (Docker Compose)
 
+Clone the repository (the compose file also starts Keycloak with a ready-made realm), then run the
+published image:
+
 ```bash
-cp .env.example .env   # optional
-docker compose up -d --build
+cp .env.example .env   # optional; set LAJUROPS_VERSION=0.1.0 to pin a release
+docker compose pull app
+docker compose up -d
 ```
+
+Or build the image from your checkout instead: `docker compose up -d --build`.
+
+The image is `ghcr.io/fadhlanhawali/lajurops` (linux/amd64 and linux/arm64), tagged per release
+(`0.1.0`, `0.1`) and `latest`. Each [GitHub release](https://github.com/FadhlanHawali/lajurops/releases)
+also has single binaries for Linux, macOS and Windows.
 
 | Service       | URL / purpose |
 |---------------|-----|

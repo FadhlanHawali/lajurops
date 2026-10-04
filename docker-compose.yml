@@ -60,8 +60,10 @@ services:
         condition: service_healthy
 
   app:
+    # The published image (pin a release with LAJUROPS_VERSION=0.1.0 in .env);
+    # `docker compose up -d --build` builds it from this checkout instead.
+    image: ghcr.io/fadhlanhawali/lajurops:${LAJUROPS_VERSION:-latest}
     build: .
-    image: lajurops:latest
     restart: unless-stopped
     environment:
       ADDR: ":8080"

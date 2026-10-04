@@ -1,0 +1,124 @@
+# Publishes a release when a version tag is pushed:
+#
+#   git tag -a v0.1.0 -m "LajurOps v0.1.0" && git push origin v0.1.0
+#
+# - Docker image (linux/amd64 + linux/arm64) to ghcr.io/<owner>/lajurops,
+#   tagged 0.1.0, 0.1 and latest (pre-releases like v0.2.0-rc.1 get only their own tag)
+# - GitHub Release with generated notes and single-binary downloads
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the release
+  packages: write # push to ghcr.io
+
+jobs:
+  image:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # metadata-action lower-cases the name, as ghcr.io requires
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+          labels: |
+            org.opencontainers.image.title=LajurOps
+            org.opencontainers.image.description=Open-source planning for ops teams: projects, requests and deployments on one timeline, across every environment.
+
+      # The Dockerfile cross-compiles, so arm64 needs no emulation.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: Binaries and release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build the frontend (embedded into the binary)
+        working-directory: web
+        run: npm ci --no-audit --no-fund && npm run build
+
+      - name: Build binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os=${target%/*}; arch=${target#*/}
+            name="lajurops_${VERSION#v}_${os}_${arch}"
+            ext=""; [ "$os" = windows ] && ext=".exe"
+            mkdir -p "build/$name"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags="-s -w -X main.version=${VERSION}" -o "build/$name/lajurops$ext" ./cmd/lajurops
+            cp README.md LICENSE* .env.example "build/$name/" 2>/dev/null || true
+            if [ "$os" = windows ]; then
+              (cd build && zip -qr "../dist/$name.zip" "$name")
+            else
+              tar -C build -czf "dist/$name.tar.gz" "$name"
+            fi
+          done
+          (cd dist && sha256sum -- * > checksums.txt)
+
+      # ghcr.io image names must be lower-case.
+      - id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: LajurOps ${{ github.ref_name }}
+          generate_release_notes: true
+          # v1.2.0-rc.1 and similar are marked as pre-releases
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body: |
+            ## Docker
+
+            ```bash
+            docker pull ${{ steps.image.outputs.name }}:${{ github.ref_name }}
+            ```
+
+            Or run the full stack (LajurOps, Keycloak and both databases) with the repository's
+            `docker-compose.yml`; see the README's Quick start.
+
+            ## Binaries
+
+            Single binaries for Linux, macOS and Windows are attached below. They need PostgreSQL
+            and Keycloak; see the README's Configuration section.
+          files: dist/*
