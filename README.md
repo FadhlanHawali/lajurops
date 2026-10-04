@@ -320,23 +320,6 @@ services:
 These settings cover the server's calls to Keycloak (signing keys and user management).
 The browser must trust the certificate on its own, through the OS or browser certificate store.
 
-## Releasing
-
-Push a version tag; the [Release workflow](.github/workflows/release.yml) does the rest:
-
-```bash
-git tag -a v0.1.0 -m "LajurOps v0.1.0"
-git push origin v0.1.0
-```
-
-It builds and pushes the Docker image to `ghcr.io` (amd64 + arm64; `latest` only for non-pre-releases
-such as `v0.2.0-rc.1`) and creates a GitHub release with generated notes, the binaries and their
-checksums. New packages on ghcr.io start private: make it public once under the package's settings.
-
-Write the release's highlights in `docs/releases/<tag>.md` (e.g. [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md))
-before tagging; the workflow puts them at the top of the release, followed by download instructions and
-GitHub's list of changes.
-
 ## Backup and restore
 
 - **Export**: the download button on a workspace page saves `<KEY>-<date>.json` with the workspace, all

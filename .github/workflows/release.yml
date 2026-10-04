@@ -2,6 +2,10 @@
 #
 #   git tag -a v0.1.0 -m "LajurOps v0.1.0" && git push origin v0.1.0
 #
+# Write the release's highlights in docs/releases/<tag>.md before tagging; they
+# go at the top of the release text. New ghcr.io packages start private: make
+# the package public once in its settings.
+#
 # - Docker image (linux/amd64 + linux/arm64) to ghcr.io/<owner>/lajurops,
 #   tagged 0.1.0, 0.1 and latest (pre-releases like v0.2.0-rc.1 get only their own tag)
 # - GitHub Release with generated notes and single-binary downloads
