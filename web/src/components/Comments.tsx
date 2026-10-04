@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import clsx from 'clsx'
 import { format, formatDistanceToNow } from 'date-fns'
 import { Bold, Code, Italic, Link2, List, ListChecks, ListOrdered, Loader2, MessageSquare, Pencil, Quote, Trash2 } from 'lucide-react'
+import { useReadOnly } from '../lib/access'
 import { useCommentMutations, useComments, useMe, useUsers } from '../lib/queries'
 import type { Comment } from '../lib/types'
 import { Markdown } from './Markdown'
@@ -10,6 +11,7 @@ import { Avatar, Button, userName } from './ui'
 export function Comments({ taskId }: { taskId: string }) {
   const { data: comments = [], isLoading } = useComments(taskId)
   const { create } = useCommentMutations(taskId)
+  const readOnly = useReadOnly()
   const [draft, setDraft] = useState('')
 
   const post = async () => {
@@ -32,6 +34,9 @@ export function Comments({ taskId }: { taskId: string }) {
         ))}
       </ol>
 
+      {readOnly ? (
+        comments.length === 0 && !isLoading && <p className="text-xs text-slate-400">No comments yet.</p>
+      ) : (
       <div className="mt-4">
         <MarkdownEditor
           value={draft}
@@ -49,6 +54,7 @@ export function Comments({ taskId }: { taskId: string }) {
           }
         />
       </div>
+      )}
     </section>
   )
 }
@@ -60,7 +66,8 @@ function CommentItem({ comment: c, taskId }: { comment: Comment; taskId: string 
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(c.body)
   const author = c.author_id ? byId.get(c.author_id) : undefined
-  const mine = !!me && c.author_id === me.id
+  const readOnly = useReadOnly()
+  const mine = !!me && c.author_id === me.id && !readOnly
   const edited = new Date(c.updated_at).getTime() - new Date(c.created_at).getTime() > 1000
 
   const save = async () => {
@@ -83,7 +90,7 @@ function CommentItem({ comment: c, taskId }: { comment: Comment; taskId: string 
               (edited)
             </span>
           )}
-          {!editing && (mine || me?.is_admin) && (
+          {!editing && !readOnly && (mine || me?.is_admin) && (
             <span className="ml-auto flex gap-0.5 opacity-0 transition group-hover:opacity-100">
               {mine && (
                 <button className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" title="Edit" onClick={() => setEditing(true)}>

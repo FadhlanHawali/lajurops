@@ -7,6 +7,7 @@ import { ProjectProgress } from '../components/ProjectProgress'
 import { useTaskModal } from '../components/TaskModal'
 import { ColumnSearch, ColumnToolButtons, useColumnViews } from '../components/ColumnTools'
 import { AvatarStack, Button, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
+import { useAccess } from '../lib/access'
 import { formatCreatedFull, formatCreatedShort, formatSchedule } from '../lib/dates'
 import { useCategories, useTasks, useUpdateTask } from '../lib/queries'
 import type { Task } from '../lib/types'
@@ -58,6 +59,7 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
   ]
 
   const viewOf = useColumnViews('category')
+  const canEdit = useAccess().canEdit(workspaceId)
   // Drag-to-reorder only makes sense in manual order with nothing filtered out.
   const reorderable = (col: string) => {
     const v = viewOf(col)
@@ -94,7 +96,7 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
       <div
         key={p.id}
         data-card
-        draggable
+        draggable={canEdit}
         onDragStart={(e) => {
           e.dataTransfer.setData('text/plain', p.id)
           e.dataTransfer.effectAllowed = 'move'
@@ -138,9 +140,11 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
   return (
     <div className="flex h-full flex-col gap-3">
       <FilterBar>
-        <Button variant="ghost" onClick={() => setEditing(true)} title="Edit project categories">
-          <Settings2 size={14} /> Categories
-        </Button>
+        {canEdit && (
+          <Button variant="ghost" onClick={() => setEditing(true)} title="Edit project categories">
+            <Settings2 size={14} /> Categories
+          </Button>
+        )}
       </FilterBar>
 
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-1">
@@ -184,13 +188,15 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
                 </span>
                 <span className="flex items-center">
                   <ColumnToolButtons view={view} />
-                  <button
-                    className="rounded p-1 text-slate-500 hover:bg-slate-200"
-                    title={`New ${col.id ? col.name : 'project'}`}
-                    onClick={() => modal.createTask({ title: '', workspace_id: workspaceId, type: 'project', project_category_id: col.id || null })}
-                  >
-                    <Plus size={14} />
-                  </button>
+                  {canEdit && (
+                    <button
+                      className="rounded p-1 text-slate-500 hover:bg-slate-200"
+                      title={`New ${col.id ? col.name : 'project'}`}
+                      onClick={() => modal.createTask({ title: '', workspace_id: workspaceId, type: 'project', project_category_id: col.id || null })}
+                    >
+                      <Plus size={14} />
+                    </button>
+                  )}
                 </span>
               </div>
               <ColumnSearch view={view} />

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { format } from 'date-fns'
 import { ChevronLeft, ChevronRight, KeyRound, Loader2, Pencil, Plus, RefreshCw, Search, ShieldCheck, Trash2, UserX, Wand2, X } from 'lucide-react'
 import { Avatar, Button, Empty, Field, inputCls } from '../components/ui'
 import { ApiError } from '../lib/api'
-import { useAdminUsers, useDeleteAdminUser, useMe, usePurgeUser, useRemovedUsers, useSaveAdminUser, useSyncUsers } from '../lib/queries'
-import type { AdminUser, AdminUserInput, RemovedUser } from '../lib/types'
+import { appConfig } from '../lib/auth'
+import { saveUserAccess, useAdminUsers, useDeleteAdminUser, useMe, usePurgeUser, useRemovedUsers, useSaveAdminUser, useSyncUsers, useUserAccess, useWorkspaces } from '../lib/queries'
+import type { AdminUser, AdminUserInput, MemberRole, RemovedUser } from '../lib/types'
 
 const PAGE = 20
 
@@ -236,11 +238,30 @@ function UserDialog({ user, self, onClose }: { user?: AdminUser; self: boolean; 
   const [temporary, setTemporary] = useState(true)
   const save = useSaveAdminUser()
   const up = (patch: AdminUserInput) => setF((s) => ({ ...s, ...patch }))
+  const access = useAccessDraft(user?.id)
+  const [accessError, setAccessError] = useState('')
+  const qc = useQueryClient()
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setAccessError('')
     const input: AdminUserInput = user ? { ...f, username: undefined } : { ...f, password, temporary_password: temporary }
-    await save.mutateAsync({ id: user?.id, input }).then(onClose, () => {})
+    let saved: AdminUser
+    try {
+      saved = await save.mutateAsync({ id: user?.id, input })
+    } catch {
+      return
+    }
+    // Admins can do everything, so only members' workspace roles matter.
+    if (!f.is_admin && access.dirty) {
+      try {
+        await saveUserAccess(saved.id, access.roles)
+        qc.invalidateQueries({ queryKey: ['user-access', saved.id] })
+      } catch (err) {
+        return setAccessError(`User saved, but workspace access wasn't: ${(err as Error).message}`)
+      }
+    }
+    onClose()
   }
 
   return (
@@ -261,14 +282,39 @@ function UserDialog({ user, self, onClose }: { user?: AdminUser; self: boolean; 
           <input className={inputCls} type="email" value={f.email} onChange={(e) => up({ email: e.target.value })} />
         </Field>
         {!user && <PasswordFields password={password} setPassword={setPassword} temporary={temporary} setTemporary={setTemporary} />}
+        <Field label="Role">
+          <div className={clsx('grid grid-cols-2 gap-2', self && 'opacity-60')}>
+            {(
+              [
+                [true, 'Admin', 'Full access to every workspace; manages users.'],
+                [false, 'Member', 'Editor or viewer, chosen per workspace below.'],
+              ] as const
+            ).map(([admin, label, hint]) => (
+              <button
+                key={label}
+                type="button"
+                disabled={self}
+                title={self ? "You can't change your own role" : undefined}
+                onClick={() => up({ is_admin: admin })}
+                className={clsx(
+                  'rounded-md border px-2.5 py-1.5 text-left transition',
+                  f.is_admin === admin ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200 hover:border-slate-300',
+                )}
+              >
+                <span className="flex items-center gap-1 text-sm font-semibold text-slate-800">
+                  {admin && <ShieldCheck size={13} className="text-indigo-600" />} {label}
+                </span>
+                <span className="block text-[11px] leading-tight text-slate-500">{hint}</span>
+              </button>
+            ))}
+          </div>
+        </Field>
+        {f.is_admin ? (
+          <p className="rounded-md bg-indigo-50 px-3 py-2 text-xs text-indigo-800">Admins can view and edit every workspace, including new ones.</p>
+        ) : (
+          <WorkspaceAccess draft={access} />
+        )}
         <div className="space-y-2 rounded-md border border-slate-200 p-3">
-          <label className={clsx('flex items-center gap-2 text-sm', self && 'opacity-50')}>
-            <input type="checkbox" checked={f.is_admin} disabled={self} onChange={(e) => up({ is_admin: e.target.checked })} />
-            <span>
-              <span className="font-medium text-slate-700">Administrator</span>
-              <span className="block text-xs text-slate-500">Can manage users.</span>
-            </span>
-          </label>
           <label className={clsx('flex items-center gap-2 text-sm', self && 'opacity-50')}>
             <input type="checkbox" checked={f.enabled} disabled={self} onChange={(e) => up({ enabled: e.target.checked })} />
             <span>
@@ -278,6 +324,7 @@ function UserDialog({ user, self, onClose }: { user?: AdminUser; self: boolean; 
           </label>
         </div>
         {save.error && <p className="text-sm text-red-600">{save.error.message}</p>}
+        {accessError && <p className="text-sm text-red-600">{accessError}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" onClick={onClose}>
             Cancel
@@ -453,6 +500,87 @@ function SyncButton() {
       <Button onClick={run} disabled={sync.isPending} title="Update LajurOps with Keycloak's current users">
         <RefreshCw size={14} className={clsx(sync.isPending && 'animate-spin')} /> Sync with Keycloak
       </Button>
+    </div>
+  )
+}
+
+const ROLE_OPTIONS: { id: MemberRole; label: string; hint: string }[] = [
+  { id: 'editor', label: 'Editor', hint: 'Create, edit and delete tasks' },
+  { id: 'viewer', label: 'Viewer', hint: 'Read only' },
+  { id: 'none', label: 'No access', hint: "Can't see this workspace" },
+]
+
+/** A user's workspace roles being edited; new users start at the server default. */
+function useAccessDraft(keycloakId?: string) {
+  const { data: current } = useUserAccess(keycloakId)
+  const { data: workspaces = [] } = useWorkspaces()
+  const defaultRole: MemberRole = current?.default_role ?? appConfig().default_workspace_role ?? 'viewer'
+  const [edits, setEdits] = useState<Record<string, MemberRole>>({})
+  const rows = (current?.workspaces ?? workspaces.map((w) => ({ workspace_id: w.id, key: w.key, name: w.name, role: defaultRole, explicit: false }))).map((r) => ({
+    ...r,
+    role: edits[r.workspace_id] ?? r.role,
+  }))
+  return {
+    rows,
+    loading: !!keycloakId && !current,
+    defaultRole,
+    dirty: Object.keys(edits).length > 0,
+    /** Every workspace's role, so the saved state is exactly what's shown. */
+    roles: Object.fromEntries(rows.map((r) => [r.workspace_id, r.role])) as Record<string, MemberRole>,
+    set: (id: string, role: MemberRole) => setEdits((e) => ({ ...e, [id]: role })),
+    setAll: (role: MemberRole) => setEdits(Object.fromEntries(rows.map((r) => [r.workspace_id, role]))),
+  }
+}
+
+function WorkspaceAccess({ draft }: { draft: ReturnType<typeof useAccessDraft> }) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="text-xs font-medium text-slate-600">Workspace access</span>
+        {draft.rows.length > 1 && (
+          <span className="flex items-center gap-1 text-[11px] text-slate-500">
+            Set all:
+            {ROLE_OPTIONS.map((o) => (
+              <button key={o.id} type="button" className="rounded px-1 font-medium text-blue-600 hover:bg-blue-50" onClick={() => draft.setAll(o.id)}>
+                {o.label}
+              </button>
+            ))}
+          </span>
+        )}
+      </div>
+      {draft.loading ? (
+        <div className="h-20 animate-pulse rounded-md bg-slate-100" />
+      ) : draft.rows.length === 0 ? (
+        <p className="rounded-md border border-dashed border-slate-300 px-3 py-3 text-center text-xs text-slate-500">No workspaces yet.</p>
+      ) : (
+        <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-200">
+          {draft.rows.map((r) => (
+            <li key={r.workspace_id} className="flex items-center gap-2 px-3 py-1.5">
+              <span className="w-14 shrink-0 text-xs font-medium text-slate-400">{r.key}</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-800">{r.name}</span>
+              <div className="flex shrink-0 overflow-hidden rounded-md border border-slate-300 text-xs">
+                {ROLE_OPTIONS.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    title={o.hint}
+                    onClick={() => draft.set(r.workspace_id, o.id)}
+                    className={clsx(
+                      'px-2 py-1 font-medium transition',
+                      r.role === o.id ? (o.id === 'none' ? 'bg-slate-600 text-white' : o.id === 'editor' ? 'bg-blue-600 text-white' : 'bg-emerald-600 text-white') : 'bg-white text-slate-600 hover:bg-slate-50',
+                    )}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-1 text-[11px] text-slate-400">
+        Workspaces created later default to <b>{ROLE_OPTIONS.find((o) => o.id === draft.defaultRole)?.label}</b> for this user.
+      </p>
     </div>
   )
 }

@@ -17,6 +17,7 @@ import {
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Crosshair, Plus, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
 import { EnvBadge } from '../components/Environments'
+import { useAccess } from '../lib/access'
 import { AvatarStack, Button, FilterBar, Empty, taskColor } from '../components/ui'
 import { defaultSpan, formatSchedule } from '../lib/dates'
 import { useTaskFilters, useTasks, useUpdateTask } from '../lib/queries'
@@ -141,6 +142,7 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
   const { data: tasks = [], isLoading } = useTasks({ workspace_id: workspaceId, assignee_id: assignee, type })
   const update = useUpdateTask()
   const modal = useTaskModal()
+  const canEdit = useAccess().canEdit(workspaceId)
   const now = useNow()
 
   const [zoomIdx, setZoomIdx] = useState(() => {
@@ -294,7 +296,8 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
 
   const onBarPointerMove = (e: ReactPointerEvent) => {
     const d = dragRef.current
-    if (!d) return
+    // Viewers can't reschedule: a press only opens the task.
+    if (!d || !canEdit) return
     const dx = e.clientX - d.x0
     if (!d.moved && Math.abs(dx) < 4) return
     d.moved = true
@@ -330,6 +333,7 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
   }
 
   const scheduleAt = (t: Task, clientX: number) => {
+    if (!canEdit) return
     const at = new Date(snap(timeAt(clientX), t.type !== 'hourly' ? 1440 : zoom.snapMin))
     const { start, end } = defaultSpan(t.type, at)
     update.mutate({ id: t.id, patch: { start_at: start.toISOString(), end_at: end.toISOString() } })
@@ -393,9 +397,11 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
           >
             {collapsed.size ? <ChevronsUpDown size={16} /> : <ChevronsDownUp size={16} />}
           </Button>
-          <Button variant="primary" onClick={() => modal.createTask({ title: '', workspace_id: workspaceId })}>
-            <Plus size={14} /> Task
-          </Button>
+          {canEdit && (
+            <Button variant="primary" onClick={() => modal.createTask({ title: '', workspace_id: workspaceId })}>
+              <Plus size={14} /> Task
+            </Button>
+          )}
         </div>
       </div>
 
@@ -522,7 +528,7 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
                     <button className={clsx('min-w-0 flex-1 truncate text-left text-sm', t.status === 'done' ? 'text-slate-400 line-through' : 'text-slate-700', t.type === 'project' && 'font-semibold')} onClick={() => modal.openTask(t.id)} title={t.title}>
                       {t.title}
                     </button>
-                    {t.type !== 'hourly' && (
+                    {t.type !== 'hourly' && canEdit && (
                       <button
                         className="hidden rounded p-0.5 text-slate-400 hover:bg-slate-200 group-hover:block"
                         title={`Add ${defaultChildType(t.type)} task inside`}
@@ -555,7 +561,8 @@ Spans its tasks: ${formatSchedule({ type: 'daily', start_at: new Date(rollup.sta
                     ) : start !== null ? (
                       <div
                         className={clsx(
-                          'absolute flex cursor-grab items-center overflow-visible rounded shadow-sm active:cursor-grabbing',
+                          'absolute flex items-center overflow-visible rounded shadow-sm',
+                          canEdit ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
                           color,
                           depth ? 'top-[9px] h-4' : 'top-[6px] h-[22px]',
                           p && 'ring-2 ring-blue-300',

@@ -7,6 +7,7 @@ import listPlugin from '@fullcalendar/list'
 import type { EventContentArg, EventInput, EventDropArg, DatesSetArg } from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import { useTaskModal } from '../components/TaskModal'
+import { useAccess } from '../lib/access'
 import { FilterBar, userName } from '../components/ui'
 import { useTaskFilters, useTasks, useUpdateTask, useUsers } from '../lib/queries'
 import type { Task } from '../lib/types'
@@ -27,6 +28,7 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
   const update = useUpdateTask()
   const modal = useTaskModal()
   const { byId } = useUsers()
+  const access = useAccess()
 
   const events = useMemo<EventInput[]>(
     () =>
@@ -44,10 +46,12 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
             backgroundColor: c.bg,
             borderColor: c.border,
             classNames: t.status === 'done' ? ['opacity-60'] : [],
+            // Only editors of the task's workspace can drag or resize it.
+            editable: access.canEdit(t.workspace_id),
             extendedProps: { task: t },
           }
         }),
-    [tasks, byId],
+    [tasks, byId, access.canEdit],
   )
 
   // Dropping into the all-day row turns a task daily; into the time grid, hourly.
@@ -79,7 +83,7 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
           firstDay={1}
           nowIndicator
           editable
-          selectable
+          selectable={workspaceId ? access.canEdit(workspaceId) : access.canEditAny}
           selectMirror
           dayMaxEvents={4}
           slotDuration="00:30:00"

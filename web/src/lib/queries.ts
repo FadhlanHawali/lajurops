@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { AdminUser, AdminUserInput, Comment, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, MemberAccess, MemberRole, Comment, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -130,7 +130,10 @@ export function useCreateWorkspace() {
   return useMutation({
     mutationFn: (input: { key: string; name: string; description: string }) =>
       api<Workspace>('/workspaces', { method: 'POST', body: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['workspaces'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workspaces'] })
+      qc.invalidateQueries({ queryKey: ['me'] }) // the creator is now its editor
+    },
   })
 }
 
@@ -184,6 +187,20 @@ export function useSaveAdminUser() {
     onSettled: () => invalidateUsers(qc),
   })
 }
+
+// --- workspace access (admins) ---
+
+export interface UserAccess {
+  workspaces: MemberAccess[]
+  default_role: 'viewer' | 'none'
+}
+
+export const useUserAccess = (keycloakId?: string) =>
+  useQuery({ queryKey: ['user-access', keycloakId], queryFn: () => api<UserAccess>(`/admin/users/${keycloakId}/access`), enabled: !!keycloakId })
+
+/** Saves a user's role per workspace id. */
+export const saveUserAccess = (keycloakId: string, roles: Record<string, MemberRole>) =>
+  api<UserAccess>(`/admin/users/${keycloakId}/access`, { method: 'PUT', body: roles })
 
 export function useDeleteAdminUser() {
   const qc = useQueryClient()

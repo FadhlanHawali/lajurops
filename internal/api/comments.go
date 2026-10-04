@@ -14,6 +14,9 @@ type commentInput struct {
 }
 
 func (a *API) listComments(w http.ResponseWriter, r *http.Request) {
+	if !a.requireTask(w, r, chi.URLParam(r, "id"), levelViewer) {
+		return
+	}
 	comments, err := a.store.ListComments(r.Context(), chi.URLParam(r, "id"))
 	respond(w, comments, err)
 }
@@ -26,8 +29,7 @@ func (a *API) createComment(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	taskID := chi.URLParam(r, "id")
-	if _, err := a.store.GetTask(ctx, taskID); err != nil {
-		respond(w, nil, err)
+	if !a.requireTask(w, r, taskID, levelEditor) {
 		return
 	}
 	c, err := a.store.CreateComment(ctx, taskID, auth.UserFrom(ctx).ID, in.Body)
@@ -41,6 +43,15 @@ func (a *API) ownComment(w http.ResponseWriter, r *http.Request, allowAdmin bool
 	c, err := a.store.GetComment(ctx, chi.URLParam(r, "id"))
 	if err != nil {
 		respond(w, nil, err)
+		return c, false
+	}
+	// Viewers can't comment, so they can't change comments either.
+	ws, err := a.store.CommentWorkspace(ctx, c.ID)
+	if err != nil {
+		respond(w, nil, err)
+		return c, false
+	}
+	if !a.require(w, r, ws, levelEditor) {
 		return c, false
 	}
 	p := auth.From(ctx)

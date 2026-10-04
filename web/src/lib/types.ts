@@ -52,6 +52,23 @@ export interface SyncResult {
 
 export interface Me extends User {
   is_admin: boolean
+  /** Workspace id -> role for non-admins (no entry = no access); null for admins. */
+  workspace_roles: Record<string, WorkspaceRole> | null
+  can_create_workspace: boolean
+}
+
+export type WorkspaceRole = 'editor' | 'viewer'
+/** A role as stored for a member; "none" means no access. */
+export type MemberRole = WorkspaceRole | 'none'
+
+/** One workspace in a user's access list (admin API). */
+export interface MemberAccess {
+  workspace_id: string
+  key: string
+  name: string
+  role: MemberRole
+  /** false when the role is the server default. */
+  explicit: boolean
 }
 
 /** A Keycloak user as returned by the admin API. */
@@ -86,6 +103,8 @@ export interface Workspace {
   description: string
   task_count: number
   created_at: string
+  /** The caller's role here. */
+  my_role?: 'admin' | WorkspaceRole
 }
 
 export interface Task {

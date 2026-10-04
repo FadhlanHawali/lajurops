@@ -185,6 +185,7 @@ function Preview({ doc, origin, onBack, onDone }: { doc: WorkspaceBackup; origin
     try {
       const r = await importWorkspace(doc, { key, name, dryRun: false })
       await queryClient.invalidateQueries({ queryKey: ['workspaces'] })
+      queryClient.invalidateQueries({ queryKey: ['me'] }) // the importer is now its editor
       onDone()
       if (r.workspace) navigate(`/w/${r.workspace.id}/board`)
     } catch (e) {

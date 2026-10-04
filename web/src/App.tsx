@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import clsx from 'clsx'
-import { AlertTriangle, BarChart3, CalendarDays, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Settings, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
+import { AlertTriangle, BarChart3, CalendarDays, Eye, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Settings, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
 import { ImportDialog } from './components/ImportDialog'
 import { TaskModalProvider, useTaskModal } from './components/TaskModal'
 import { Avatar, Button, Field, inputCls, userName } from './components/ui'
+import { useAccess } from './lib/access'
 import { AUTH_ERROR_EVENT } from './lib/api'
 import { accountUrl, authEnabled, logout } from './lib/auth'
 import { downloadWorkspaceBackup, useCreateWorkspace, useDeleteWorkspace, useMe, useWorkspace, useWorkspaces } from './lib/queries'
@@ -91,6 +92,7 @@ function Sidebar() {
   const { data: me } = useMe()
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
+  const { canCreateWorkspace } = useAccess()
   const link = ({ isActive }: { isActive: boolean }) =>
     clsx('flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm', isActive ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white')
 
@@ -116,14 +118,16 @@ function Sidebar() {
         )}
         <div className="flex items-center justify-between px-2.5 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
           Workspaces
-          <span className="flex items-center gap-0.5">
-            <button className="rounded p-0.5 hover:bg-slate-800 hover:text-white" title="Import a workspace backup" onClick={() => setImporting(true)}>
-              <Upload size={13} />
-            </button>
-            <button className="rounded p-0.5 hover:bg-slate-800 hover:text-white" title="New workspace" onClick={() => setCreating(true)}>
-              <Plus size={14} />
-            </button>
-          </span>
+          {canCreateWorkspace && (
+            <span className="flex items-center gap-0.5">
+              <button className="rounded p-0.5 hover:bg-slate-800 hover:text-white" title="Import a workspace backup" onClick={() => setImporting(true)}>
+                <Upload size={13} />
+              </button>
+              <button className="rounded p-0.5 hover:bg-slate-800 hover:text-white" title="New workspace" onClick={() => setCreating(true)}>
+                <Plus size={14} />
+              </button>
+            </span>
+          )}
         </div>
         {workspaces.map((p) => (
           <NavLink key={p.id} to={`/w/${p.id}/board`} className={({ isActive }) => link({ isActive: isActive || location.pathname.startsWith(`/w/${p.id}/`) })}>
@@ -186,6 +190,7 @@ function WorkspacePage() {
   const [exporting, setExporting] = useState(false)
   const navigate = useNavigate()
   const modal = useTaskModal()
+  const canEdit = useAccess().canEdit(workspaceId)
   if (error) return <Navigate to="/" replace />
 
   return (
@@ -205,9 +210,15 @@ function WorkspacePage() {
               </NavLink>
             ))}
           </nav>
-          <Button variant="primary" onClick={() => modal.createTask({ title: '', workspace_id: workspaceId })}>
-            <Plus size={14} /> Create
-          </Button>
+          {canEdit ? (
+            <Button variant="primary" onClick={() => modal.createTask({ title: '', workspace_id: workspaceId })}>
+              <Plus size={14} /> Create
+            </Button>
+          ) : (
+            <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600" title="You have viewer access to this workspace">
+              <Eye size={13} /> View only
+            </span>
+          )}
           <Button
             variant="ghost"
             title="Export a backup of this workspace (.json)"
@@ -226,18 +237,20 @@ function WorkspacePage() {
           >
             {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
           </Button>
-          <Button
-            variant="ghost"
-            title="Delete workspace"
-            onClick={async () => {
-              if (workspace && confirm(`Delete workspace ${workspace.name} and all ${workspace.task_count} tasks? This cannot be undone.`)) {
-                await del.mutateAsync(workspace.id)
-                navigate('/')
-              }
-            }}
-          >
-            <Trash2 size={16} />
-          </Button>
+          {canEdit && (
+            <Button
+              variant="ghost"
+              title="Delete workspace"
+              onClick={async () => {
+                if (workspace && confirm(`Delete workspace ${workspace.name} and all ${workspace.task_count} tasks? This cannot be undone.`)) {
+                  await del.mutateAsync(workspace.id)
+                  navigate('/')
+                }
+              }}
+            >
+              <Trash2 size={16} />
+            </Button>
+          )}
         </>
       }
     >
@@ -249,8 +262,18 @@ function WorkspacePage() {
 function Home() {
   const { data: workspaces, isLoading } = useWorkspaces()
   const [importing, setImporting] = useState(false)
-  if (isLoading) return null
+  const access = useAccess()
+  if (isLoading || !access.loaded) return null
   if (workspaces?.length) return <Navigate to={`/w/${workspaces[0].id}/board`} replace />
+  if (!access.canCreateWorkspace)
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <h1 className="text-xl font-semibold">No workspaces yet</h1>
+          <p className="mt-1 text-sm text-slate-500">You don't have access to any workspace. Ask an administrator to give you access.</p>
+        </div>
+      </div>
+    )
   return (
     <div className="flex h-full items-center justify-center p-6">
       <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm">

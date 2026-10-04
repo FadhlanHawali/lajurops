@@ -2,6 +2,7 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { ChevronLeft, ChevronRight, Layers, Plus, X } from 'lucide-react'
 import { useEnvironments, useSetEnvironments } from '../lib/queries'
+import { useReadOnly } from '../lib/access'
 import { dotStyle, PALETTE_NAMES, pillStyle } from '../lib/colors'
 import type { EnvColor, EnvironmentDraft } from '../lib/types'
 import { ColorPicker } from './ColorPicker'
@@ -229,12 +230,24 @@ export function EnvironmentListEditor({
 export function ProjectEnvironments({ projectId }: { projectId: string }) {
   const { data = [], isLoading } = useEnvironments(projectId)
   const save = useSetEnvironments(projectId)
+  const readOnly = useReadOnly()
   return (
     <section>
       <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
         <Layers size={15} /> Environments
       </h3>
-      {isLoading ? <div className="h-8 animate-pulse rounded bg-slate-100" /> : <EnvironmentListEditor items={data} onChange={(list) => save.mutate(list)} busy={save.isPending} />}
+      {isLoading ? (
+        <div className="h-8 animate-pulse rounded bg-slate-100" />
+      ) : readOnly ? (
+        <div className="flex flex-wrap gap-1.5">
+          {data.length === 0 && <p className="text-xs text-slate-400">No environments.</p>}
+          {data.map((e) => (
+            <EnvBadge key={e.id} name={e.name} color={e.color} />
+          ))}
+        </div>
+      ) : (
+        <EnvironmentListEditor items={data} onChange={(list) => save.mutate(list)} busy={save.isPending} />
+      )}
       {save.error && <p className="mt-1 text-xs text-red-600">{save.error.message}</p>}
     </section>
   )

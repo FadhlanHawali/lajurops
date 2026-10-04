@@ -34,7 +34,11 @@ type Workload struct {
 	Active  bool `json:"active"`
 }
 
-func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, workspaceID string) ([]Workload, error) {
+// Scope limits a report to workspaces: nil means every workspace (admins),
+// otherwise only the listed ones (an empty list matches nothing).
+type Scope []string
+
+func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, scope Scope) ([]Workload, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT u.id::text, u.username, u.display_name, u.email,
 		       count(t.id),
@@ -53,12 +57,12 @@ func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, workspac
 		       ON t.id = ta.task_id
 		      AND coalesce(t.start_at, t.created_at) >= $1
 		      AND coalesce(t.start_at, t.created_at) <  $2
-		      AND ($3 = '' OR t.workspace_id::text = $3)
+		      AND ($3::text[] IS NULL OR t.workspace_id::text = ANY($3))
 		      AND t.type <> 'project'
 		GROUP BY u.id
 		HAVING (u.active AND u.deleted_at IS NULL) OR count(t.id) > 0
 		ORDER BY 8 DESC, 5 DESC, lower(u.username)`,
-		from, to, workspaceID)
+		from, to, scopeArg(scope))
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +81,7 @@ func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, workspac
 		return nil, err
 	}
 
-	hours, err := s.hourlyHours(ctx, from, to, workspaceID)
+	hours, err := s.hourlyHours(ctx, from, to, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +106,7 @@ type span struct{ start, end time.Time }
 
 // hourlyHours returns each user's hourly support hours in the period, with
 // overlapping tasks merged (see Workload).
-func (s *Store) hourlyHours(ctx context.Context, from, to time.Time, workspaceID string) (map[string]float64, error) {
+func (s *Store) hourlyHours(ctx context.Context, from, to time.Time, scope Scope) (map[string]float64, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT ta.user_id::text, t.start_at, t.end_at, t.actual_hours::float8
 		FROM task_assignees ta
@@ -110,8 +114,8 @@ func (s *Store) hourlyHours(ctx context.Context, from, to time.Time, workspaceID
 		WHERE t.type = 'hourly'
 		  AND coalesce(t.start_at, t.created_at) >= $1
 		  AND coalesce(t.start_at, t.created_at) <  $2
-		  AND ($3 = '' OR t.workspace_id::text = $3)`,
-		from, to, workspaceID)
+		  AND ($3::text[] IS NULL OR t.workspace_id::text = ANY($3))`,
+		from, to, scopeArg(scope))
 	if err != nil {
 		return nil, err
 	}
@@ -170,14 +174,14 @@ func mergedHours(spans []span) float64 {
 }
 
 // WorkloadTasks lists the tasks counted for a user in WorkloadReport.
-func (s *Store) WorkloadTasks(ctx context.Context, userID string, from, to time.Time, workspaceID string) ([]Task, error) {
+func (s *Store) WorkloadTasks(ctx context.Context, userID string, from, to time.Time, scope Scope) ([]Task, error) {
 	rows, err := s.db.Query(ctx, `SELECT `+taskCols+taskFrom+`
 		WHERE EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = $1)
 		  AND coalesce(t.start_at, t.created_at) >= $2
 		  AND coalesce(t.start_at, t.created_at) <  $3
-		  AND ($4 = '' OR t.workspace_id::text = $4)
+		  AND ($4::text[] IS NULL OR t.workspace_id::text = ANY($4))
 		  AND t.type <> 'project'
-		ORDER BY coalesce(t.start_at, t.created_at)`, userID, from, to, workspaceID)
+		ORDER BY coalesce(t.start_at, t.created_at)`, userID, from, to, scopeArg(scope))
 	if err != nil {
 		return nil, err
 	}
@@ -191,4 +195,12 @@ func (s *Store) WorkloadTasks(ctx context.Context, userID string, from, to time.
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// scopeArg passes nil (all workspaces) as SQL NULL and a list as text[].
+func scopeArg(s Scope) any {
+	if s == nil {
+		return nil
+	}
+	return []string(s)
 }

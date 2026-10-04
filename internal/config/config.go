@@ -15,6 +15,9 @@ type Config struct {
 	// AuthDisabled skips Keycloak entirely and treats every request as a
 	// single local "dev" user. Never enable this in production.
 	AuthDisabled bool
+	// DevUserAdmin makes the AUTH_DISABLED user an admin (default); set
+	// DEV_USER_ADMIN=false to try the app as a regular member.
+	DevUserAdmin bool
 
 	// OIDCIssuer is the issuer URL as seen by the browser, e.g.
 	// http://localhost:8081/realms/lajurops. Tokens are validated against it.
@@ -45,6 +48,10 @@ type Config struct {
 	// Keycloak. Insecure; prefer KeycloakCACert.
 	KeycloakTLSSkipVerify bool
 
+	// DefaultWorkspaceRole is what a non-admin user may do in a workspace
+	// nobody gave them a role in: "viewer" (default) or "none".
+	DefaultWorkspaceRole string
+
 	// ImportAllowPrivateURLs lets "import from URL" reach private/internal
 	// addresses (e.g. an intranet file server). Off by default to prevent
 	// the server being used to probe internal services.
@@ -69,9 +76,17 @@ func Load() (Config, error) {
 		KeycloakAdminClientID:     env("KEYCLOAK_ADMIN_CLIENT_ID", "lajurops-service"),
 		KeycloakAdminClientSecret: os.Getenv("KEYCLOAK_ADMIN_CLIENT_SECRET"),
 		KeycloakCACert:            os.Getenv("KEYCLOAK_CA_CERT"),
+		DefaultWorkspaceRole:      env("DEFAULT_WORKSPACE_ROLE", "viewer"),
+	}
+	if c.DefaultWorkspaceRole != "viewer" && c.DefaultWorkspaceRole != "none" {
+		return c, fmt.Errorf("DEFAULT_WORKSPACE_ROLE must be viewer or none, got %q", c.DefaultWorkspaceRole)
 	}
 	c.KeycloakTLSSkipVerify, _ = strconv.ParseBool(os.Getenv("KEYCLOAK_TLS_SKIP_VERIFY"))
 	c.AuthDisabled, _ = strconv.ParseBool(os.Getenv("AUTH_DISABLED"))
+	c.DevUserAdmin = true
+	if v, err := strconv.ParseBool(os.Getenv("DEV_USER_ADMIN")); err == nil {
+		c.DevUserAdmin = v
+	}
 	c.ImportAllowPrivateURLs, _ = strconv.ParseBool(os.Getenv("IMPORT_ALLOW_PRIVATE_URLS"))
 
 	if !c.AuthDisabled {

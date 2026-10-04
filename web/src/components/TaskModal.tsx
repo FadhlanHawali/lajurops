@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
-import { ArrowLeft, CheckCircle2, ChevronRight, CircleDot, Flag, Hourglass, Loader2, Plus, Tags, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ChevronRight, CircleDot, Eye, Flag, Hourglass, Loader2, Plus, Tags, Trash2, X } from 'lucide-react'
+import { ReadOnlyContext, useAccess, useReadOnly } from '../lib/access'
 import { dotStyle } from '../lib/colors'
 import { formatCreatedFull, fromInput, toInput } from '../lib/dates'
 import { saveEnvironments, useUsers, useCategories, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
@@ -223,8 +224,13 @@ function TaskForm({
   const [f, setF] = useState<FormState>(() => initialForm(task ?? initial ?? { title: '' }))
   const [err, setErr] = useState('')
   const [workspaceId, setWorkspaceId] = useState(task?.workspace_id ?? initial?.workspace_id ?? '')
-  const { data: workspaces = [] } = useWorkspaces()
+  const access = useAccess()
+  // New tasks can only go where the user is an editor.
+  const { data: allWorkspaces = [] } = useWorkspaces()
+  const workspaces = allWorkspaces.filter((w) => access.canEdit(w.id))
   const needsWorkspace = !task && !initial?.parent_id && !initial?.workspace_id
+  // Viewers see the task but can't change it (the server refuses too).
+  const readOnly = !!task && access.loaded && !access.canEdit(task.workspace_id)
   const update = useUpdateTask()
   const create = useCreateTask()
   const del = useDeleteTask()
@@ -324,9 +330,10 @@ function TaskForm({
   const typeInfo = TASK_TYPES.find((t) => t.id === f.type)!
 
   return (
+    <ReadOnlyContext.Provider value={readOnly}>
     <div
       onKeyDown={(e) => {
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !readOnly) save()
       }}
     >
       {backId && <BackBar id={backId} onBack={onClose} />}
@@ -344,7 +351,12 @@ function TaskForm({
         {task && <StatusPill status={task.status} />}
         {task && <CreatedNote task={task} />}
         <div className="ml-auto flex items-center gap-1">
-          {task && (
+          {readOnly && (
+            <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600" title="You have viewer access to this workspace">
+              <Eye size={12} /> View only
+            </span>
+          )}
+          {task && !readOnly && (
             <Button variant="ghost" onClick={remove} title="Delete task">
               <Trash2 size={16} />
             </Button>
@@ -357,6 +369,7 @@ function TaskForm({
 
       <div className="grid gap-6 p-5 md:grid-cols-[1fr_280px]">
         <div className="min-w-0 space-y-4">
+          <fieldset disabled={readOnly} className="min-w-0 space-y-4">
           <input
             autoFocus={!task}
             className="w-full rounded-md border border-transparent px-2 py-1 text-xl font-semibold hover:border-slate-200 focus:border-blue-500 focus:outline-none"
@@ -365,8 +378,9 @@ function TaskForm({
             onChange={(e) => up('title', e.target.value)}
           />
           <Field label="Description">
-            <textarea className={clsx(inputCls, 'min-h-32')} value={f.description} onChange={(e) => up('description', e.target.value)} placeholder="Add details, links, runbook steps…" />
+            <textarea className={clsx(inputCls, 'min-h-32')} value={f.description} onChange={(e) => up('description', e.target.value)} placeholder={readOnly ? 'No description' : 'Add details, links, runbook steps…'} />
           </Field>
+          </fieldset>
 
           {task?.type === 'project' && <ProjectEnvironments projectId={task.id} />}
           {!task && f.type === 'project' && (
@@ -389,7 +403,7 @@ function TaskForm({
           )}
         </div>
 
-        <div className="space-y-3">
+        <fieldset disabled={readOnly} className="min-w-0 space-y-3">
           {needsWorkspace && (
             <Field label="Workspace">
               <select className={inputCls} value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
@@ -541,20 +555,25 @@ function TaskForm({
               <input type="range" min={0} max={100} step={5} className="w-full" value={f.progress} onChange={(e) => up('progress', Number(e.target.value))} />
             </Field>
           )}
-        </div>
+        </fieldset>
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
         <span className="text-sm text-red-600">{err}</span>
-        <div className="flex gap-2">
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save} disabled={busy}>
-            {busy && <Loader2 size={14} className="animate-spin" />}
-            {task ? 'Save' : 'Create'}
-          </Button>
-        </div>
+        {readOnly ? (
+          <Button onClick={onClose}>Close</Button>
+        ) : (
+          <div className="flex gap-2">
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={save} disabled={busy}>
+              {busy && <Loader2 size={14} className="animate-spin" />}
+              {task ? 'Save' : 'Create'}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
+    </ReadOnlyContext.Provider>
   )
 }
 
@@ -568,6 +587,7 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
   const update = useUpdateTask()
   const [dragId, setDragId] = useState<string | null>(null)
   const [overGroup, setOverGroup] = useState<string | null>(null)
+  const readOnly = useReadOnly()
   const done = items.filter((s) => s.status === 'done').length
   const grouped = parent.type === 'project' && envs.length > 0
 
@@ -595,7 +615,7 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
         {header}
         <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
           <RowsWithDoneCollapsed items={items} row={(s) => <ChildRow key={s.id} task={s} onOpen={onOpen} />} />
-          <AddChildRow parent={parent} environmentId={parent.type === 'daily' ? parent.environment_id : null} />
+          {!readOnly && <AddChildRow parent={parent} environmentId={parent.type === 'daily' ? parent.environment_id : null} />}
         </ul>
       </div>
     )
@@ -654,7 +674,7 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
                       task={s}
                       onOpen={onOpen}
                       dragging={dragId === s.id}
-                      onDragStart={() => setDragId(s.id)}
+                      onDragStart={readOnly ? undefined : () => setDragId(s.id)}
                       onDragEnd={() => {
                         setDragId(null)
                         setOverGroup(null)
@@ -662,13 +682,13 @@ function ChildTasks({ parent, items, onOpen }: { parent: Task; items: Task[]; on
                     />
                   )}
                 />
-                <AddChildRow parent={parent} environmentId={sec.id || null} environmentName={sec.id ? sec.name : undefined} compact />
+                {!readOnly && <AddChildRow parent={parent} environmentId={sec.id || null} environmentName={sec.id ? sec.name : undefined} compact />}
               </ul>
             </section>
           )
         })}
       </div>
-      <p className="mt-2 text-[11px] text-slate-400">Drag a task to another environment to move it.</p>
+      {!readOnly && <p className="mt-2 text-[11px] text-slate-400">Drag a task to another environment to move it.</p>}
     </div>
   )
 }
@@ -714,6 +734,7 @@ function ChildRow({
   onDragEnd?: () => void
 }) {
   const update = useUpdateTask()
+  const readOnly = useReadOnly()
   return (
     <li
       draggable={!!onDragStart}
@@ -725,7 +746,7 @@ function ChildRow({
       onDragEnd={onDragEnd}
       className={clsx('flex items-center gap-2 bg-white px-2 py-1.5 text-sm hover:bg-slate-50', onDragStart && 'cursor-grab active:cursor-grabbing', dragging && 'opacity-40')}
     >
-      <input type="checkbox" checked={s.status === 'done'} onChange={(e) => update.mutate({ id: s.id, patch: { status: e.target.checked ? 'done' : 'todo' } })} />
+      <input type="checkbox" disabled={readOnly} checked={s.status === 'done'} onChange={(e) => update.mutate({ id: s.id, patch: { status: e.target.checked ? 'done' : 'todo' } })} />
       <button className="text-xs font-medium text-blue-600 hover:underline" onClick={() => onOpen(s.id)}>
         {s.key}
       </button>

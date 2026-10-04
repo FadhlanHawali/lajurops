@@ -76,6 +76,8 @@ services:
       KEYCLOAK_ADMIN_CLIENT_ID: lajurops-service
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${LAJUROPS_SERVICE_CLIENT_SECRET:-dev-admin-secret-change-me}
       ADMIN_ROLE: lajurops-admin
+      # Non-admins in a workspace nobody gave them a role in: viewer or none.
+      DEFAULT_WORKSPACE_ROLE: ${DEFAULT_WORKSPACE_ROLE:-viewer}
       # When the server reaches Keycloak over HTTPS with a company/internal CA:
       # mount the CA's PEM file and point KEYCLOAK_CA_CERT at it (see README),
       # or, as a last resort, skip certificate verification.

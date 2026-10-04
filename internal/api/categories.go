@@ -9,6 +9,9 @@ import (
 )
 
 func (a *API) listCategories(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, chi.URLParam(r, "id"), levelViewer) {
+		return
+	}
 	list, err := a.store.ListCategories(r.Context(), chi.URLParam(r, "id"))
 	respond(w, list, err)
 }
@@ -18,6 +21,9 @@ func (a *API) setCategories(w http.ResponseWriter, r *http.Request) {
 	var in []store.CategoryInput
 	if err := decode(r, &in); err != nil {
 		respond(w, nil, err)
+		return
+	}
+	if !a.require(w, r, chi.URLParam(r, "id"), levelEditor) {
 		return
 	}
 	list, err := a.store.SetCategories(r.Context(), chi.URLParam(r, "id"), in)

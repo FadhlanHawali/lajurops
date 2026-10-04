@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { AlertTriangle, CheckCircle2, Hourglass, Link2, Plus, Search, X } from 'lucide-react'
+import { useReadOnly } from '../lib/access'
 import { formatSchedule } from '../lib/dates'
 import { useDependencyMutations } from '../lib/queries'
 import type { Task } from '../lib/types'
@@ -27,6 +28,7 @@ export function Dependencies({
   onOpen: (id: string) => void
 }) {
   const { add, remove } = useDependencyMutations()
+  const readOnly = useReadOnly()
   const [error, setError] = useState('')
   const open = waitingFor.filter((t) => t.status !== 'done')
 
@@ -75,9 +77,9 @@ export function Dependencies({
         onOpen={onOpen}
         conflict={(t) => !!(t.status !== 'done' && t.end_at && task.start_at && Date.parse(t.end_at) > Date.parse(task.start_at))}
         conflictText="finishes after this task starts"
-        onRemove={(t) => run(remove.mutateAsync({ taskId: task.id, dependsOnId: t.id }))}
+        onRemove={readOnly ? undefined : (t) => run(remove.mutateAsync({ taskId: task.id, dependsOnId: t.id }))}
         picker={
-          <TaskSearch
+          !readOnly && <TaskSearch
             label="Add a task this is waiting for"
             options={available}
             suggestions={siblings}
@@ -93,9 +95,9 @@ export function Dependencies({
         onOpen={onOpen}
         conflict={(t) => !!(task.status !== 'done' && task.end_at && t.start_at && Date.parse(task.end_at) > Date.parse(t.start_at))}
         conflictText="starts before this task finishes"
-        onRemove={(t) => run(remove.mutateAsync({ taskId: t.id, dependsOnId: task.id }))}
+        onRemove={readOnly ? undefined : (t) => run(remove.mutateAsync({ taskId: t.id, dependsOnId: task.id }))}
         picker={
-          <TaskSearch
+          !readOnly && <TaskSearch
             label="Add a task that waits for this"
             options={available}
             suggestions={siblings}
@@ -123,7 +125,7 @@ function DependencyList({
   empty: string
   items: Task[]
   onOpen: (id: string) => void
-  onRemove: (t: Task) => void
+  onRemove?: (t: Task) => void
   conflict: (t: Task) => boolean
   conflictText: string
   picker: React.ReactNode
@@ -154,9 +156,11 @@ function DependencyList({
               )}
               <TypeBadge type={t.type} kind={t.project_kind} />
               <StatusPill status={t.status} />
-              <button className="rounded p-0.5 text-slate-300 opacity-0 group-hover:opacity-100 hover:bg-slate-200 hover:text-slate-600" title="Remove dependency" onClick={() => onRemove(t)}>
-                <X size={14} />
-              </button>
+              {onRemove && (
+                <button className="rounded p-0.5 text-slate-300 opacity-0 group-hover:opacity-100 hover:bg-slate-200 hover:text-slate-600" title="Remove dependency" onClick={() => onRemove(t)}>
+                  <X size={14} />
+                </button>
+              )}
             </li>
           ))}
         </ul>

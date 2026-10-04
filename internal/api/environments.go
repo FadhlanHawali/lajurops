@@ -10,6 +10,9 @@ import (
 
 // listEnvironments returns a project's environments with usage counts.
 func (a *API) listEnvironments(w http.ResponseWriter, r *http.Request) {
+	if !a.requireTask(w, r, chi.URLParam(r, "id"), levelViewer) {
+		return
+	}
 	envs, err := a.store.ListEnvironments(r.Context(), chi.URLParam(r, "id"))
 	respond(w, envs, err)
 }
@@ -19,6 +22,9 @@ func (a *API) setEnvironments(w http.ResponseWriter, r *http.Request) {
 	var in []store.EnvironmentInput
 	if err := decode(r, &in); err != nil {
 		respond(w, nil, err)
+		return
+	}
+	if !a.requireTask(w, r, chi.URLParam(r, "id"), levelEditor) {
 		return
 	}
 	envs, err := a.store.SetEnvironments(r.Context(), chi.URLParam(r, "id"), in)

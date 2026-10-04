@@ -262,6 +262,16 @@ func (a *API) respondAdminUser(w http.ResponseWriter, r *http.Request, id string
 }
 
 // respondKC maps Keycloak errors to API responses.
+// respondAny maps Keycloak errors with respondKC and anything else with respond.
+func respondAny(w http.ResponseWriter, err error) {
+	var ke *keycloak.Error
+	if errors.As(err, &ke) {
+		respondKC(w, err)
+		return
+	}
+	respond(w, nil, err)
+}
+
 func respondKC(w http.ResponseWriter, err error) {
 	var ke *keycloak.Error
 	if errors.As(err, &ke) {
@@ -327,4 +337,56 @@ func (a *API) adminPurgeUser(w http.ResponseWriter, r *http.Request) {
 	res, err := a.store.PurgeUser(ctx, u.ID, r.URL.Query().Get("delete_tasks") == "true")
 	a.auth.Forget(u.Sub)
 	respond(w, res, err)
+}
+
+// localUserID maps a Keycloak user id to the planner's user id, mirroring
+// the user from Keycloak first if they have never signed in.
+func (a *API) localUserID(ctx context.Context, sub string) (string, error) {
+	id, err := a.store.UserIDBySub(ctx, sub)
+	if !errors.Is(err, store.ErrNotFound) {
+		return id, err
+	}
+	u, err := a.kc.GetUser(ctx, sub)
+	if err != nil {
+		return "", err
+	}
+	a.syncLocal(ctx, u)
+	return a.store.UserIDBySub(ctx, sub)
+}
+
+// adminGetAccess lists every workspace with the user's role in it.
+func (a *API) adminGetAccess(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, err := a.localUserID(ctx, chi.URLParam(r, "id"))
+	if err != nil {
+		respondAny(w, err)
+		return
+	}
+	list, err := a.store.UserAccess(ctx, id, a.cfg.DefaultWorkspaceRole)
+	a.respondAccess(w, list, err)
+}
+
+func (a *API) respondAccess(w http.ResponseWriter, list []store.MemberAccess, err error) {
+	respond(w, map[string]any{"workspaces": list, "default_role": a.cfg.DefaultWorkspaceRole}, err)
+}
+
+// adminSetAccess stores the user's role per workspace: {"<workspace id>": "editor"|"viewer"|"none"}.
+func (a *API) adminSetAccess(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var in map[string]string
+	if err := decode(r, &in); err != nil {
+		respond(w, nil, err)
+		return
+	}
+	id, err := a.localUserID(ctx, chi.URLParam(r, "id"))
+	if err != nil {
+		respondAny(w, err)
+		return
+	}
+	if err := a.store.SetUserAccess(ctx, id, in); err != nil {
+		respond(w, nil, err)
+		return
+	}
+	list, err := a.store.UserAccess(ctx, id, a.cfg.DefaultWorkspaceRole)
+	a.respondAccess(w, list, err)
 }

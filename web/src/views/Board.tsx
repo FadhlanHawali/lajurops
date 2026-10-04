@@ -7,6 +7,7 @@ import { useTaskModal } from '../components/TaskModal'
 import { EnvBadge } from '../components/Environments'
 import ProjectBoard from './ProjectBoard'
 import { AvatarStack, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
+import { useAccess } from '../lib/access'
 import { formatCreatedFull, formatCreatedShort, formatSchedule } from '../lib/dates'
 import { useTaskFilters, useTasks, useUpdateTask } from '../lib/queries'
 import { STATUSES, type Status, type Task } from '../lib/types'
@@ -58,6 +59,7 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
   }, [tasks])
 
   const viewOf = useColumnViews('status')
+  const canEdit = useAccess().canEdit(workspaceId)
   // Drag-to-reorder only makes sense in manual order with nothing filtered out.
   const reorderable = (status: Status) => {
     const v = viewOf(status)
@@ -117,9 +119,11 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
                 </span>
                 <span className="flex items-center">
                   <ColumnToolButtons view={view} />
-                  <button className="rounded p-1 text-slate-500 hover:bg-slate-200" title="Create task" onClick={() => modal.createTask({ title: '', workspace_id: workspaceId, status: col.id })}>
-                    <Plus size={14} />
-                  </button>
+                  {canEdit && (
+                    <button className="rounded p-1 text-slate-500 hover:bg-slate-200" title="Create task" onClick={() => modal.createTask({ title: '', workspace_id: workspaceId, status: col.id })}>
+                      <Plus size={14} />
+                    </button>
+                  )}
                 </span>
               </div>
               <ColumnSearch view={view} />
@@ -134,6 +138,7 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
                       parent={t.parent_id ? byId.get(t.parent_id) : undefined}
                       openBlockers={t.blocked_by.map((id) => byId.get(id)).filter((b): b is Task => !!b && b.status !== 'done')}
                       onOpen={() => modal.openTask(t.id)}
+                      draggable={canEdit}
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/task-id', t.id)
                         e.dataTransfer.effectAllowed = 'move'
@@ -169,6 +174,7 @@ function Card({
   parent,
   openBlockers,
   onOpen,
+  draggable,
   ...drag
 }: {
   task: Task
@@ -176,6 +182,7 @@ function Card({
   parent?: Task
   openBlockers: Task[]
   onOpen: () => void
+  draggable: boolean
   onDragStart: (e: React.DragEvent<HTMLDivElement>) => void
   onDragOver: (e: React.DragEvent<HTMLDivElement>) => void
   onDragEnd: () => void
@@ -183,7 +190,7 @@ function Card({
   return (
     <div
       data-card
-      draggable
+      draggable={draggable}
       {...drag}
       onClick={onOpen}
       className="cursor-pointer rounded-md border border-slate-200 bg-white p-2.5 shadow-sm transition hover:border-blue-300 hover:shadow"

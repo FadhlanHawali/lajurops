@@ -32,6 +32,11 @@ func From(ctx context.Context) Principal {
 	return p
 }
 
+// WithPrincipal stores p as the caller, as Middleware does. For tests.
+func WithPrincipal(ctx context.Context, p Principal) context.Context {
+	return context.WithValue(ctx, ctxKey{}, p)
+}
+
 // UserFrom returns the authenticated user stored by Middleware.
 func UserFrom(ctx context.Context) store.User { return From(ctx).User }
 
@@ -40,6 +45,7 @@ type Authenticator struct {
 	clientID  string
 	adminRole string
 	disabled  bool
+	devAdmin  bool
 	store     *store.Store
 	cache     sync.Map // sub -> cachedUser
 
@@ -51,7 +57,7 @@ type Authenticator struct {
 
 // New sets up token verification; hc is used for every call to Keycloak.
 func New(ctx context.Context, cfg config.Config, st *store.Store, hc *http.Client) *Authenticator {
-	a := &Authenticator{clientID: cfg.OIDCClientID, adminRole: cfg.AdminRole, disabled: cfg.AuthDisabled, store: st,
+	a := &Authenticator{clientID: cfg.OIDCClientID, adminRole: cfg.AdminRole, disabled: cfg.AuthDisabled, devAdmin: cfg.DevUserAdmin, store: st,
 		issuer: cfg.OIDCIssuer, jwksURL: cfg.OIDCJWKSURL, hc: hc}
 	if a.disabled {
 		slog.Warn("AUTH_DISABLED=true: every request is treated as the local dev user")
@@ -90,7 +96,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		var isAdmin bool
 		if a.disabled {
 			c = claims{Sub: "dev", PreferredUsername: "dev", Name: "Local Developer", Email: "dev@localhost"}
-			isAdmin = true
+			isAdmin = a.devAdmin
 		} else {
 			raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if !ok || raw == "" {

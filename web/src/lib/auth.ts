@@ -7,6 +7,8 @@ export interface AppConfig {
   keycloak_realm: string
   keycloak_clientId: string
   user_management: boolean
+  /** Role of non-admins in workspaces nobody gave them a role in. */
+  default_workspace_role: 'viewer' | 'none'
 }
 
 let keycloak: Keycloak | null = null

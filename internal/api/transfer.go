@@ -22,6 +22,9 @@ import (
 const maxBackupBytes = 25 << 20
 
 func (a *API) exportWorkspace(w http.ResponseWriter, r *http.Request) {
+	if !a.require(w, r, chi.URLParam(r, "id"), levelViewer) {
+		return
+	}
 	doc, err := a.store.ExportWorkspaceData(r.Context(), chi.URLParam(r, "id"), auth.UserFrom(r.Context()).Username)
 	if err != nil {
 		respond(w, nil, err)
@@ -38,6 +41,9 @@ func (a *API) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 // importWorkspace restores a backup (the request body) as a new workspace.
 // ?dry_run=true validates and returns what would be imported.
 func (a *API) importWorkspace(w http.ResponseWriter, r *http.Request) {
+	if !a.requireCreate(w, r) {
+		return
+	}
 	var doc store.ExportDoc
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBackupBytes))
 	if err := dec.Decode(&doc); err != nil {
@@ -54,6 +60,8 @@ func (a *API) importWorkspace(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusCreated
 	if res.DryRun {
 		status = http.StatusOK
+	} else if err == nil && res.Workspace != nil {
+		err = a.joinAsEditor(r, res.Workspace.ID)
 	}
 	respondStatus(w, status, res, err)
 }
@@ -61,6 +69,10 @@ func (a *API) importWorkspace(w http.ResponseWriter, r *http.Request) {
 // fetchBackup downloads a backup from a URL on the server side (browsers are
 // usually blocked by CORS) and returns it for preview and import.
 func (a *API) fetchBackup(w http.ResponseWriter, r *http.Request) {
+	// Only people who may import can make the server fetch URLs.
+	if !a.requireCreate(w, r) {
+		return
+	}
 	var in struct {
 		URL string `json:"url"`
 	}

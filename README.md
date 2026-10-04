@@ -81,7 +81,8 @@ Export a workspace to JSON and import it (from a file or a URL) as a new workspa
 
 ### Sign-in and user management
 Sign in with **Keycloak** (OIDC + PKCE). Admins manage users from the app (create, disable, reset passwords,
-grant admin) and can sync with Keycloak to clean up people deleted there.
+grant admin) and choose who can **edit**, **view** or **not see** each workspace. They can also sync with
+Keycloak to clean up people deleted there.
 
 <img src="docs/media/sign-in.png" alt="Sign-in screen" width="900">
 
@@ -183,6 +184,24 @@ tasks only they own. Shared tasks, and tasks containing someone else's work, are
 comments stay, shown as by a deleted user. Workload hides deleted/disabled people unless they have
 tasks in the selected period.
 
+### Roles and workspace access
+
+| Role | What they can do |
+|------|------------------|
+| **Admin** (realm role `lajurops-admin`) | Everything, in every workspace; manage users and their access |
+| **Editor** (per workspace) | Create, edit and delete tasks, comments, environments and categories; delete the workspace |
+| **Viewer** (per workspace) | Read only: boards, timeline, calendar, task details, comments, workload, export |
+| **No access** (per workspace) | The workspace is hidden from them |
+
+Admins set a member's role per workspace in the user's **Edit** dialog (Role → Member → Workspace access).
+A user with no role set for a workspace gets `DEFAULT_WORKSPACE_ROLE` (`viewer` by default, or `none`).
+That covers new users at their first sign-in and workspaces created later. Admins, and anyone who
+is an editor of at least one workspace, can create or import workspaces; the creator becomes the
+new workspace's editor. The server enforces all of this; the UI also hides what a role can't do.
+
+> **Upgrading:** when roles were added, every existing user became an **editor of every existing
+> workspace**, so nothing changes until an admin restricts access.
+
 ## Local development
 
 Requires Go 1.22+, Node 20+ and a PostgreSQL.
@@ -225,7 +244,9 @@ make build        # web/dist + bin/lajurops
 | `KEYCLOAK_CA_CERT` | (empty) | PEM file with extra CA certificates to trust when the server calls Keycloak over HTTPS (internal/company CA) |
 | `KEYCLOAK_TLS_SKIP_VERIFY` | `false` | Don't verify Keycloak's TLS certificate at all. Insecure; prefer `KEYCLOAK_CA_CERT` |
 | `IMPORT_ALLOW_PRIVATE_URLS` | `false` | Let "import from URL" fetch from private/internal addresses (e.g. an intranet file server) |
+| `DEFAULT_WORKSPACE_ROLE` | `viewer` | Role of a non-admin in a workspace nobody gave them a role in: `viewer` or `none` |
 | `AUTH_DISABLED`  | `false` | Local development only: skip Keycloak entirely |
+| `DEV_USER_ADMIN` | `true` | With `AUTH_DISABLED`: set `false` to use the app as a non-admin member (to try roles) |
 | `LOG_LEVEL`      | `info` | `debug`, `info`, `warn` or `error`. Rejected sign-in tokens are logged at `warn` with the reason |
 
 Docker Compose reads `LAJUROPS_DB_PASSWORD`, `KEYCLOAK_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`,
@@ -364,4 +385,6 @@ GET    /api/admin/users?search=&first=&max=
 POST   /api/admin/users         { username, email, first_name, last_name, password, temporary_password, is_admin, enabled }
 PATCH  /api/admin/users/{id}    any of the above except username; password resets it
 DELETE /api/admin/users/{id}
+GET    /api/admin/users/{id}/access         every workspace with the user's role (and whether it's the default)
+PUT    /api/admin/users/{id}/access         { "<workspace id>": "editor" | "viewer" | "none", ... }
 ```

@@ -38,50 +38,7 @@ func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *k
 
 		r.Group(func(r chi.Router) {
 			r.Use(authn.Middleware)
-			r.Get("/me", a.getMe)
-			r.Get("/users", a.listUsers)
-
-			r.Get("/workspaces", a.listWorkspaces)
-			r.Post("/workspaces", a.createWorkspace)
-			r.Get("/workspaces/{id}", a.getWorkspace)
-			r.Patch("/workspaces/{id}", a.updateWorkspace)
-			r.Delete("/workspaces/{id}", a.deleteWorkspace)
-			r.Get("/workspaces/{id}/export", a.exportWorkspace)
-			r.Get("/workspaces/{id}/categories", a.listCategories)
-			r.Put("/workspaces/{id}/categories", a.setCategories)
-			r.Post("/workspaces/import", a.importWorkspace)
-			r.Post("/import/fetch", a.fetchBackup)
-
-			r.Get("/tasks", a.listTasks)
-			r.Post("/tasks", a.createTask)
-			r.Get("/tasks/{id}", a.getTask)
-			r.Patch("/tasks/{id}", a.updateTask)
-			r.Delete("/tasks/{id}", a.deleteTask)
-
-			r.Get("/tasks/{id}/environments", a.listEnvironments)
-			r.Put("/tasks/{id}/environments", a.setEnvironments)
-
-			r.Post("/tasks/{id}/dependencies", a.addDependency)
-			r.Delete("/tasks/{id}/dependencies/{dependsOnID}", a.removeDependency)
-
-			r.Get("/tasks/{id}/comments", a.listComments)
-			r.Post("/tasks/{id}/comments", a.createComment)
-			r.Patch("/comments/{id}", a.updateComment)
-			r.Delete("/comments/{id}", a.deleteComment)
-
-			r.Get("/reports/workload", a.workloadReport)
-			r.Get("/reports/workload/{userID}/tasks", a.workloadTasks)
-
-			r.Route("/admin", func(r chi.Router) {
-				r.Use(a.adminOnly)
-				r.Get("/users", a.adminListUsers)
-				r.Post("/users/sync", a.adminSyncUsers)
-				r.Get("/users/removed", a.adminRemovedUsers)
-				r.Delete("/users/removed/{id}", a.adminPurgeUser)
-				r.Post("/users", a.adminCreateUser)
-				r.Patch("/users/{id}", a.adminUpdateUser)
-				r.Delete("/users/{id}", a.adminDeleteUser)
-			})
+			a.routes(r)
 		})
 
 		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
@@ -93,6 +50,56 @@ func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *k
 	return r
 }
 
+// routes mounts the authenticated API; the caller adds the auth middleware.
+func (a *API) routes(r chi.Router) {
+	r.Get("/me", a.getMe)
+	r.Get("/users", a.listUsers)
+
+	r.Get("/workspaces", a.listWorkspaces)
+	r.Post("/workspaces", a.createWorkspace)
+	r.Get("/workspaces/{id}", a.getWorkspace)
+	r.Patch("/workspaces/{id}", a.updateWorkspace)
+	r.Delete("/workspaces/{id}", a.deleteWorkspace)
+	r.Get("/workspaces/{id}/export", a.exportWorkspace)
+	r.Get("/workspaces/{id}/categories", a.listCategories)
+	r.Put("/workspaces/{id}/categories", a.setCategories)
+	r.Post("/workspaces/import", a.importWorkspace)
+	r.Post("/import/fetch", a.fetchBackup)
+
+	r.Get("/tasks", a.listTasks)
+	r.Post("/tasks", a.createTask)
+	r.Get("/tasks/{id}", a.getTask)
+	r.Patch("/tasks/{id}", a.updateTask)
+	r.Delete("/tasks/{id}", a.deleteTask)
+
+	r.Get("/tasks/{id}/environments", a.listEnvironments)
+	r.Put("/tasks/{id}/environments", a.setEnvironments)
+
+	r.Post("/tasks/{id}/dependencies", a.addDependency)
+	r.Delete("/tasks/{id}/dependencies/{dependsOnID}", a.removeDependency)
+
+	r.Get("/tasks/{id}/comments", a.listComments)
+	r.Post("/tasks/{id}/comments", a.createComment)
+	r.Patch("/comments/{id}", a.updateComment)
+	r.Delete("/comments/{id}", a.deleteComment)
+
+	r.Get("/reports/workload", a.workloadReport)
+	r.Get("/reports/workload/{userID}/tasks", a.workloadTasks)
+
+	r.Route("/admin", func(r chi.Router) {
+		r.Use(a.adminOnly)
+		r.Get("/users", a.adminListUsers)
+		r.Post("/users/sync", a.adminSyncUsers)
+		r.Get("/users/removed", a.adminRemovedUsers)
+		r.Delete("/users/removed/{id}", a.adminPurgeUser)
+		r.Post("/users", a.adminCreateUser)
+		r.Patch("/users/{id}", a.adminUpdateUser)
+		r.Delete("/users/{id}", a.adminDeleteUser)
+		r.Get("/users/{id}/access", a.adminGetAccess)
+		r.Put("/users/{id}/access", a.adminSetAccess)
+	})
+}
+
 func (a *API) getConfig(w http.ResponseWriter, _ *http.Request) {
 	url, realm, _ := a.cfg.KeycloakURLAndRealm()
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -101,11 +108,33 @@ func (a *API) getConfig(w http.ResponseWriter, _ *http.Request) {
 		"keycloak_realm":    realm,
 		"keycloak_clientId": a.cfg.OIDCClientID,
 		"user_management":   a.kc != nil,
+		// What a non-admin may do in a workspace they weren't given a role in.
+		"default_workspace_role": a.cfg.DefaultWorkspaceRole,
 	})
 }
 
+// me is the signed-in user plus what they may do.
+type me struct {
+	auth.Principal
+	// WorkspaceRoles maps workspace id to "editor" or "viewer" (workspaces
+	// without access are left out); null for admins, who can do everything.
+	WorkspaceRoles     map[string]string `json:"workspace_roles"`
+	CanCreateWorkspace bool              `json:"can_create_workspace"`
+}
+
 func (a *API) getMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, auth.From(r.Context()))
+	roles, err := a.roles(r)
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
+	for ws, role := range roles {
+		if levelOf(role) < levelViewer {
+			delete(roles, ws)
+		}
+	}
+	create, err := a.canCreateWorkspaces(r)
+	respond(w, me{auth.From(r.Context()), roles, create}, err)
 }
 
 func (a *API) listUsers(w http.ResponseWriter, r *http.Request) {

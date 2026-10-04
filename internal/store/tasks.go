@@ -76,10 +76,13 @@ type TaskInput struct {
 
 type TaskFilter struct {
 	WorkspaceID string
-	AssigneeID  string
-	ParentID    string
-	TopLevel    bool
-	Types       []string
+	// WorkspaceIDs, when non-nil, limits results to these workspaces (the
+	// ones the caller may see); an empty slice matches nothing.
+	WorkspaceIDs []string
+	AssigneeID   string
+	ParentID     string
+	TopLevel     bool
+	Types        []string
 	// From/To select tasks whose schedule overlaps [From, To).
 	From, To *time.Time
 }
@@ -135,6 +138,9 @@ func (s *Store) ListTasks(ctx context.Context, f TaskFilter) ([]Task, error) {
 	}
 	if f.WorkspaceID != "" {
 		add("t.workspace_id = $%d", f.WorkspaceID)
+	}
+	if f.WorkspaceIDs != nil {
+		add("t.workspace_id::text = ANY($%d)", f.WorkspaceIDs)
 	}
 	if f.AssigneeID != "" {
 		add("EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = $%d)", f.AssigneeID)
