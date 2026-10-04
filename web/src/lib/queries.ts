@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
 import type { AdminUser, AdminUserInput, MemberAccess, MemberRole, Comment, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
@@ -30,13 +30,19 @@ export interface TaskQuery {
   top_level?: boolean
   from?: string
   to?: string
+  /** With from/to, also tasks without dates: all of them, or the ones not done. */
+  undated?: 'all' | 'open'
+  /** Also the parents of matching tasks (project context for cards and rows). */
+  ancestors?: boolean
 }
 
-export const useTasks = (query: TaskQuery, enabled = true) =>
+export const useTasks = (query: TaskQuery, enabled = true, opts: { keepPrevious?: boolean } = {}) =>
   useQuery({
     queryKey: ['tasks', query],
     queryFn: () => api<Task[]>('/tasks', { query: { ...query } }),
     enabled,
+    // Keep showing the last result while a new range loads (no flicker).
+    placeholderData: opts.keepPrevious ? keepPreviousData : undefined,
   })
 
 export const useTask = (id: string | null) =>

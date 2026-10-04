@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
+import { addDays, startOfDay } from 'date-fns'
 import { FolderKanban, Hourglass, MessageSquare, Plus } from 'lucide-react'
 import { ColumnSearch, ColumnToolButtons, useColumnViews } from '../components/ColumnTools'
 import { DateFilter, EnvironmentFilter, inDateRange, ProjectFilter, thisWeek, type DateRangeFilter } from '../components/BoardFilters'
@@ -23,15 +24,30 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
   const [projectFilter, setProjectFilter] = useState('') // '' = all, 'none' = independent, else project id
   const [envFilter, setEnvFilter] = useState('') // environment name, matched across projects
   const [dates, setDates] = useState<DateRangeFilter>(thisWeek)
-  // Load every type so cards can show which project they belong to.
-  const { data: all = [], isLoading } = useTasks({ workspace_id: workspaceId })
+  // The server applies the date range (plus open undated tasks, as
+  // inDateRange does) and adds each task's parents, so cards can show which
+  // project they belong to. "All dates" loads the whole workspace.
+  const { data: all = [], isLoading } = useTasks(
+    dates
+      ? {
+          workspace_id: workspaceId,
+          from: startOfDay(dates.from).toISOString(),
+          to: addDays(startOfDay(dates.to), 1).toISOString(),
+          undated: 'open',
+          ancestors: true,
+        }
+      : { workspace_id: workspaceId },
+    true,
+    { keepPrevious: true },
+  )
+  // Every project, for the project filter (a small list).
+  const { data: projects = [] } = useTasks({ workspace_id: workspaceId, type: 'project' })
   const byId = useMemo(() => new Map(all.map((t) => [t.id, t])), [all])
   const projectOf = (t: Task): Task | undefined => {
     for (let p = t.parent_id ? byId.get(t.parent_id) : undefined; p; p = p.parent_id ? byId.get(p.parent_id) : undefined) {
       if (p.type === 'project') return p
     }
   }
-  const projects = all.filter((t) => t.type === 'project')
   // Environment names in use (e.g. "UAT"), de-duplicated across projects.
   const envNames = useMemo(() => {
     const m = new Map<string, string>()
@@ -50,6 +66,9 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
   const update = useUpdateTask()
   const modal = useTaskModal()
   const [drag, setDrag] = useState<{ id: string; status: Status; index: number } | null>(null)
+  // Long columns render in pages of PAGE cards.
+  const [shown, setShown] = useState<Partial<Record<Status, number>>>({})
+  useEffect(() => setShown({}), [dates, projectFilter, envFilter, assignee, type])
 
   const columns = useMemo(() => {
     const cols = Object.fromEntries(STATUSES.map((s) => [s.id, [] as Task[]])) as Record<Status, Task[]>
@@ -95,7 +114,9 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
         {STATUSES.map((col) => {
           const view = viewOf(col.id)
           // Search and sort apply to every column, done included.
-          const items = view.apply(columns[col.id])
+          const matching = view.apply(columns[col.id])
+          const limit = shown[col.id] ?? PAGE
+          const items = matching.slice(0, limit)
           const marker = reorderable(col.id)
           return (
             <div
@@ -115,7 +136,7 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
               <div className="mb-2 flex items-center justify-between px-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {col.label}{' '}
-                  <span className="ml-1 text-slate-400">{view.filtering ? `${items.length} of ${columns[col.id].length}` : items.length}</span>
+                  <span className="ml-1 text-slate-400">{view.filtering ? `${matching.length} of ${columns[col.id].length}` : matching.length}</span>
                 </span>
                 <span className="flex items-center">
                   <ColumnToolButtons view={view} />
@@ -156,6 +177,15 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
                   </div>
                 ))}
                 {marker && drag?.status === col.id && drag.index >= items.length && <DropMarker />}
+                {matching.length > items.length && (
+                  <button
+                    type="button"
+                    onClick={() => setShown((s) => ({ ...s, [col.id]: limit + PAGE }))}
+                    className="w-full rounded-md border border-dashed border-slate-300 py-1.5 text-xs font-medium text-slate-500 hover:border-slate-400 hover:bg-white hover:text-slate-700"
+                  >
+                    Show {Math.min(PAGE, matching.length - items.length)} more ({matching.length - items.length} not shown)
+                  </button>
+                )}
                 {!isLoading && view.filtering && items.length === 0 && <p className="px-1 py-6 text-center text-xs text-slate-400">No matching tasks</p>}
               </div>
             </div>
@@ -165,6 +195,9 @@ function TaskBoard({ workspaceId }: { workspaceId: string }) {
     </div>
   )
 }
+
+/** Cards rendered per column before "Show more". */
+const PAGE = 100
 
 const DropMarker = () => <div className="my-1 h-1 rounded bg-blue-500" />
 

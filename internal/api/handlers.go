@@ -147,8 +147,11 @@ func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 		ParentID:     q.Get("parent_id"),
 		TopLevel:     q.Get("top_level") == "true",
 		Types:        splitList(q.Get("type")),
-		From:         from,
-		To:           to,
+		// ?undated=open|all (with from/to) and ?ancestors=true: see TaskFilter.
+		Undated:       q.Get("undated"),
+		WithAncestors: q.Get("ancestors") == "true",
+		From:          from,
+		To:            to,
 	})
 	respond(w, tasks, err)
 }

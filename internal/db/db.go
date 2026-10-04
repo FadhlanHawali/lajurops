@@ -18,7 +18,17 @@ var migrations embed.FS
 // Connect opens a pool, retrying for a while so the app can start alongside
 // postgres in docker compose.
 func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, err
+	}
+	// JIT compilation costs hundreds of milliseconds per query once a plan's
+	// estimated cost crosses jit_above_cost, which this app's short queries
+	// never earn back. A jit setting in the DSN still wins.
+	if _, ok := cfg.ConnConfig.RuntimeParams["jit"]; !ok {
+		cfg.ConnConfig.RuntimeParams["jit"] = "off"
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

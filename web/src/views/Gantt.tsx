@@ -18,7 +18,7 @@ import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Crosshair, P
 import { useTaskModal } from '../components/TaskModal'
 import { EnvBadge } from '../components/Environments'
 import { useAccess } from '../lib/access'
-import { AvatarStack, Button, FilterBar, Empty, taskColor } from '../components/ui'
+import { AvatarStack, Button, FilterBar, taskColor } from '../components/ui'
 import { defaultSpan, formatSchedule } from '../lib/dates'
 import { useTaskFilters, useTasks, useUpdateTask } from '../lib/queries'
 import { defaultChildType, type Task } from '../lib/types'
@@ -33,17 +33,33 @@ interface Zoom {
   bottom: Unit
   /** Drag snapping for hourly tasks, in minutes. Daily tasks always snap to whole days. */
   snapMin: number
-  /** Empty space shown around the scheduled tasks, in hours. */
-  padHours: number
 }
 
 const ZOOMS: Zoom[] = [
-  { id: 'hour', label: 'Hour', pxPerHour: 56, top: 'day', bottom: 'hour', snapMin: 15, padHours: 24 },
-  { id: '6h', label: '6 Hours', pxPerHour: 14, top: 'day', bottom: '6h', snapMin: 60, padHours: 72 },
-  { id: 'day', label: 'Day', pxPerHour: 2.5, top: 'month', bottom: 'day', snapMin: 60, padHours: 24 * 14 },
-  { id: 'week', label: 'Week', pxPerHour: 0.75, top: 'month', bottom: 'week', snapMin: 1440, padHours: 24 * 56 },
-  { id: 'month', label: 'Month', pxPerHour: 0.18, top: 'year', bottom: 'month', snapMin: 1440, padHours: 24 * 180 },
+  { id: 'hour', label: 'Hour', pxPerHour: 56, top: 'day', bottom: 'hour', snapMin: 15 },
+  { id: '6h', label: '6 Hours', pxPerHour: 14, top: 'day', bottom: '6h', snapMin: 60 },
+  { id: 'day', label: 'Day', pxPerHour: 2.5, top: 'month', bottom: 'day', snapMin: 60 },
+  { id: 'week', label: 'Week', pxPerHour: 0.75, top: 'month', bottom: 'week', snapMin: 1440 },
+  { id: 'month', label: 'Month', pxPerHour: 0.18, top: 'year', bottom: 'month', snapMin: 1440 },
 ]
+
+/**
+ * The timeline loads one window of time at a time: this far either side of
+ * the centre when it opens, growing as you scroll towards an edge (up to
+ * MAX_SPANS spans, dropping the far side).
+ */
+const WINDOW_HOURS: Record<string, number> = { hour: 24 * 3, '6h': 24 * 14, day: 24 * 60, week: 24 * 180, month: 24 * 730 }
+const MAX_SPANS = 4
+const EDGE_PX = 300 // extend the window when this close to its edge
+const OVERSCAN = 12 // rows rendered above and below the viewport
+
+/** The window around a moment for a zoom level, snapped to its top unit. */
+function windowAround(center: number, zoom: Zoom) {
+  const span = WINDOW_HOURS[zoom.id] * HOUR_MS
+  const start = unitStart(zoom.top, new Date(center - span)).getTime()
+  const end = unitAdd(zoom.top, unitStart(zoom.top, new Date(center + span)), 1).getTime()
+  return { start, end }
+}
 
 const LEFT = 320 // task list column width
 const ROW_H = 34
@@ -139,23 +155,44 @@ interface DragState {
 
 export default function Gantt({ workspaceId }: { workspaceId: string }) {
   const { assignee, type } = useTaskFilters()
-  const { data: tasks = [], isLoading } = useTasks({ workspace_id: workspaceId, assignee_id: assignee, type })
-  const update = useUpdateTask()
-  const modal = useTaskModal()
-  const canEdit = useAccess().canEdit(workspaceId)
-  const now = useNow()
-
   const [zoomIdx, setZoomIdx] = useState(() => {
     const saved = localStorage.getItem('gantt.zoom')
     const i = ZOOMS.findIndex((z) => z.id === saved)
     return i >= 0 ? i : 2
   })
   const zoom = ZOOMS[zoomIdx]
+  // The loaded (and drawn) time window; see WINDOW_HOURS.
+  const [range, setRange] = useState(() => windowAround(Date.now(), zoom))
+  const { data: tasks = [], isLoading } = useTasks(
+    {
+      workspace_id: workspaceId,
+      assignee_id: assignee,
+      type,
+      from: new Date(range.start).toISOString(),
+      to: new Date(range.end).toISOString(),
+      // Unscheduled tasks too, so they can be placed by clicking the timeline.
+      undated: 'all',
+      // Unfiltered, rows keep their project/daily parents even when those
+      // fall outside the window; filtered, orphans show at the top level.
+      ancestors: !assignee && !type,
+    },
+    true,
+    { keepPrevious: true },
+  )
+  const update = useUpdateTask()
+  const modal = useTaskModal()
+  const canEdit = useAccess().canEdit(workspaceId)
+  const now = useNow()
+
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [preview, setPreview] = useState<{ id: string; start: number; end: number } | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const pendingCenter = useRef<number | null>(null)
+  // Pixels to add to scrollLeft after the window grew on the left.
+  const pendingShift = useRef(0)
+  // The visible part of the scroll area, for drawing only what's on screen.
+  const [view, setView] = useState({ top: 0, height: 800 })
 
   useEffect(() => {
     try {
@@ -204,21 +241,6 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
 
   const hasChildren = useMemo(() => new Set(tasks.filter((t) => t.parent_id).map((t) => t.parent_id!)), [tasks])
 
-  // Visible time range: all scheduled tasks and "now", plus padding.
-  const range = useMemo(() => {
-    let min = now.getTime()
-    let max = now.getTime()
-    for (const t of tasks) {
-      if (!t.start_at) continue
-      min = Math.min(min, Date.parse(t.start_at))
-      max = Math.max(max, Date.parse(t.end_at ?? t.start_at))
-    }
-    const start = unitStart(zoom.top, new Date(min - zoom.padHours * HOUR_MS))
-    const end = unitAdd(zoom.top, unitStart(zoom.top, new Date(max + zoom.padHours * HOUR_MS)), 1)
-    return { start: start.getTime(), end: end.getTime() }
-    // `now` only matters for the initial range; don't rebuild the axis every minute.
-  }, [tasks, zoom])
-
   const x = (ms: number) => ((ms - range.start) / HOUR_MS) * zoom.pxPerHour
   const width = x(range.end)
 
@@ -253,15 +275,58 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
   const setZoom = (i: number) => {
     const el = scrollRef.current
     const next = Math.max(0, Math.min(ZOOMS.length - 1, i))
-    if (el && next !== zoomIdx) pendingCenter.current = timeAt(el.getBoundingClientRect().left + LEFT + (el.clientWidth - LEFT) / 2)
+    if (next === zoomIdx) return
+    const center = el ? timeAt(el.getBoundingClientRect().left + LEFT + (el.clientWidth - LEFT) / 2) : Date.now()
+    pendingCenter.current = center
     setZoomIdx(next)
+    setRange(windowAround(center, ZOOMS[next]))
+  }
+  // "Now": jump there, loading a new window when it's outside this one.
+  const goToNow = () => {
+    const t = Date.now()
+    if (t < range.start || t > range.end) {
+      pendingCenter.current = t
+      setRange(windowAround(t, zoom))
+    } else scrollToTime(t)
   }
   useLayoutEffect(() => {
+    const el = scrollRef.current
     if (pendingCenter.current !== null) {
       scrollToTime(pendingCenter.current, 0.5)
       pendingCenter.current = null
+    } else if (el && pendingShift.current) {
+      el.scrollLeft += pendingShift.current
     }
-  }, [zoomIdx])
+    pendingShift.current = 0
+  }, [zoomIdx, range.start, range.end])
+
+  // Grow the window when scrolling near an edge (dropping the far side
+  // beyond MAX_SPANS), and track what's visible.
+  const onScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    setView((v) => (v.top === el.scrollTop && v.height === el.clientHeight ? v : { top: el.scrollTop, height: el.clientHeight }))
+    if (pendingCenter.current !== null || pendingShift.current) return
+    const span = WINDOW_HOURS[zoom.id] * HOUR_MS
+    const max = MAX_SPANS * 2 * span
+    if (el.scrollLeft < EDGE_PX) {
+      const start = unitStart(zoom.top, new Date(range.start - span)).getTime()
+      pendingShift.current = ((range.start - start) / HOUR_MS) * zoom.pxPerHour
+      setRange({ start, end: Math.min(range.end, unitAdd(zoom.top, unitStart(zoom.top, new Date(start + max)), 1).getTime()) })
+    } else if (el.scrollLeft + el.clientWidth > LEFT + x(range.end) - EDGE_PX) {
+      const end = unitAdd(zoom.top, unitStart(zoom.top, new Date(range.end + span)), 1).getTime()
+      const start = Math.max(range.start, unitStart(zoom.top, new Date(end - max)).getTime())
+      pendingShift.current = -((start - range.start) / HOUR_MS) * zoom.pxPerHour
+      setRange({ start, end })
+    }
+  }
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setView({ top: el.scrollTop, height: el.clientHeight }))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const didInitialScroll = useRef(false)
   useLayoutEffect(() => {
@@ -348,7 +413,11 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
     })
 
   const nowX = x(now.getTime())
-  const bodyH = rows.length * ROW_H
+  const bodyH = Math.max(rows.length * ROW_H, ROW_H * 3)
+  // Only the rows on screen (plus some overscan) are rendered.
+  const first = Math.max(0, Math.floor((view.top - 48) / ROW_H) - OVERSCAN)
+  const last = Math.min(rows.length, Math.ceil((view.top + view.height) / ROW_H) + OVERSCAN)
+  const near = (row: number) => row >= first && row < last
 
   // Bar geometry per visible task (honouring an in-progress drag), used for
   // dependency arrows.
@@ -365,6 +434,8 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
       const from = bars.get(blockerId)
       const to = bars.get(t.id)
       if (!from || !to) return []
+      // Draw arrows that touch the rendered rows.
+      if (!near(from.row) && !near(to.row)) return []
       return [{ key: `${blockerId}>${t.id}`, from, to, conflict: !from.done && to.start < from.end }]
     }),
   )
@@ -387,7 +458,7 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
           <Button variant="ghost" title="Zoom out (Ctrl + wheel)" onClick={() => setZoom(zoomIdx + 1)} disabled={zoomIdx === ZOOMS.length - 1}>
             <ZoomOut size={16} />
           </Button>
-          <Button onClick={() => scrollToTime(Date.now())}>
+          <Button onClick={goToNow}>
             <Crosshair size={14} /> Now
           </Button>
           <Button
@@ -405,104 +476,113 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
         </div>
       </div>
 
-      {!isLoading && rows.length === 0 ? (
-        <Empty>No tasks yet. Create one to see it on the timeline.</Empty>
-      ) : (
-        <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 bg-white select-none">
-          <div style={{ width: LEFT + width }} className="relative">
-            {/* Header */}
-            <div className="sticky top-0 z-30 flex border-b border-slate-200 bg-white">
-              <div className="sticky left-0 z-40 flex shrink-0 items-end border-r border-slate-200 bg-white px-3 pb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500" style={{ width: LEFT, height: 48 }}>
-                Task
-              </div>
-              <div className="relative" style={{ width, height: 48 }}>
-                {topTicks.map((t) => (
-                  <div key={t.ms} className="absolute top-0 h-6 border-l border-slate-200 text-xs font-medium text-slate-700" style={{ left: t.x, width: t.w }}>
-                    <span className="sticky inline-block truncate px-2 leading-6" style={{ left: LEFT }}>
-                      {tickLabel(zoom.top, t.d, t.w, true)}
-                    </span>
-                  </div>
-                ))}
-                {bottomTicks.map((t) => (
-                  <div
-                    key={t.ms}
-                    className={clsx(
-                      'absolute top-6 h-6 overflow-hidden border-t border-l border-slate-200 text-center text-[11px] leading-6 text-slate-500',
-                      zoom.bottom === 'day' && isWeekend(t.d) && 'bg-slate-50',
-                    )}
-                    style={{ left: t.x, width: t.w }}
-                  >
-                    {tickLabel(zoom.bottom, t.d, t.w, false)}
-                  </div>
-                ))}
-                {nowX >= 0 && nowX <= width && (
-                  <div className="absolute bottom-0 -translate-x-1/2 rounded-t bg-red-500 px-1 text-[10px] font-semibold text-white" style={{ left: nowX }}>
-                    {format(now, 'HH:mm')}
-                  </div>
-                )}
-              </div>
+      <div ref={scrollRef} onScroll={onScroll} className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 bg-white select-none">
+        <div style={{ width: LEFT + width }} className="relative">
+          {/* Header */}
+          <div className="sticky top-0 z-30 flex border-b border-slate-200 bg-white">
+            <div className="sticky left-0 z-40 flex shrink-0 items-end border-r border-slate-200 bg-white px-3 pb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500" style={{ width: LEFT, height: 48 }}>
+              Task
             </div>
-
-            {/* Grid background */}
-            <div className="pointer-events-none absolute z-0" style={{ left: LEFT, top: 48, width, height: bodyH }}>
-              {weekendDays.map((t) => (
-                <div key={t.ms} className="absolute top-0 h-full bg-slate-50" style={{ left: t.x, width: t.w }} />
+            <div className="relative" style={{ width, height: 48 }}>
+              {topTicks.map((t) => (
+                <div key={t.ms} className="absolute top-0 h-6 border-l border-slate-200 text-xs font-medium text-slate-700" style={{ left: t.x, width: t.w }}>
+                  <span className="sticky inline-block truncate px-2 leading-6" style={{ left: LEFT }}>
+                    {tickLabel(zoom.top, t.d, t.w, true)}
+                  </span>
+                </div>
               ))}
               {bottomTicks.map((t) => (
-                <div key={t.ms} className="absolute top-0 h-full border-l border-slate-100" style={{ left: t.x }} />
+                <div
+                  key={t.ms}
+                  className={clsx(
+                    'absolute top-6 h-6 overflow-hidden border-t border-l border-slate-200 text-center text-[11px] leading-6 text-slate-500',
+                    zoom.bottom === 'day' && isWeekend(t.d) && 'bg-slate-50',
+                  )}
+                  style={{ left: t.x, width: t.w }}
+                >
+                  {tickLabel(zoom.bottom, t.d, t.w, false)}
+                </div>
               ))}
-              {topTicks.map((t) => (
-                <div key={t.ms} className="absolute top-0 h-full border-l border-slate-200" style={{ left: t.x }} />
-              ))}
-              {nowX >= 0 && nowX <= width && <div className="absolute top-0 h-full w-0.5 bg-red-500/70" style={{ left: nowX }} />}
+              {nowX >= 0 && nowX <= width && (
+                <div className="absolute bottom-0 -translate-x-1/2 rounded-t bg-red-500 px-1 text-[10px] font-semibold text-white" style={{ left: nowX }}>
+                  {format(now, 'HH:mm')}
+                </div>
+              )}
             </div>
+          </div>
 
-            {/* Dependency arrows: from the end of the task waited for to the start of the waiting task. */}
-            {arrows.length > 0 && (
-              <svg className="pointer-events-none absolute z-[5]" style={{ left: LEFT, top: 48 }} width={width} height={bodyH}>
-                <defs>
-                  {(['ok', 'bad'] as const).map((k) => (
-                    <marker key={k} id={`dep-arrow-${k}`} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                      <path d="M0,0 L8,4 L0,8 z" fill={k === 'ok' ? '#64748b' : '#dc2626'} />
-                    </marker>
-                  ))}
-                </defs>
-                {arrows.map(({ key, from, to, conflict }) => {
-                  const x1 = x(from.end)
-                  const y1 = from.row * ROW_H + ROW_H / 2
-                  const x2 = x(to.start)
-                  const y2 = to.row * ROW_H + ROW_H / 2
-                  const gap = 10
-                  // Straight elbow when there's room; otherwise route between the rows.
-                  const d =
-                    x2 - x1 >= gap * 2
-                      ? `M${x1},${y1} H${x1 + gap} V${y2} H${x2}`
-                      : `M${x1},${y1} H${x1 + gap} V${(y1 + y2) / 2} H${x2 - gap} V${y2} H${x2}`
-                  return (
-                    <path
-                      key={key}
-                      d={d}
-                      fill="none"
-                      stroke={conflict ? '#dc2626' : '#94a3b8'}
-                      strokeWidth={1.5}
-                      strokeDasharray={conflict ? '4 3' : undefined}
-                      markerEnd={`url(#dep-arrow-${conflict ? 'bad' : 'ok'})`}
-                    />
-                  )
-                })}
-              </svg>
-            )}
+          {/* Grid background */}
+          <div className="pointer-events-none absolute z-0" style={{ left: LEFT, top: 48, width, height: bodyH }}>
+            {weekendDays.map((t) => (
+              <div key={t.ms} className="absolute top-0 h-full bg-slate-50" style={{ left: t.x, width: t.w }} />
+            ))}
+            {bottomTicks.map((t) => (
+              <div key={t.ms} className="absolute top-0 h-full border-l border-slate-100" style={{ left: t.x }} />
+            ))}
+            {topTicks.map((t) => (
+              <div key={t.ms} className="absolute top-0 h-full border-l border-slate-200" style={{ left: t.x }} />
+            ))}
+            {nowX >= 0 && nowX <= width && <div className="absolute top-0 h-full w-0.5 bg-red-500/70" style={{ left: nowX }} />}
+          </div>
 
-            {/* Rows */}
-            {rows.map(({ task: t, depth, rollup }) => {
+          {/* Dependency arrows: from the end of the task waited for to the start of the waiting task. */}
+          {arrows.length > 0 && (
+            <svg className="pointer-events-none absolute z-[5]" style={{ left: LEFT, top: 48 }} width={width} height={bodyH}>
+              <defs>
+                {(['ok', 'bad'] as const).map((k) => (
+                  <marker key={k} id={`dep-arrow-${k}`} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M0,0 L8,4 L0,8 z" fill={k === 'ok' ? '#64748b' : '#dc2626'} />
+                  </marker>
+                ))}
+              </defs>
+              {arrows.map(({ key, from, to, conflict }) => {
+                const x1 = x(from.end)
+                const y1 = from.row * ROW_H + ROW_H / 2
+                const x2 = x(to.start)
+                const y2 = to.row * ROW_H + ROW_H / 2
+                const gap = 10
+                // Straight elbow when there's room; otherwise route between the rows.
+                const d =
+                  x2 - x1 >= gap * 2
+                    ? `M${x1},${y1} H${x1 + gap} V${y2} H${x2}`
+                    : `M${x1},${y1} H${x1 + gap} V${(y1 + y2) / 2} H${x2 - gap} V${y2} H${x2}`
+                return (
+                  <path
+                    key={key}
+                    d={d}
+                    fill="none"
+                    stroke={conflict ? '#dc2626' : '#94a3b8'}
+                    strokeWidth={1.5}
+                    strokeDasharray={conflict ? '4 3' : undefined}
+                    markerEnd={`url(#dep-arrow-${conflict ? 'bad' : 'ok'})`}
+                  />
+                )
+              })}
+            </svg>
+          )}
+
+          {/* Rows: only those near the viewport are rendered. */}
+          {!isLoading && rows.length === 0 && (
+            <div className="sticky left-0 px-4 py-6 text-sm text-slate-500" style={{ width: LEFT + Math.min(width, 900) }}>
+              No tasks in this period. Scroll sideways or zoom out to load more, or create a task.
+            </div>
+          )}
+          <div className="relative" style={{ height: rows.length ? bodyH : 0 }}>
+            {rows.slice(first, last).map(({ task: t, depth, rollup }, i) => {
               const p = preview?.id === t.id ? preview : null
               const start = p ? p.start : t.start_at ? Date.parse(t.start_at) : null
               const end = p ? p.end : t.end_at ? Date.parse(t.end_at) : start !== null ? defaultSpan(t.type, new Date(start)).end.getTime() : null
-              const bx = start !== null ? x(start) : 0
-              const bw = start !== null && end !== null ? Math.max(x(end) - bx, 6) : 0
+              // Clamp bars to the loaded window so they don't widen the scroll area.
+              const bx = start !== null ? Math.max(x(start), 0) : 0
+              const bw = start !== null && end !== null ? Math.max(Math.min(x(end), width) - bx, 6) : 0
               const color = t.status === 'done' ? 'bg-emerald-500' : taskColor(t)
+              const inWindow = start !== null && end !== null && end > range.start && start < range.end
               return (
-                <div key={t.id} className="group relative z-10 flex border-b border-slate-100 hover:bg-blue-50/40" style={{ height: ROW_H }}>
+                <div
+                  key={t.id}
+                  className="group absolute left-0 z-10 flex border-b border-slate-100 hover:bg-blue-50/40"
+                  style={{ height: ROW_H, top: (first + i) * ROW_H, width: LEFT + width }}
+                >
                   <div className="sticky left-0 z-20 flex shrink-0 items-center gap-1.5 border-r border-slate-200 bg-white pr-2 group-hover:bg-blue-50" style={{ width: LEFT, paddingLeft: 8 + depth * 20 }}>
                     {hasChildren.has(t.id) ? (
                       <button className="rounded p-0.5 text-slate-400 hover:bg-slate-200" onClick={() => toggle(t.id)}>
@@ -553,13 +633,13 @@ export default function Gantt({ workspaceId }: { workspaceId: string }) {
                           'absolute top-[10px] h-3 rounded-sm border-2',
                           t.project_kind === 'short' ? 'border-orange-400 bg-orange-100/70' : 'border-amber-500 bg-amber-100/70',
                         )}
-                        style={{ left: x(rollup.start), width: Math.max(x(rollup.end) - x(rollup.start), 6) }}
+                        style={{ left: Math.max(x(rollup.start), 0), width: Math.max(Math.min(x(rollup.end), width) - Math.max(x(rollup.start), 0), 6) }}
                         title={`${t.key} · ${t.title}
 Spans its tasks: ${formatSchedule({ type: 'daily', start_at: new Date(rollup.start).toISOString(), end_at: new Date(rollup.end).toISOString() })}`}
                         onClick={() => modal.openTask(t.id)}
                       />
                     ) : start !== null ? (
-                      <div
+                      inWindow && <div
                         className={clsx(
                           'absolute flex items-center overflow-visible rounded shadow-sm',
                           canEdit ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
@@ -607,7 +687,7 @@ Spans its tasks: ${formatSchedule({ type: 'daily', start_at: new Date(rollup.sta
             })}
           </div>
         </div>
-      )}
+      </div>
       <p className="text-xs text-slate-400">
         Drag bars to reschedule, drag edges to resize. Hourly tasks snap to {zoom.snapMin >= 1440 ? '1 day' : `${zoom.snapMin} min`} at this zoom; daily tasks snap to whole days. Ctrl + scroll to zoom.
       </p>

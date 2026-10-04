@@ -85,6 +85,12 @@ type TaskFilter struct {
 	Types        []string
 	// From/To select tasks whose schedule overlaps [From, To).
 	From, To *time.Time
+	// Undated, with From/To, also returns tasks without dates: "all", or
+	// "open" for those not done yet.
+	Undated string
+	// WithAncestors also returns the parents (and their parents) of the
+	// matching tasks, so lists keep their project context.
+	WithAncestors bool
 }
 
 var (
@@ -130,6 +136,9 @@ func scanTask(row pgx.Row) (Task, error) {
 }
 
 func (s *Store) ListTasks(ctx context.Context, f TaskFilter) ([]Task, error) {
+	if f.Undated != "" && f.Undated != "all" && f.Undated != "open" {
+		return nil, invalid("undated must be all or open")
+	}
 	var where []string
 	var args []any
 	add := func(cond string, v any) {
@@ -154,16 +163,40 @@ func (s *Store) ListTasks(ctx context.Context, f TaskFilter) ([]Task, error) {
 	if len(f.Types) > 0 {
 		add("t.type = ANY($%d)", f.Types)
 	}
+	// A task's span is start..end; with only one of them set, that moment.
+	var span []string
 	if f.To != nil {
-		add("t.start_at < $%d", *f.To)
+		args = append(args, *f.To)
+		span = append(span, fmt.Sprintf("coalesce(t.start_at, t.end_at) < $%d", len(args)))
 	}
 	if f.From != nil {
-		add("coalesce(t.end_at, t.start_at) >= $%d", *f.From)
+		args = append(args, *f.From)
+		span = append(span, fmt.Sprintf("coalesce(t.end_at, t.start_at) >= $%d", len(args)))
+	}
+	if len(span) > 0 {
+		cond := strings.Join(span, " AND ")
+		switch f.Undated {
+		case "all":
+			cond = "((" + cond + ") OR (t.start_at IS NULL AND t.end_at IS NULL))"
+		case "open":
+			cond = "((" + cond + ") OR (t.start_at IS NULL AND t.end_at IS NULL AND t.status <> 'done'))"
+		}
+		where = append(where, cond)
 	}
 
-	q := `SELECT ` + taskCols + taskFrom
+	cond := ""
 	if len(where) > 0 {
-		q += " WHERE " + strings.Join(where, " AND ")
+		cond = " WHERE " + strings.Join(where, " AND ")
+	}
+	q := `SELECT ` + taskCols + taskFrom + cond
+	if f.WithAncestors {
+		// Tasks nest at most Project > Daily > Hourly, so ancestors are the
+		// parents and grandparents (always in the same workspace).
+		q = `WITH m AS MATERIALIZED (SELECT t.id, t.parent_id FROM tasks t` + cond + `)
+			SELECT ` + taskCols + taskFrom + ` WHERE t.id IN (
+				SELECT id FROM m
+				UNION SELECT parent_id FROM m WHERE parent_id IS NOT NULL
+				UNION SELECT g.parent_id FROM m JOIN tasks g ON g.id = m.parent_id WHERE g.parent_id IS NOT NULL)`
 	}
 	q += " ORDER BY t.position, t.number"
 
