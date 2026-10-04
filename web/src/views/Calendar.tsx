@@ -85,7 +85,10 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
           editable
           selectable={workspaceId ? access.canEdit(workspaceId) : access.canEditAny}
           selectMirror
+          // Busy days/slots show "+N more" instead of drawing every event,
+          // which keeps large workspaces responsive.
           dayMaxEvents={4}
+          eventMaxStack={3}
           slotDuration="00:30:00"
           scrollTime="07:00:00"
           eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}

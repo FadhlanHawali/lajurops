@@ -62,6 +62,7 @@ func (a *API) routes(r chi.Router) {
 	r.Delete("/workspaces/{id}", a.deleteWorkspace)
 	r.Get("/workspaces/{id}/export", a.exportWorkspace)
 	r.Get("/workspaces/{id}/categories", a.listCategories)
+	r.Get("/workspaces/{id}/project-progress", a.projectProgress)
 	r.Put("/workspaces/{id}/categories", a.setCategories)
 	r.Post("/workspaces/import", a.importWorkspace)
 	r.Post("/import/fetch", a.fetchBackup)

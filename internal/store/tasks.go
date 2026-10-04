@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,6 +93,10 @@ type TaskFilter struct {
 	// WithAncestors also returns the parents (and their parents) of the
 	// matching tasks, so lists keep their project context.
 	WithAncestors bool
+	// Search matches the title (case-insensitive) or the task number ("12",
+	// "APP-12"); results are ranked best first. Limit caps the result count.
+	Search string
+	Limit  int
 }
 
 var (
@@ -184,6 +190,20 @@ func (s *Store) ListTasks(ctx context.Context, f TaskFilter) ([]Task, error) {
 		where = append(where, cond)
 	}
 
+	order := " ORDER BY t.position, t.number"
+	if q := strings.TrimSpace(f.Search); q != "" {
+		like := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(q) + "%"
+		num := -1
+		if m := taskNumberRe.FindStringSubmatch(q); m != nil {
+			num, _ = strconv.Atoi(m[1])
+		}
+		args = append(args, like, num, strings.TrimSuffix(like[1:], "%")+"%")
+		n := len(args)
+		where = append(where, fmt.Sprintf("(t.title ILIKE $%d OR t.number = $%d)", n-2, n-1))
+		// Exact number, then titles starting with the query, open before done, newest first.
+		order = fmt.Sprintf(" ORDER BY t.number = $%d DESC, t.title ILIKE $%d DESC, t.status = 'done', t.number DESC", n-1, n)
+	}
+
 	cond := ""
 	if len(where) > 0 {
 		cond = " WHERE " + strings.Join(where, " AND ")
@@ -198,7 +218,10 @@ func (s *Store) ListTasks(ctx context.Context, f TaskFilter) ([]Task, error) {
 				UNION SELECT parent_id FROM m WHERE parent_id IS NOT NULL
 				UNION SELECT g.parent_id FROM m JOIN tasks g ON g.id = m.parent_id WHERE g.parent_id IS NOT NULL)`
 	}
-	q += " ORDER BY t.position, t.number"
+	q += order
+	if f.Limit > 0 {
+		q += fmt.Sprintf(" LIMIT %d", f.Limit)
+	}
 
 	rows, err := s.db.Query(ctx, q, args...)
 	if err != nil {
@@ -212,6 +235,44 @@ func (s *Store) ListTasks(ctx context.Context, f TaskFilter) ([]Task, error) {
 			return nil, err
 		}
 		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// taskNumberRe finds the number in "12" or "APP-12".
+var taskNumberRe = regexp.MustCompile(`^(?:[A-Za-z][A-Za-z0-9]*-)?(\d{1,9})$`)
+
+// ProjectProgress is how many of a project's daily and hourly tasks
+// (children and grandchildren) are done.
+type ProjectProgress struct {
+	ProjectID string `json:"project_id"`
+	Done      int    `json:"done"`
+	Total     int    `json:"total"`
+}
+
+// ProjectProgressFor counts the work inside every project of a workspace.
+func (s *Store) ProjectProgressFor(ctx context.Context, workspaceID string) ([]ProjectProgress, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT p.id::text, count(x.id) FILTER (WHERE x.status = 'done'), count(x.id)
+		FROM tasks p
+		LEFT JOIN LATERAL (
+			SELECT c.id, c.status FROM tasks c WHERE c.parent_id = p.id
+			UNION ALL
+			SELECT g.id, g.status FROM tasks c JOIN tasks g ON g.parent_id = c.id WHERE c.parent_id = p.id
+		) x ON true
+		WHERE p.workspace_id = $1 AND p.type = 'project'
+		GROUP BY p.id`, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ProjectProgress{}
+	for rows.Next() {
+		var p ProjectProgress
+		if err := rows.Scan(&p.ProjectID, &p.Done, &p.Total); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
 	}
 	return out, rows.Err()
 }

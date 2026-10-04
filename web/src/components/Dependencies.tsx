@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { AlertTriangle, CheckCircle2, Hourglass, Link2, Plus, Search, X } from 'lucide-react'
 import { useReadOnly } from '../lib/access'
 import { formatSchedule } from '../lib/dates'
-import { useDependencyMutations } from '../lib/queries'
+import { useDependencyMutations, useTasks } from '../lib/queries'
 import type { Task } from '../lib/types'
 import { matchScore } from './ParentPicker'
 import { Popover } from './Popover'
@@ -17,14 +17,11 @@ export function Dependencies({
   task,
   waitingFor,
   blocking,
-  candidates,
   onOpen,
 }: {
   task: Task
   waitingFor: Task[]
   blocking: Task[]
-  /** Daily/hourly tasks in the workspace. */
-  candidates: Task[]
   onOpen: (id: string) => void
 }) {
   const { add, remove } = useDependencyMutations()
@@ -43,9 +40,9 @@ export function Dependencies({
 
   // Can't link to itself or to tasks already linked in either direction.
   const linked = new Set([task.id, ...waitingFor.map((t) => t.id), ...blocking.map((t) => t.id)])
-  const available = candidates.filter((c) => !linked.has(c.id))
-  // Suggest tasks with the same parent (e.g. other steps of the same project).
-  const siblings = available.filter((c) => task.parent_id && c.parent_id === task.parent_id && c.status !== 'done')
+  // Suggest open tasks with the same parent (e.g. other steps of the same project).
+  const { data: sameParent = [] } = useTasks({ parent_id: task.parent_id ?? '', type: 'daily,hourly' }, !readOnly && !!task.parent_id)
+  const siblings = sameParent.filter((c) => !linked.has(c.id) && c.status !== 'done')
 
   return (
     <section className="space-y-3">
@@ -81,7 +78,8 @@ export function Dependencies({
         picker={
           !readOnly && <TaskSearch
             label="Add a task this is waiting for"
-            options={available}
+            workspaceId={task.workspace_id}
+            exclude={linked}
             suggestions={siblings}
             onPick={(t) => run(add.mutateAsync({ taskId: task.id, dependsOnId: t.id }))}
           />
@@ -99,7 +97,8 @@ export function Dependencies({
         picker={
           !readOnly && <TaskSearch
             label="Add a task that waits for this"
-            options={available}
+            workspaceId={task.workspace_id}
+            exclude={linked}
             suggestions={siblings}
             onPick={(t) => run(add.mutateAsync({ taskId: t.id, dependsOnId: task.id }))}
           />
@@ -171,21 +170,45 @@ function DependencyList({
 
 const MAX_RESULTS = 30
 
-/** Small "+" button that searches tasks by key or title. */
-function TaskSearch({ label, options, suggestions, onPick }: { label: string; options: Task[]; suggestions: Task[]; onPick: (t: Task) => void }) {
+/** Small "+" button that searches the workspace's daily/hourly tasks (on the server) by key or title. */
+function TaskSearch({
+  label,
+  workspaceId,
+  exclude,
+  suggestions,
+  onPick,
+}: {
+  label: string
+  workspaceId: string
+  exclude: Set<string>
+  suggestions: Task[]
+  onPick: (t: Task) => void
+}) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
+  // Ask the server once typing pauses.
+  const [debounced, setDebounced] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim()), 200)
+    return () => clearTimeout(t)
+  }, [query])
+  const { data: found = [], isFetching } = useTasks(
+    { workspace_id: workspaceId, type: 'daily,hourly', q: debounced, limit: MAX_RESULTS + exclude.size },
+    open && debounced !== '',
+    { keepPrevious: true },
+  )
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return suggestions.slice(0, 8)
-    return options
+    return found
+      .filter((t) => !exclude.has(t.id))
       .map((t) => ({ t, s: matchScore(t, q) }))
       .filter((r) => r.s > 0)
       .sort((a, b) => b.s - a.s || Number(a.t.status === 'done') - Number(b.t.status === 'done') || a.t.number - b.t.number)
       .map((r) => r.t)
-  }, [query, options, suggestions])
+  }, [query, found, exclude, suggestions])
   const shown = results.slice(0, MAX_RESULTS)
 
   const pick = (t: Task) => {
@@ -258,10 +281,12 @@ function TaskSearch({ label, options, suggestions, onPick }: { label: string; op
         </ul>
         <p className="border-t border-slate-100 px-3 py-1.5 text-[11px] text-slate-400">
           {query.trim()
-            ? results.length === 0
+            ? isFetching && (query.trim() !== debounced || results.length === 0)
+              ? 'Searching…'
+              : results.length === 0
               ? 'No matches'
-              : results.length > MAX_RESULTS
-                ? `Showing ${MAX_RESULTS} of ${results.length} — keep typing`
+              : results.length > MAX_RESULTS || found.length >= MAX_RESULTS + exclude.size
+                ? `Showing the ${Math.min(MAX_RESULTS, results.length)} best matches, keep typing to narrow`
                 : `${results.length} match${results.length === 1 ? '' : 'es'}`
             : 'Type to search all daily and hourly tasks in this workspace'}
         </p>

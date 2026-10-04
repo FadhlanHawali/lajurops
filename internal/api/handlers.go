@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -120,6 +121,16 @@ func (a *API) deleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	respondStatus(w, http.StatusOK, map[string]bool{"deleted": true}, err)
 }
 
+// projectProgress: done/total daily and hourly tasks inside each project.
+func (a *API) projectProgress(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if !a.require(w, r, id, levelViewer) {
+		return
+	}
+	list, err := a.store.ProjectProgressFor(r.Context(), id)
+	respond(w, list, err)
+}
+
 // --- tasks ---
 
 func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +151,13 @@ func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
+	limit := 0
+	if v := q.Get("limit"); v != "" {
+		if limit, err = strconv.Atoi(v); err != nil || limit < 1 || limit > 1000 {
+			respond(w, nil, store.InvalidError{Msg: "limit must be 1-1000"})
+			return
+		}
+	}
 	tasks, err := a.store.ListTasks(r.Context(), store.TaskFilter{
 		WorkspaceIDs: visible,
 		WorkspaceID:  q.Get("workspace_id"),
@@ -150,8 +168,11 @@ func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 		// ?undated=open|all (with from/to) and ?ancestors=true: see TaskFilter.
 		Undated:       q.Get("undated"),
 		WithAncestors: q.Get("ancestors") == "true",
-		From:          from,
-		To:            to,
+		// ?q=<text>&limit=<n>: search by title or number, best match first.
+		Search: q.Get("q"),
+		Limit:  limit,
+		From:   from,
+		To:     to,
 	})
 	respond(w, tasks, err)
 }

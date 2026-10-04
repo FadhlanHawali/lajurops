@@ -25,6 +25,7 @@ export const useWorkspace = (id: string | undefined) =>
 
 export interface TaskQuery {
   workspace_id?: string
+  parent_id?: string
   assignee_id?: string
   type?: string
   top_level?: boolean
@@ -34,6 +35,9 @@ export interface TaskQuery {
   undated?: 'all' | 'open'
   /** Also the parents of matching tasks (project context for cards and rows). */
   ancestors?: boolean
+  /** Search by title or key, best match first; use with limit. */
+  q?: string
+  limit?: number
 }
 
 export const useTasks = (query: TaskQuery, enabled = true, opts: { keepPrevious?: boolean } = {}) =>
@@ -44,6 +48,17 @@ export const useTasks = (query: TaskQuery, enabled = true, opts: { keepPrevious?
     // Keep showing the last result while a new range loads (no flicker).
     placeholderData: opts.keepPrevious ? keepPreviousData : undefined,
   })
+
+/** Done/total daily and hourly tasks inside each project of a workspace. */
+export function useProjectProgress(workspaceId?: string) {
+  const q = useQuery({
+    queryKey: ['tasks', 'project-progress', workspaceId],
+    queryFn: () => api<{ project_id: string; done: number; total: number }[]>(`/workspaces/${workspaceId}/project-progress`),
+    enabled: !!workspaceId,
+  })
+  const byId = useMemo(() => new Map((q.data ?? []).map((p) => [p.project_id, p])), [q.data])
+  return { ...q, byId }
+}
 
 export const useTask = (id: string | null) =>
   useQuery({ queryKey: ['task', id], queryFn: () => api<TaskDetail>(`/tasks/${id}`), enabled: !!id })

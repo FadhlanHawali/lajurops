@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import clsx from 'clsx'
 import { CheckCircle2, ChevronRight, Plus, Settings2 } from 'lucide-react'
 import { EnvBadge } from '../components/Environments'
@@ -9,7 +9,7 @@ import { ColumnSearch, ColumnToolButtons, useColumnViews } from '../components/C
 import { AvatarStack, Button, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
 import { useAccess } from '../lib/access'
 import { formatCreatedFull, formatCreatedShort, formatSchedule } from '../lib/dates'
-import { useCategories, useTasks, useUpdateTask } from '../lib/queries'
+import { useCategories, useProjectProgress, useTasks, useUpdateTask } from '../lib/queries'
 import type { Task } from '../lib/types'
 
 /**
@@ -17,7 +17,9 @@ import type { Task } from '../lib/types'
  * status isn't set by hand: it comes from its tasks.
  */
 export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: string; assignee: string }) {
-  const { data: all = [], isLoading } = useTasks({ workspace_id: workspaceId })
+  // Projects only; the work inside them is counted by the server.
+  const { data: all = [], isLoading } = useTasks({ workspace_id: workspaceId, type: 'project' })
+  const { byId: progress } = useProjectProgress(workspaceId)
   const { data: categories = [] } = useCategories(workspaceId)
   const update = useUpdateTask()
   const modal = useTaskModal()
@@ -32,18 +34,6 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
       if (!next.delete(id)) next.add(id)
       return next
     })
-
-  // Done/total over each project's daily and hourly tasks (two levels deep).
-  const counts = useMemo(() => {
-    const byParent = new Map<string, Task[]>()
-    for (const t of all) if (t.parent_id) byParent.set(t.parent_id, [...(byParent.get(t.parent_id) ?? []), t])
-    const m = new Map<string, { done: number; total: number }>()
-    for (const p of all.filter((t) => t.type === 'project')) {
-      const inside = (byParent.get(p.id) ?? []).flatMap((c) => [c, ...(byParent.get(c.id) ?? [])])
-      m.set(p.id, { done: inside.filter((t) => t.status === 'done').length, total: inside.length })
-    }
-    return m
-  }, [all])
 
   const projects = all.filter((t) => t.type === 'project' && (!assignee || t.assignee_ids.includes(assignee)))
   // Uncategorized comes first so projects still needing a category stand out.
@@ -91,7 +81,7 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
   }
 
   const card = (p: Task, col: string, index: number) => {
-    const c = counts.get(p.id) ?? { done: 0, total: 0 }
+    const c = progress.get(p.id) ?? { done: 0, total: 0 }
     return (
       <div
         key={p.id}

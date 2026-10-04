@@ -5,7 +5,7 @@ import { ArrowLeft, CheckCircle2, ChevronRight, CircleDot, Eye, Flag, Hourglass,
 import { ReadOnlyContext, useAccess, useReadOnly } from '../lib/access'
 import { dotStyle } from '../lib/colors'
 import { formatCreatedFull, fromInput, toInput } from '../lib/dates'
-import { saveEnvironments, useUsers, useCategories, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
+import { saveEnvironments, useProjectProgress, useUsers, useCategories, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
 import { canContain, defaultChildType, PRIORITIES, PROJECT_KINDS, STATUSES, TASK_TYPES, type Priority, type ProjectKind, type Status, type EnvironmentDraft, type Task, type TaskType } from '../lib/types'
 import { Comments } from './Comments'
 import { DateRangeField, HourlyScheduleField } from './DateTimePicker'
@@ -260,17 +260,9 @@ function TaskForm({
   }, [rootProjectId, f.parent_id])
   const [envDrafts, setEnvDrafts] = useState<EnvironmentDraft[]>([])
   const { data: categories = [] } = useCategories(workspaceId || undefined)
-  // Done/total of a project's daily/hourly tasks (children and grandchildren).
-  const { data: projectTasks = [] } = useTasks({ workspace_id: workspaceId, type: 'daily,hourly' }, task?.type === 'project')
-  const projectCounts = useMemo(() => {
-    if (task?.type !== 'project') return { done: 0, total: 0 }
-    const direct = projectTasks.filter((t) => t.parent_id === task.id)
-    const ids = new Set(direct.map((t) => t.id))
-    const inside = [...direct, ...projectTasks.filter((t) => t.parent_id && ids.has(t.parent_id))]
-    return { done: inside.filter((t) => t.status === 'done').length, total: inside.length }
-  }, [projectTasks, task])
-  // Daily/hourly tasks that this one could wait for.
-  const { data: workTasks = [] } = useTasks({ workspace_id: workspaceId, type: 'daily,hourly' }, !!task && task.type !== 'project')
+  // Done/total of a project's daily/hourly tasks (children and grandchildren), counted by the server.
+  const { byId: progress } = useProjectProgress(task?.type === 'project' ? workspaceId : undefined)
+  const projectCounts = (task && progress.get(task.id)) ?? { done: 0, total: 0 }
   const parent = containers.find((c) => c.id === f.parent_id) ?? ancestors[ancestors.length - 1]
   // A type is allowed if the parent can hold it and it can hold the existing children.
   const typeAllowed = (t: TaskType) =>
@@ -389,7 +381,7 @@ function TaskForm({
               <EnvironmentListEditor items={envDrafts} onChange={setEnvDrafts} />
             </section>
           )}
-          {task && task.type !== 'project' && <Dependencies task={task} waitingFor={waitingFor} blocking={blocking} candidates={workTasks} onOpen={onOpen!} />}
+          {task && task.type !== 'project' && <Dependencies task={task} waitingFor={waitingFor} blocking={blocking} onOpen={onOpen!} />}
           {task && task.type !== 'hourly' && <ChildTasks parent={task} items={childTasks} onOpen={onOpen!} />}
           {task && (
             <div className="border-t border-slate-100 pt-4">

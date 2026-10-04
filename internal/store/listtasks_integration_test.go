@@ -73,4 +73,42 @@ func TestListTasksRangeUndatedAncestors(t *testing.T) {
 	if _, err := st.ListTasks(ctx, TaskFilter{WorkspaceID: ws.ID, Undated: "bogus"}); err == nil {
 		t.Error("undated=bogus accepted")
 	}
+
+	// Search: by title (case-insensitive, % is literal) or by number/key, best first.
+	search := func(q string, limit int) []string {
+		t.Helper()
+		list, err := st.ListTasks(ctx, TaskFilter{WorkspaceID: ws.ID, Search: q, Limit: limit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, x := range list {
+			out = append(out, x.Title)
+		}
+		return out
+	}
+	if got := search("IN RANGE", 0); len(got) != 3 || got[0] != "daily in range" && got[0] != "hourly in range" && got[0] != "only an end date, in range" {
+		t.Errorf("search title = %q", got)
+	}
+	if got := search(key+"-2", 0); len(got) != 1 || got[0] != "daily, before the range" {
+		t.Errorf("search by key = %q", got)
+	}
+	if got := search("2", 0); len(got) == 0 || got[0] != "daily, before the range" {
+		t.Errorf("search by number: exact number first, got %q", got)
+	}
+	if got := search("%", 0); len(got) != 0 {
+		t.Errorf("%% must match literally, got %q", got)
+	}
+	if got := search("range", 2); len(got) != 2 {
+		t.Errorf("limit 2 returned %d", len(got))
+	}
+
+	// Project progress counts children and grandchildren.
+	prog, err := st.ProjectProgressFor(ctx, ws.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prog) != 1 || prog[0].ProjectID != project || prog[0].Total != 3 || prog[0].Done != 0 {
+		t.Errorf("project progress = %+v", prog)
+	}
 }
