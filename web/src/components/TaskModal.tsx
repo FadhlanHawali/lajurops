@@ -3,8 +3,8 @@ import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
 import { ArrowLeft, CheckCircle2, ChevronRight, CircleDot, Flag, Hourglass, Loader2, Plus, Tags, Trash2, X } from 'lucide-react'
 import { dotStyle } from '../lib/colors'
-import { fromInput, toInput } from '../lib/dates'
-import { saveEnvironments, useCategories, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
+import { formatCreatedFull, fromInput, toInput } from '../lib/dates'
+import { saveEnvironments, useUsers, useCategories, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
 import { canContain, defaultChildType, PRIORITIES, PROJECT_KINDS, STATUSES, TASK_TYPES, type Priority, type ProjectKind, type Status, type EnvironmentDraft, type Task, type TaskType } from '../lib/types'
 import { Comments } from './Comments'
 import { DateRangeField, HourlyScheduleField } from './DateTimePicker'
@@ -14,7 +14,7 @@ import { Dependencies } from './Dependencies'
 import { EnvBadge, EnvironmentListEditor, EnvironmentPicker, ProjectEnvironments } from './Environments'
 import { SearchSelect } from './SearchSelect'
 import { MultiUserPicker } from './UserPicker'
-import { AvatarStack, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge } from './ui'
+import { AvatarStack, Button, Field, inputCls, PriorityIcon, StatusPill, TypeBadge, userName } from './ui'
 
 type Entry = { key: number; mode: 'edit'; id: string } | { key: number; mode: 'create'; defaults: TaskCreate }
 
@@ -342,6 +342,7 @@ function TaskForm({
         <span className="font-medium text-slate-700">{task ? task.key : `New ${typeInfo.label.toLowerCase()} task`}</span>
         {task && <TypeBadge type={task.type} kind={task.project_kind} />}
         {task && <StatusPill status={task.status} />}
+        {task && <CreatedNote task={task} />}
         <div className="ml-auto flex items-center gap-1">
           {task && (
             <Button variant="ghost" onClick={remove} title="Delete task">
@@ -887,3 +888,15 @@ function BackBar({ id, onBack }: { id: string; onBack: () => void }) {
 
 const STATUS_DOT: Record<Status, string> = { todo: 'bg-slate-400', in_progress: 'bg-blue-500', in_review: 'bg-amber-500', done: 'bg-emerald-500' }
 const StatusDot = ({ status }: { status: Status }) => <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-full', STATUS_DOT[status])} />
+
+/** "Created Mon, Sep 28, 2026 14:05 by Alice" in the dialog header. */
+function CreatedNote({ task }: { task: Task }) {
+  const { byId } = useUsers()
+  const by = task.reporter_id ? byId.get(task.reporter_id) : undefined
+  return (
+    <span className="hidden truncate text-xs text-slate-400 sm:inline">
+      Created {formatCreatedFull(task.created_at)}
+      {by && ` by ${userName(by)}`}
+    </span>
+  )
+}

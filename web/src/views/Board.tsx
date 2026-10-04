@@ -7,7 +7,7 @@ import { useTaskModal } from '../components/TaskModal'
 import { EnvBadge } from '../components/Environments'
 import ProjectBoard from './ProjectBoard'
 import { AvatarStack, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
-import { formatSchedule } from '../lib/dates'
+import { formatCreatedFull, formatCreatedShort, formatSchedule } from '../lib/dates'
 import { useTaskFilters, useTasks, useUpdateTask } from '../lib/queries'
 import { STATUSES, type Status, type Task } from '../lib/types'
 
@@ -210,6 +210,9 @@ function Card({
         {t.title}
       </p>
       <p className="mt-1 text-[11px] text-slate-500">{formatSchedule(t)}</p>
+      <p className="text-[10px] text-slate-400" title={`Created ${formatCreatedFull(t.created_at)}`}>
+        Created {formatCreatedShort(t.created_at)}
+      </p>
       {t.subtask_count > 0 && (
         <div className="mt-2 flex items-center gap-2">
           <div className="h-1 flex-1 overflow-hidden rounded bg-slate-100">

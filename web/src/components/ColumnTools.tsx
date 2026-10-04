@@ -4,13 +4,14 @@ import { ArrowDownUp, Check, Search, X } from 'lucide-react'
 import type { Task } from '../lib/types'
 import { Popover } from './Popover'
 
-export type ColumnSort = 'manual' | 'start_asc' | 'start_desc' | 'end_asc' | 'title'
+export type ColumnSort = 'manual' | 'start_asc' | 'start_desc' | 'end_asc' | 'created_desc' | 'title'
 
 const SORTS: { id: ColumnSort; label: string }[] = [
   { id: 'manual', label: 'Manual (drag to order)' },
   { id: 'start_asc', label: 'Start date: earliest first' },
   { id: 'start_desc', label: 'Start date: latest first' },
   { id: 'end_asc', label: 'End date: soonest first' },
+  { id: 'created_desc', label: 'Created: newest first' },
   { id: 'title', label: 'Title A–Z' },
 ]
 
@@ -27,6 +28,7 @@ const SORTERS: Record<ColumnSort, (a: Task, b: Task) => number> = {
   start_asc: (a, b) => byDate(time(a.start_at), time(b.start_at), 1) || a.number - b.number,
   start_desc: (a, b) => byDate(time(a.start_at), time(b.start_at), -1) || a.number - b.number,
   end_asc: (a, b) => byDate(time(a.end_at ?? a.start_at), time(b.end_at ?? b.start_at), 1) || a.number - b.number,
+  created_desc: (a, b) => b.created_at.localeCompare(a.created_at) || b.number - a.number,
   title: (a, b) => a.title.localeCompare(b.title) || a.number - b.number,
 }
 

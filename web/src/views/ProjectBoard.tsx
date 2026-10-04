@@ -7,7 +7,7 @@ import { ProjectProgress } from '../components/ProjectProgress'
 import { useTaskModal } from '../components/TaskModal'
 import { ColumnSearch, ColumnToolButtons, useColumnViews } from '../components/ColumnTools'
 import { AvatarStack, Button, FilterBar, PriorityIcon, TypeBadge } from '../components/ui'
-import { formatSchedule } from '../lib/dates'
+import { formatCreatedFull, formatCreatedShort, formatSchedule } from '../lib/dates'
 import { useCategories, useTasks, useUpdateTask } from '../lib/queries'
 import type { Task } from '../lib/types'
 
@@ -116,7 +116,12 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
         )}
       >
         <p className="text-sm leading-snug font-medium text-slate-800">{p.title}</p>
-        <p className="text-[11px] text-slate-500">{formatSchedule({ ...p, type: 'daily' })}</p>
+        <p className="text-[11px] text-slate-500">
+          {formatSchedule({ ...p, type: 'daily' })}
+          <span className="text-slate-400" title={`Created ${formatCreatedFull(p.created_at)}`}>
+            {' · '}Created {formatCreatedShort(p.created_at)}
+          </span>
+        </p>
         <ProjectProgress project={p} done={c.done} total={c.total} />
         <div className="flex items-center gap-2">
           <TypeBadge type={p.type} kind={p.project_kind} />

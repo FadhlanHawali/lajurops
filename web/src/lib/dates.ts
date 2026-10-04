@@ -65,3 +65,12 @@ export function formatSchedule(t: Pick<Task, 'type' | 'start_at' | 'end_at'>): s
 
 export const hoursBetween = (start: string | null, end: string | null) =>
   start && end ? (new Date(end).getTime() - new Date(start).getTime()) / 3_600_000 : 0
+
+/** "Sep 28" (with the year when it isn't this year), for "Created …" labels. */
+export function formatCreatedShort(iso: string): string {
+  const d = new Date(iso)
+  return format(d, d.getFullYear() === new Date().getFullYear() ? 'MMM d' : 'MMM d, yyyy')
+}
+
+/** "Mon, Sep 28, 2026 14:05": the full creation time, for headers and tooltips. */
+export const formatCreatedFull = (iso: string) => format(new Date(iso), 'EEE, MMM d, yyyy HH:mm')
