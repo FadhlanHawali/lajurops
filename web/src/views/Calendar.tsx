@@ -1,70 +1,97 @@
 import { useMemo, useState } from 'react'
-import FullCalendar from '@fullcalendar/react'
-import dayGridPlugin from '@fullcalendar/daygrid'
-import timeGridPlugin from '@fullcalendar/timegrid'
-import interactionPlugin from '@fullcalendar/interaction'
-import listPlugin from '@fullcalendar/list'
-import type { EventContentArg, EventInput, EventDropArg, DatesSetArg } from '@fullcalendar/core'
-import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import clsx from 'clsx'
-import { format, isSameDay } from 'date-fns'
-import { X } from 'lucide-react'
+import { addDays, addMonths, addWeeks, format, isSameDay, isSameMonth, startOfDay, startOfMonth, startOfWeek } from 'date-fns'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { AgendaList } from '../components/calendar/AgendaList'
+import { MonthGrid } from '../components/calendar/MonthGrid'
+import { TimeGrid } from '../components/calendar/TimeGrid'
 import { EnvBadge } from '../components/Environments'
 import { INDEPENDENT, ProjectMultiFilter } from '../components/ProjectMultiFilter'
 import { useTaskModal } from '../components/TaskModal'
 import { useAccess } from '../lib/access'
 import { groupAllDay, groupTimed, MAX_OVERLAP, type CalendarItem, type GroupKey, type TaskGroup } from '../lib/calendarGroups'
-import { colorForId, pillStyle, tintColors } from '../lib/colors'
+import { colorForId, pillStyle } from '../lib/colors'
 import { formatSchedule } from '../lib/dates'
-import { FilterBar, StatusPill, userName } from '../components/ui'
-import { useTaskFilters, useTasks, useUpdateTask, useUsers } from '../lib/queries'
+import { Button, FilterBar, StatusPill } from '../components/ui'
+import { useTaskFilters, useTasks } from '../lib/queries'
 import type { Task } from '../lib/types'
 
-const COLORS = {
-  project: { bg: '#f59e0b', border: '#d97706' },
-  shortProject: { bg: '#fb923c', border: '#f97316' },
-  hourly: { bg: '#8b5cf6', border: '#7c3aed' },
-  daily: { bg: '#0ea5e9', border: '#0284c7' },
-  done: { bg: '#10b981', border: '#059669' },
-}
+type View = 'month' | 'week' | 'day' | 'agenda'
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'month', label: 'Month' },
+  { id: 'week', label: 'Week' },
+  { id: 'day', label: 'Day' },
+  { id: 'agenda', label: 'Agenda' },
+]
 
 const GROUP_KEY = 'lajurops:calendar-group'
-const loadGrouped = () => {
+const VIEW_KEY = 'lajurops:calendar-view'
+const load = (key: string) => {
   try {
-    return localStorage.getItem(GROUP_KEY) !== 'off'
+    return localStorage.getItem(key)
   } catch {
-    return true
+    return null
   }
+}
+const save = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // storage unavailable: keep it for this page view only
+  }
+}
+
+/** The visible range for a view: month shows six full weeks; agenda a week. */
+function rangeOf(view: View, anchor: Date) {
+  if (view === 'day') return { from: startOfDay(anchor), to: addDays(startOfDay(anchor), 1) }
+  if (view === 'month') {
+    const from = startOfWeek(startOfMonth(anchor), { weekStartsOn: 1 })
+    return { from, to: addDays(from, 42) }
+  }
+  const from = startOfWeek(anchor, { weekStartsOn: 1 })
+  return { from, to: addDays(from, 7) }
+}
+
+function titleOf(view: View, anchor: Date, from: Date, to: Date) {
+  if (view === 'day') return format(anchor, 'EEEE, MMMM d, yyyy')
+  if (view === 'month') return format(anchor, 'MMMM yyyy')
+  const last = addDays(to, -1)
+  return isSameMonth(from, last) ? `${format(from, 'MMM d')} – ${format(last, 'd, yyyy')}` : `${format(from, 'MMM d')} – ${format(last, 'MMM d, yyyy')}`
 }
 
 export default function Calendar({ workspaceId }: { workspaceId?: string }) {
   const { assignee, type } = useTaskFilters()
-  const [range, setRange] = useState<{ from: string; to: string } | null>(null)
-  const [viewType, setViewType] = useState('timeGridWeek')
-  const [grouped, setGroupedState] = useState(loadGrouped)
+  const [view, setViewState] = useState<View>(() => (VIEWS.some((v) => v.id === load(VIEW_KEY)) ? (load(VIEW_KEY) as View) : 'week'))
+  const [anchor, setAnchor] = useState(() => new Date())
+  const [grouped, setGroupedState] = useState(() => load(GROUP_KEY) !== 'off')
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [panel, setPanel] = useState<TaskGroup | null>(null)
+  const setView = (v: View) => {
+    setViewState(v)
+    save(VIEW_KEY, v)
+    setPanel(null)
+  }
   const setGrouped = (v: boolean) => {
     setGroupedState(v)
-    try {
-      localStorage.setItem(GROUP_KEY, v ? 'on' : 'off')
-    } catch {
-      // storage unavailable: keep it for this page view only
-    }
+    save(GROUP_KEY, v ? 'on' : 'off')
+  }
+  const { from, to } = rangeOf(view, anchor)
+  const step = (n: number) => {
+    setPanel(null)
+    setAnchor((a) => (view === 'month' ? addMonths(a, n) : view === 'day' ? addDays(a, n) : addWeeks(a, n)))
   }
 
   // Projects span weeks and would bury the actual work; show them only when filtered for.
   // Ancestors bring each task's daily parent and project, for the project filter and grouping.
   const { data: fetched = [] } = useTasks(
-    { workspace_id: workspaceId, assignee_id: assignee, type: type || 'daily,hourly', ancestors: true, ...range },
-    !!range,
+    { workspace_id: workspaceId, assignee_id: assignee, type: type || 'daily,hourly', ancestors: true, from: from.toISOString(), to: to.toISOString() },
+    true,
     { keepPrevious: true },
   )
   const { data: projects = [] } = useTasks({ workspace_id: workspaceId, type: 'project' })
-  const update = useUpdateTask()
   const modal = useTaskModal()
-  const { byId: users } = useUsers()
   const access = useAccess()
+  const canCreate = workspaceId ? access.canEdit(workspaceId) : access.canEditAny
 
   const byId = useMemo(() => new Map([...projects, ...fetched].map((t) => [t.id, t])), [projects, fetched])
   const projectOf = (t: Task): Task | undefined => {
@@ -95,83 +122,48 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
     const p = t.type === 'project' ? t : projectOf(t)
     return p ? { key: p.id, label: p.title, color: colorForId(p.id) } : { key: INDEPENDENT, label: 'Independent tasks', color: 'slate' }
   }
-  const grouping = grouped && viewType.startsWith('timeGrid')
+  const timeView = view === 'week' || view === 'day'
+  const grouping = grouped && timeView
 
-  const events = useMemo<EventInput[]>(() => {
-    const taskEvent = (t: Task, extra: Partial<EventInput> = {}): EventInput => {
-      const c = t.status === 'done' ? COLORS.done : t.project_kind === 'short' ? COLORS.shortProject : COLORS[t.type]
-      const who = t.assignee_ids.map((id) => userName(users.get(id))).join(', ')
-      return {
-        id: t.id,
-        title: `${t.environment_name ? `[${t.environment_name}] ` : ''}${t.key} ${t.title}${who ? ` · ${who}` : ''}`,
-        start: t.start_at!,
-        end: t.end_at ?? undefined,
-        allDay: t.type !== 'hourly',
-        backgroundColor: c.bg,
-        borderColor: c.border,
-        classNames: t.status === 'done' ? ['opacity-60'] : [],
-        // Only editors of the task's workspace can drag or resize it.
-        editable: access.canEdit(t.workspace_id),
-        extendedProps: { task: t },
-        ...extra,
-      }
+  const items = useMemo<CalendarItem[]>(() => {
+    const plain = (t: Task): CalendarItem => {
+      const s = new Date(t.start_at!)
+      const e = t.end_at ? new Date(t.end_at) : new Date(s.getTime() + (t.type === 'hourly' ? 3_600_000 : 86_400_000))
+      return { kind: 'task', task: t, start: s, end: e, allDay: t.type !== 'hourly', segment: false }
     }
-    if (!grouping || !range) return tasks.map((t) => taskEvent(t))
-
-    const items: CalendarItem[] = [
+    if (!grouping) return tasks.map(plain)
+    const noun = byEnv ? 'environments' : 'projects'
+    return [
       ...groupTimed(
         tasks.filter((t) => t.type === 'hourly'),
         keyOf,
-        byEnv ? 'environments' : 'projects',
+        noun,
       ),
       ...groupAllDay(
         tasks.filter((t) => t.type !== 'hourly'),
-        new Date(range.from),
-        new Date(range.to),
+        from,
+        to,
         keyOf,
-        byEnv ? 'environments' : 'projects',
+        noun,
       ),
     ]
-    return items.map((it): EventInput => {
-      if (it.kind === 'task')
-        return it.segment
-          ? // One day's piece of a daily task: open it to change its dates.
-            taskEvent(it.task, { id: `${it.task.id}@${it.start.getTime()}`, start: it.start, end: it.end, editable: false })
-          : taskEvent(it.task)
-      const g = it.group
-      const c = tintColors(g.color)
-      return {
-        id: `group:${g.key}@${g.start.getTime()}`,
-        title: g.label,
-        start: g.start,
-        end: g.end,
-        allDay: g.allDay,
-        editable: false,
-        backgroundColor: c.bg,
-        borderColor: c.border,
-        textColor: c.text,
-        classNames: ['lj-group'],
-        extendedProps: { group: g },
-      }
-    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, grouping, range, byEnv, users, access.canEdit])
+  }, [tasks, grouping, byEnv, from.getTime(), to.getTime()])
 
-  // Dropping into the all-day row turns a task daily; into the time grid, hourly.
-  const persist = (arg: EventDropArg | EventResizeDoneArg) => {
-    const ev = arg.event
-    const task = ev.extendedProps.task as Task
-    const start = ev.start!
-    let end = ev.end
-    if (!end) end = new Date(start.getTime() + (ev.allDay ? 86_400_000 : 2 * 3_600_000))
-    update.mutate(
-      {
-        id: task.id,
-        patch: { start_at: start.toISOString(), end_at: end.toISOString(), type: ev.allDay ? 'daily' : 'hourly' },
-      },
-      { onError: () => arg.revert() },
-    )
-  }
+  const openTask = (t: Task) => modal.openTask(t.id)
+  const create = canCreate
+    ? (start: Date, end: Date, allDay: boolean) =>
+        modal.createTask({
+          title: '',
+          workspace_id: workspaceId,
+          type: allDay ? 'daily' : 'hourly',
+          start_at: start.toISOString(),
+          end_at: end.toISOString(),
+          assignee_ids: assignee ? [assignee] : [],
+        })
+    : null
+  const days = Array.from({ length: view === 'day' ? 1 : 7 }, (_, i) => addDays(from, i))
+  const isCurrent = view === 'month' ? isSameMonth(anchor, new Date()) : view === 'day' ? isSameDay(anchor, new Date()) : isSameDay(startOfWeek(new Date(), { weekStartsOn: 1 }), from)
 
   return (
     <div className="flex h-full flex-col gap-3">
@@ -184,10 +176,13 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
           }}
           projects={projects}
           counts={counts}
-          footer={filterHint(picked)}
+          footer={picked.size === 1 ? 'One project: busy slots group by environment' : 'Busy slots group by project · ↑↓ and Enter to tick'}
         />
-        {viewType.startsWith('timeGrid') && (
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600 select-none" title={`Show one block per ${byEnv ? 'environment' : 'project'} when more than ${MAX_OVERLAP} tasks overlap, or a day has more than ${MAX_OVERLAP} daily tasks`}>
+        {timeView && (
+          <label
+            className="flex cursor-pointer items-center gap-2 text-sm text-slate-600 select-none"
+            title={`Show one block per ${byEnv ? 'environment' : 'project'} when more than ${MAX_OVERLAP} tasks overlap, or a day has more than ${MAX_OVERLAP} daily tasks`}
+          >
             <span
               role="switch"
               aria-checked={grouped}
@@ -202,67 +197,67 @@ export default function Calendar({ workspaceId }: { workspaceId?: string }) {
           </label>
         )}
       </FilterBar>
+
       <div className="flex min-h-0 flex-1 gap-3">
-        <div className="planner-calendar min-h-0 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white p-3">
-          <FullCalendar
-            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin]}
-            initialView="timeGridWeek"
-            headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' }}
-            buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day', list: 'Agenda' }}
-            height="100%"
-            firstDay={1}
-            nowIndicator
-            editable
-            selectable={workspaceId ? access.canEdit(workspaceId) : access.canEditAny}
-            selectMirror
-            // Busy days/slots show "+N more" instead of drawing every event,
-            // which keeps large workspaces responsive.
-            dayMaxEvents={4}
-            eventMaxStack={3}
-            slotDuration="00:30:00"
-            scrollTime="07:00:00"
-            eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
-            slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
-            events={events}
-            datesSet={(arg: DatesSetArg) => {
-              setRange({ from: arg.start.toISOString(), to: arg.end.toISOString() })
-              setViewType(arg.view.type)
-              setPanel(null)
-            }}
-            eventContent={(arg) => renderEvent(arg, byEnv)}
-            eventDidMount={(info) => {
-              // Columns get narrow: the full label on hover.
-              const g = info.event.extendedProps.group as TaskGroup | undefined
-              info.el.title = g ? `${g.label} · ${g.tasks.length} ${g.allDay ? 'daily' : 'hourly'} tasks · click to list them` : info.event.title
-            }}
-            eventClick={(arg) => {
-              const g = arg.event.extendedProps.group as TaskGroup | undefined
-              if (g) setPanel(g)
-              else modal.openTask((arg.event.extendedProps.task as Task).id)
-            }}
-            eventDrop={persist}
-            eventResize={persist}
-            select={(arg) => {
-              modal.createTask({
-                title: '',
-                workspace_id: workspaceId,
-                type: arg.allDay ? 'daily' : 'hourly',
-                start_at: arg.start.toISOString(),
-                end_at: arg.end.toISOString(),
-                assignee_ids: assignee ? [assignee] : [],
-              })
-              arg.view.calendar.unselect()
-            }}
-          />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-slate-200 bg-white">
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2">
+            <div className="flex">
+              <Button variant="ghost" title="Previous" onClick={() => step(-1)}>
+                <ChevronLeft size={16} />
+              </Button>
+              <Button variant="ghost" title="Next" onClick={() => step(1)}>
+                <ChevronRight size={16} />
+              </Button>
+            </div>
+            <Button
+              onClick={() => {
+                setPanel(null)
+                setAnchor(new Date())
+              }}
+              disabled={isCurrent}
+            >
+              Today
+            </Button>
+            <h2 className="mx-auto text-lg font-semibold text-slate-800">{titleOf(view, anchor, from, to)}</h2>
+            <div className="inline-flex overflow-hidden rounded-md border border-slate-300 text-sm">
+              {VIEWS.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setView(v.id)}
+                  className={clsx('px-3 py-1', view === v.id ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50')}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="min-h-0 flex-1">
+            {timeView ? (
+              <TimeGrid key={view} days={days} items={items} onOpenTask={openTask} onOpenGroup={setPanel} onCreate={create} />
+            ) : view === 'month' ? (
+              <MonthGrid
+                start={from}
+                month={anchor}
+                items={items}
+                onOpenTask={openTask}
+                onOpenGroup={setPanel}
+                onCreate={create}
+                onPickDay={(d) => {
+                  setAnchor(d)
+                  setView('day')
+                }}
+              />
+            ) : (
+              <AgendaList from={from} to={to} tasks={tasks} projectOf={projectOf} onOpenTask={openTask} />
+            )}
+          </div>
         </div>
         {panel && <GroupPanel group={panel} byEnv={byEnv} projectOf={projectOf} onOpen={(id) => modal.openTask(id)} onClose={() => setPanel(null)} />}
       </div>
     </div>
   )
 }
-
-const filterHint = (picked: Set<string>) =>
-  picked.size === 1 ? 'One project: busy slots group by environment' : 'Busy slots group by project · ↑↓ and Enter to tick'
 
 /** A group's tasks, opened by clicking the group. */
 function GroupPanel({
@@ -283,6 +278,8 @@ function GroupPanel({
     ? format(g.start, 'EEE, MMM d')
     : `${format(g.start, 'EEE, MMM d · HH:mm')}–${isSameDay(g.start, end) ? format(g.end, 'HH:mm') : format(g.end, 'MMM d HH:mm')}`
   const tasks = [...g.tasks].sort((a, b) => Date.parse(a.start_at!) - Date.parse(b.start_at!) || a.number - b.number)
+  // "+N more" in month view can mix daily and hourly tasks.
+  const kind = tasks.every((t) => t.type === 'hourly') ? 'hourly ' : tasks.every((t) => t.type !== 'hourly') ? 'daily ' : ''
   return (
     <aside className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
       <div className="flex items-start gap-2 border-b border-slate-200 px-3 py-2.5">
@@ -291,7 +288,7 @@ function GroupPanel({
             {g.label}
           </span>
           <p className="mt-1 text-xs text-slate-500">
-            {when} · {tasks.length} {g.allDay ? 'daily' : 'hourly'} task{tasks.length === 1 ? '' : 's'}
+            {when} · {tasks.length} {kind}task{tasks.length === 1 ? '' : 's'}
           </p>
         </div>
         <button className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" title="Close" onClick={onClose}>
@@ -329,49 +326,3 @@ function GroupPanel({
   )
 }
 
-/** Groups, and done tasks as "[DONE] ~~title~~"; other tasks use FullCalendar's default rendering. */
-function renderEvent(arg: EventContentArg, byEnv: boolean) {
-  const g = arg.event.extendedProps.group as TaskGroup | undefined
-  if (g) {
-    const sub = byEnv ? '' : [...new Set(g.tasks.map((t) => t.environment_name).filter(Boolean))].join(' · ')
-    if (g.allDay)
-      return (
-        <div className="truncate px-1 text-[11px]">
-          <b className="font-semibold">{g.label}</b> · {g.tasks.length}
-        </div>
-      )
-    return (
-      <div className="h-full overflow-hidden px-1 py-0.5 text-[11px] leading-tight">
-        <div className="truncate font-semibold">{g.label}</div>
-        <div>{g.tasks.length} tasks</div>
-        {sub && <div className="truncate opacity-80">{sub}</div>}
-      </div>
-    )
-  }
-  if ((arg.event.extendedProps.task as Task).status !== 'done') return true
-  const title = (
-    <>
-      <b className="mr-1 no-underline">[DONE]</b>
-      <span className="line-through">{arg.event.title}</span>
-    </>
-  )
-  // The list view lays out time and title itself; only the title is ours there.
-  if (arg.view.type.startsWith('list')) return title
-  // Timed events in the month grid are a dot + time + title on one line.
-  if (arg.view.type === 'dayGridMonth' && !arg.event.allDay)
-    return (
-      <>
-        <div className="fc-daygrid-event-dot" style={{ borderColor: arg.event.backgroundColor }} />
-        {arg.timeText && <div className="fc-event-time">{arg.timeText}</div>}
-        <div className="fc-event-title">{title}</div>
-      </>
-    )
-  return (
-    <div className="fc-event-main-frame">
-      {arg.timeText && <div className="fc-event-time">{arg.timeText}</div>}
-      <div className="fc-event-title-container">
-        <div className="fc-event-title fc-sticky">{title}</div>
-      </div>
-    </div>
-  )
-}

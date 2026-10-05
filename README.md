@@ -51,8 +51,10 @@ to start before the task it waits for ends.
 <img src="docs/media/timeline.gif" alt="Timeline zooming from weeks to hours with dependency arrows" width="900">
 
 ### Calendar
-Month, week, day and agenda views. Daily tasks are all-day events and hourly tasks are timed; drag or resize to
-reschedule, or select a slot to create a task.
+Month, week, day and agenda views. Daily tasks are all-day bars and hourly tasks are timed; click a task to open it,
+or click or drag over empty time to create one. Busy weeks stay readable: crowded slots and days are grouped by
+project (or by environment when you filter to one project), with a side panel listing the tasks in a group. Filter by
+any set of projects.
 
 <img src="docs/media/calendar.gif" alt="Calendar: month and week views, selecting a slot creates an hourly task" width="900">
 
@@ -90,7 +92,7 @@ Keycloak to clean up people deleted there.
 
 - **Board**: Kanban (To Do → In Progress → In Review → Done) with drag & drop
 - **Timeline (Gantt)**: zoom from **month → week → day → 6 hours → hour**; drag to reschedule, drag edges to resize, Ctrl+scroll to zoom
-- **Calendar**: month/week/day/agenda views; drag, resize, or select a slot to create
+- **Calendar**: month/week/day/agenda views; click to open, click or drag over empty time to create; busy slots grouped by project
 - **Workspaces** (e.g. a team) hold all tasks; task keys look like `APP-12`
 - **Three task types**, nested **Project → Daily → Hourly**:
   - `project`: the big picture; groups daily and hourly tasks (shown as a summary bar on the timeline).
@@ -127,7 +129,7 @@ into the Go server with `go:embed`, the same approach [Radar](https://github.com
 |----------|------|
 | Backend  | Go 1.22, chi, pgx v5, go-oidc |
 | Database | PostgreSQL 16 (migrations embedded, applied on startup) |
-| Frontend | React 19 + TypeScript, Vite, Tailwind CSS v4, TanStack Query, FullCalendar, custom Gantt |
+| Frontend | React 19 + TypeScript, Vite, Tailwind CSS v4, TanStack Query, custom Gantt and calendar |
 | Auth     | Keycloak (public client, Authorization Code + PKCE) |
 
 ```
