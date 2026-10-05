@@ -305,6 +305,7 @@ export const useRunbookTemplates = (workspaceId?: string) =>
 
 export interface StepInput {
   title?: string
+  notes?: string
   start_at?: string | null
   duration_minutes?: number | null
   done?: boolean
@@ -321,7 +322,7 @@ export function useRunbookMutations(taskId: string, workspaceId: string) {
   const m = <V,>(fn: (v: V) => Promise<unknown>) => useMutation({ mutationFn: fn, onSettled })
   return {
     addSection: m((name: string) => api(`/tasks/${taskId}/runbook/sections`, { method: 'POST', body: { name } })),
-    renameSection: m(({ id, name }: { id: string; name: string }) => api(`/runbook/sections/${id}`, { method: 'PATCH', body: { name } })),
+    updateSection: m(({ id, ...patch }: { id: string; name?: string; notes?: string }) => api(`/runbook/sections/${id}`, { method: 'PATCH', body: patch })),
     deleteSection: m((id: string) => api(`/runbook/sections/${id}`, { method: 'DELETE' })),
     orderSections: m((ids: string[]) => api(`/tasks/${taskId}/runbook/order`, { method: 'PUT', body: { section_ids: ids } })),
     addStep: m(({ sectionId, input }: { sectionId: string; input: StepInput }) =>

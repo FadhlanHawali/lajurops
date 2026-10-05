@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import { addMinutes, format, isSameDay } from 'date-fns'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Clock, ListChecks, Pencil, Plus, Save, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Clock, FileText, ListChecks, Pencil, Plus, Save, Trash2, X } from 'lucide-react'
 import { useReadOnly } from '../lib/access'
 import { colorForId, dotStyle, pillStyle } from '../lib/colors'
 import { formatDuration } from '../lib/dates'
 import { useRunbook, useRunbookMutations, useRunbookTemplates, type StepInput } from '../lib/queries'
 import type { RunbookSection, RunbookStep, Task } from '../lib/types'
+import { MarkdownEditor } from './Comments'
+import { Markdown } from './Markdown'
 import { Popover } from './Popover'
 import { Button } from './ui'
 
@@ -124,7 +126,8 @@ export function Runbook({ task }: { task: Task }) {
                 })
               }
               onMove={(d) => move(i, d)}
-              onRename={(name) => run(mut.renameSection.mutateAsync({ id: s.id, name }))}
+              onRename={(name) => run(mut.updateSection.mutateAsync({ id: s.id, name }))}
+              onNotes={(notes) => run(mut.updateSection.mutateAsync({ id: s.id, notes }))}
               onDelete={() => {
                 if (s.steps.length && !confirm(`Remove "${s.name}" and its ${s.steps.length} step${s.steps.length === 1 ? '' : 's'}?`)) return
                 run(mut.deleteSection.mutateAsync(s.id))
@@ -175,6 +178,7 @@ function Section({
   onToggle,
   onMove,
   onRename,
+  onNotes,
   onDelete,
   onAddStep,
   onUpdateStep,
@@ -188,6 +192,7 @@ function Section({
   onToggle: () => void
   onMove: (d: -1 | 1) => void
   onRename: (name: string) => void
+  onNotes: (notes: string) => void
   onDelete: () => void
   onAddStep: (input: StepInput) => void
   onUpdateStep: (id: string, input: StepInput) => void
@@ -197,6 +202,7 @@ function Section({
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(s.name)
   const [editing, setEditing] = useState<string | null>(null)
+  const [notesDraft, setNotesDraft] = useState<string | null>(null) // editing the section's notes
   const color = sectionColor(s.name)
   const done = s.steps.filter((x) => x.done).length
   const m = minutesOf(s.steps)
@@ -244,6 +250,9 @@ function Section({
         </span>
         {!readOnly && (
           <span className="ml-auto flex items-center">
+            <button type="button" className={icon} onClick={() => setNotesDraft(notesDraft === null ? s.notes : null)} title={s.notes ? 'Edit section notes' : 'Add section notes'}>
+              <FileText size={13} />
+            </button>
             <button type="button" className={icon} disabled={first} onClick={() => onMove(-1)} title="Move up">
               <ArrowUp size={13} />
             </button>
@@ -256,6 +265,42 @@ function Section({
           </span>
         )}
       </div>
+      {open && notesDraft !== null && (
+        <div className="border-b border-slate-100 p-2">
+          <MarkdownEditor
+            autoFocus
+            value={notesDraft}
+            onChange={setNotesDraft}
+            onSubmit={() => {
+              onNotes(notesDraft)
+              setNotesDraft(null)
+            }}
+            placeholder="Notes for this section… Markdown supported (e.g. prerequisites, links)"
+            footer={
+              <>
+                <Button type="button" variant="ghost" onClick={() => setNotesDraft(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={() => {
+                    onNotes(notesDraft)
+                    setNotesDraft(null)
+                  }}
+                >
+                  Save notes
+                </Button>
+              </>
+            }
+          />
+        </div>
+      )}
+      {open && notesDraft === null && s.notes.trim() && (
+        <div className="border-b border-slate-100 bg-slate-50/50 px-3 py-1.5">
+          <Markdown className="text-[13px]">{s.notes}</Markdown>
+        </div>
+      )}
       {open && (
         <ul className="divide-y divide-slate-100">
           {s.steps.map((st) =>
@@ -290,16 +335,42 @@ function Section({
 
 function StepRow({ step: s, onToggle, onEdit, onDelete }: { step: RunbookStep; onToggle: (done: boolean) => void; onEdit: () => void; onDelete: () => void }) {
   const readOnly = useReadOnly()
+  const [showNotes, setShowNotes] = useState(false)
+  const hasNotes = !!s.notes.trim()
   const overdue = !s.done && !!s.start_at && Date.parse(s.start_at) < Date.now()
   return (
-    <li className="group grid grid-cols-[18px_128px_52px_minmax(0,1fr)_auto] items-center gap-2 px-3 py-1.5 text-sm">
+    <li className="group">
+    <div className="grid grid-cols-[18px_128px_52px_minmax(0,1fr)_auto] items-center gap-2 px-3 py-1.5 text-sm">
       <input type="checkbox" checked={s.done} disabled={readOnly} onChange={(e) => onToggle(e.target.checked)} aria-label={s.title} />
       <span className={clsx('text-xs tabular-nums', overdue ? 'font-medium text-red-600' : 'text-slate-500')} title={overdue ? 'Overdue' : undefined}>
         {s.start_at ? format(new Date(s.start_at), 'EEE MMM d · HH:mm') : 'no time'}
       </span>
       <span className="rounded bg-slate-100 px-1 text-center text-[11px] text-slate-600">{s.duration_minutes ? formatDuration(s.duration_minutes) : '—'}</span>
-      <span className={clsx('truncate', s.done ? 'text-slate-400 line-through' : 'text-slate-800')} title={s.title}>
-        {s.title}
+      <span className="flex min-w-0 items-center gap-1.5">
+        {hasNotes ? (
+          <button
+            type="button"
+            className={clsx('min-w-0 truncate text-left hover:underline', s.done ? 'text-slate-400 line-through' : 'text-slate-800')}
+            title={showNotes ? 'Hide notes' : 'Show notes'}
+            onClick={() => setShowNotes(!showNotes)}
+          >
+            {s.title}
+          </button>
+        ) : (
+          <span className={clsx('truncate', s.done ? 'text-slate-400 line-through' : 'text-slate-800')} title={s.title}>
+            {s.title}
+          </span>
+        )}
+        {hasNotes && (
+          <button
+            type="button"
+            className={clsx('shrink-0 rounded p-0.5', showNotes ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600')}
+            title={showNotes ? 'Hide notes' : 'Show notes'}
+            onClick={() => setShowNotes(!showNotes)}
+          >
+            <FileText size={13} />
+          </button>
+        )}
       </span>
       {!readOnly ? (
         <span className="flex opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
@@ -313,6 +384,12 @@ function StepRow({ step: s, onToggle, onEdit, onDelete }: { step: RunbookStep; o
       ) : (
         <span />
       )}
+    </div>
+    {hasNotes && showNotes && (
+      <div className="mx-3 mb-2 ml-[30px] rounded-md border border-slate-200 bg-white px-3 py-1.5">
+        <Markdown className="text-[13px]">{s.notes}</Markdown>
+      </div>
+    )}
     </li>
   )
 }
@@ -338,17 +415,21 @@ function StepForm({
   const [date, setDate] = useState(start ? format(start, 'yyyy-MM-dd') : '')
   const [time, setTime] = useState(start ? format(start, 'HH:mm') : '')
   const [dur, setDur] = useState(initial ? String(initial.duration_minutes ?? '') : '30')
+  const [notes, setNotes] = useState(initial?.notes ?? '')
+  const [withNotes, setWithNotes] = useState(!!initial?.notes)
   const [error, setError] = useState('')
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const submit = (e?: React.FormEvent) => {
+    e?.preventDefault()
     if (!title.trim()) return setError('Enter what the step is first')
     if (time && !date) return setError('Pick a date for that time')
     const startAt = date ? new Date(`${date}T${time || '00:00'}`).toISOString() : null
-    onSubmit({ title: title.trim(), start_at: startAt, duration_minutes: dur ? Number(dur) : null })
+    onSubmit({ title: title.trim(), notes: withNotes ? notes : '', start_at: startAt, duration_minutes: dur ? Number(dur) : null })
     setError('')
     if (!initial) {
       setTitle('')
+      setNotes('')
+      setWithNotes(false)
       // Chain the next step after this one.
       if (startAt && dur) {
         const next = addMinutes(new Date(startAt), Number(dur))
@@ -386,6 +467,11 @@ function StepForm({
             ))}
           </select>
         </span>
+        {!withNotes && (
+          <button type="button" className="flex items-center gap-1 px-1 text-xs font-medium text-blue-600 hover:underline" onClick={() => setWithNotes(true)}>
+            <FileText size={12} /> Add notes
+          </button>
+        )}
         <Button type="submit" className="h-7 px-2 text-xs">
           {submitLabel}
         </Button>
@@ -395,6 +481,16 @@ function StepForm({
           </Button>
         )}
       </div>
+      {withNotes && (
+        <div className="mt-1.5">
+          <MarkdownEditor
+            value={notes}
+            onChange={setNotes}
+            onSubmit={() => submit()}
+            placeholder={'Notes… Markdown supported. Put commands in a code block:\n```bash\n./migrate up\n```'}
+          />
+        </div>
+      )}
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </form>
   )

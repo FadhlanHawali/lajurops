@@ -13,9 +13,11 @@ import (
 
 // RunbookStep is one checklist item. StartAt and DurationMinutes are optional.
 type RunbookStep struct {
-	ID              string     `json:"id"`
-	SectionID       string     `json:"section_id"`
-	Title           string     `json:"title"`
+	ID        string `json:"id"`
+	SectionID string `json:"section_id"`
+	Title     string `json:"title"`
+	// Notes are Markdown (commands, links, details).
+	Notes           string     `json:"notes"`
 	StartAt         *time.Time `json:"start_at"`
 	DurationMinutes *int       `json:"duration_minutes"`
 	Done            bool       `json:"done"`
@@ -29,6 +31,7 @@ type RunbookSection struct {
 	ID       string        `json:"id"`
 	TaskID   string        `json:"task_id"`
 	Name     string        `json:"name"`
+	Notes    string        `json:"notes"`
 	Position int           `json:"position"`
 	Steps    []RunbookStep `json:"steps"`
 }
@@ -36,7 +39,7 @@ type RunbookSection struct {
 // Runbook returns a task's sections in order, each with its steps (by start
 // time, then position; steps without a time last).
 func (s *Store) Runbook(ctx context.Context, taskID string) ([]RunbookSection, error) {
-	rows, err := s.db.Query(ctx, `SELECT id::text, task_id::text, name, position FROM runbook_sections WHERE task_id = $1 ORDER BY position, created_at`, taskID)
+	rows, err := s.db.Query(ctx, `SELECT id::text, task_id::text, name, notes, position FROM runbook_sections WHERE task_id = $1 ORDER BY position, created_at`, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +47,7 @@ func (s *Store) Runbook(ctx context.Context, taskID string) ([]RunbookSection, e
 	idx := map[string]int{}
 	for rows.Next() {
 		var sec RunbookSection
-		if err := rows.Scan(&sec.ID, &sec.TaskID, &sec.Name, &sec.Position); err != nil {
+		if err := rows.Scan(&sec.ID, &sec.TaskID, &sec.Name, &sec.Notes, &sec.Position); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -57,7 +60,7 @@ func (s *Store) Runbook(ctx context.Context, taskID string) ([]RunbookSection, e
 		return nil, err
 	}
 	rows, err = s.db.Query(ctx, `
-		SELECT st.id::text, st.section_id::text, st.title, st.start_at, st.duration_minutes, st.done, st.done_at, st.done_by::text, st.position
+		SELECT st.id::text, st.section_id::text, st.title, st.notes, st.start_at, st.duration_minutes, st.done, st.done_at, st.done_by::text, st.position
 		FROM runbook_steps st JOIN runbook_sections sec ON sec.id = st.section_id
 		WHERE sec.task_id = $1
 		ORDER BY st.start_at NULLS LAST, st.position, st.created_at`, taskID)
@@ -67,7 +70,7 @@ func (s *Store) Runbook(ctx context.Context, taskID string) ([]RunbookSection, e
 	defer rows.Close()
 	for rows.Next() {
 		var st RunbookStep
-		if err := rows.Scan(&st.ID, &st.SectionID, &st.Title, &st.StartAt, &st.DurationMinutes, &st.Done, &st.DoneAt, &st.DoneBy, &st.Position); err != nil {
+		if err := rows.Scan(&st.ID, &st.SectionID, &st.Title, &st.Notes, &st.StartAt, &st.DurationMinutes, &st.Done, &st.DoneAt, &st.DoneBy, &st.Position); err != nil {
 			return nil, err
 		}
 		if i, ok := idx[st.SectionID]; ok {
@@ -113,18 +116,26 @@ func (s *Store) AddRunbookSection(ctx context.Context, taskID, name string) (Run
 	return sec, mapConstraintErr(err)
 }
 
-// RenameRunbookSection changes a section's name.
-func (s *Store) RenameRunbookSection(ctx context.Context, id, name string) error {
-	name, err := cleanName(name, 60, "section name")
-	if err != nil {
-		return err
+// UpdateRunbookSection changes a section's name and/or notes (nil = keep).
+func (s *Store) UpdateRunbookSection(ctx context.Context, id string, name, notes *string) error {
+	if name != nil {
+		n, err := cleanName(*name, 60, "section name")
+		if err != nil {
+			return err
+		}
+		name = &n
 	}
-	tag, err := s.db.Exec(ctx, `UPDATE runbook_sections SET name = $2 WHERE id = $1`, id, name)
+	if notes != nil && len(*notes) > maxNotes {
+		return invalid("notes are too long")
+	}
+	tag, err := s.db.Exec(ctx, `UPDATE runbook_sections SET name = coalesce($2, name), notes = coalesce($3, notes) WHERE id = $1`, id, name, notes)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
 	return mapConstraintErr(err)
 }
+
+const maxNotes = 20000
 
 // DeleteRunbookSection removes a section and its steps.
 func (s *Store) DeleteRunbookSection(ctx context.Context, id string) error {
@@ -153,6 +164,7 @@ func (s *Store) OrderRunbookSections(ctx context.Context, taskID string, ids []s
 // RunbookStepInput creates or changes a step; nil fields are left alone on update.
 type RunbookStepInput struct {
 	Title           *string          `json:"title"`
+	Notes           *string          `json:"notes"`
 	StartAt         *json.RawMessage `json:"start_at"`
 	DurationMinutes *json.RawMessage `json:"duration_minutes"`
 	Done            *bool            `json:"done"`
@@ -181,11 +193,11 @@ func parseOptDuration(raw json.RawMessage) (*int, error) {
 	return &n, nil
 }
 
-const stepCols = `id::text, section_id::text, title, start_at, duration_minutes, done, done_at, done_by::text, position`
+const stepCols = `id::text, section_id::text, title, notes, start_at, duration_minutes, done, done_at, done_by::text, position`
 
 func scanStep(row pgx.Row) (RunbookStep, error) {
 	var st RunbookStep
-	err := row.Scan(&st.ID, &st.SectionID, &st.Title, &st.StartAt, &st.DurationMinutes, &st.Done, &st.DoneAt, &st.DoneBy, &st.Position)
+	err := row.Scan(&st.ID, &st.SectionID, &st.Title, &st.Notes, &st.StartAt, &st.DurationMinutes, &st.Done, &st.DoneAt, &st.DoneBy, &st.Position)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return st, ErrNotFound
 	}
@@ -201,6 +213,13 @@ func (s *Store) AddRunbookStep(ctx context.Context, sectionID string, in Runbook
 	if err != nil {
 		return RunbookStep{}, err
 	}
+	notes := ""
+	if in.Notes != nil {
+		if len(*in.Notes) > maxNotes {
+			return RunbookStep{}, invalid("notes are too long")
+		}
+		notes = *in.Notes
+	}
 	var start *time.Time
 	var dur *int
 	if in.StartAt != nil {
@@ -214,9 +233,9 @@ func (s *Store) AddRunbookStep(ctx context.Context, sectionID string, in Runbook
 		}
 	}
 	return scanStep(s.db.QueryRow(ctx, `
-		INSERT INTO runbook_steps (section_id, title, start_at, duration_minutes, position)
-		VALUES ($1, $2, $3, $4, (SELECT coalesce(max(position), -1) + 1 FROM runbook_steps WHERE section_id = $1))
-		RETURNING `+stepCols, sectionID, title, start, dur))
+		INSERT INTO runbook_steps (section_id, title, notes, start_at, duration_minutes, position)
+		VALUES ($1, $2, $3, $4, $5, (SELECT coalesce(max(position), -1) + 1 FROM runbook_steps WHERE section_id = $1))
+		RETURNING `+stepCols, sectionID, title, notes, start, dur))
 }
 
 // UpdateRunbookStep changes a step; ticking records who and when.
@@ -233,6 +252,12 @@ func (s *Store) UpdateRunbookStep(ctx context.Context, id, userID string, in Run
 			return RunbookStep{}, err
 		}
 		set("title", title)
+	}
+	if in.Notes != nil {
+		if len(*in.Notes) > maxNotes {
+			return RunbookStep{}, invalid("notes are too long")
+		}
+		set("notes", *in.Notes)
 	}
 	if in.StartAt != nil {
 		t, err := parseOptTime(*in.StartAt)
@@ -278,12 +303,14 @@ func (s *Store) DeleteRunbookStep(ctx context.Context, id string) error {
 // to the task's start (nil when the step had no time).
 type TemplateStep struct {
 	Title           string `json:"title"`
+	Notes           string `json:"notes,omitempty"`
 	OffsetMinutes   *int   `json:"offset_minutes"`
 	DurationMinutes *int   `json:"duration_minutes"`
 }
 
 type TemplateSection struct {
 	Name  string         `json:"name"`
+	Notes string         `json:"notes,omitempty"`
 	Steps []TemplateStep `json:"steps"`
 }
 
@@ -350,9 +377,9 @@ func (s *Store) SaveRunbookTemplate(ctx context.Context, taskID, name, userID st
 	}
 	t := RunbookTemplate{WorkspaceID: ws, Name: name}
 	for _, sec := range secs {
-		ts := TemplateSection{Name: sec.Name, Steps: []TemplateStep{}}
+		ts := TemplateSection{Name: sec.Name, Notes: sec.Notes, Steps: []TemplateStep{}}
 		for _, st := range sec.Steps {
-			step := TemplateStep{Title: st.Title, DurationMinutes: st.DurationMinutes}
+			step := TemplateStep{Title: st.Title, Notes: st.Notes, DurationMinutes: st.DurationMinutes}
 			if st.StartAt != nil && taskStart != nil {
 				off := int(st.StartAt.Sub(*taskStart).Minutes())
 				step.OffsetMinutes = &off
@@ -406,7 +433,7 @@ func (s *Store) ApplyRunbookTemplate(ctx context.Context, taskID, templateID str
 	}
 	for i, sec := range sections {
 		var secID string
-		if err := tx.QueryRow(ctx, `INSERT INTO runbook_sections (task_id, name, position) VALUES ($1, $2, $3) RETURNING id::text`, taskID, sec.Name, pos+i).Scan(&secID); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO runbook_sections (task_id, name, notes, position) VALUES ($1, $2, $3, $4) RETURNING id::text`, taskID, sec.Name, sec.Notes, pos+i).Scan(&secID); err != nil {
 			return mapConstraintErr(err)
 		}
 		for j, st := range sec.Steps {
@@ -415,8 +442,8 @@ func (s *Store) ApplyRunbookTemplate(ctx context.Context, taskID, templateID str
 				t := taskStart.Add(time.Duration(*st.OffsetMinutes) * time.Minute)
 				start = &t
 			}
-			if _, err := tx.Exec(ctx, `INSERT INTO runbook_steps (section_id, title, start_at, duration_minutes, position) VALUES ($1, $2, $3, $4, $5)`,
-				secID, st.Title, start, st.DurationMinutes, j); err != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO runbook_steps (section_id, title, notes, start_at, duration_minutes, position) VALUES ($1, $2, $3, $4, $5, $6)`,
+				secID, st.Title, st.Notes, start, st.DurationMinutes, j); err != nil {
 				return mapConstraintErr(err)
 			}
 		}

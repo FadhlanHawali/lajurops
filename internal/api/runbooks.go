@@ -62,9 +62,11 @@ func (a *API) requireSection(w http.ResponseWriter, r *http.Request, sectionID s
 	return a.requireTask(w, r, task, levelEditor)
 }
 
-func (a *API) renameRunbookSection(w http.ResponseWriter, r *http.Request) {
+// updateRunbookSection changes a section's name and/or notes.
+func (a *API) updateRunbookSection(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name string `json:"name"`
+		Name  *string `json:"name"`
+		Notes *string `json:"notes"`
 	}
 	if err := decode(r, &in); err != nil {
 		respond(w, nil, err)
@@ -74,7 +76,7 @@ func (a *API) renameRunbookSection(w http.ResponseWriter, r *http.Request) {
 	if !a.requireSection(w, r, id) {
 		return
 	}
-	err := a.store.RenameRunbookSection(r.Context(), id, in.Name)
+	err := a.store.UpdateRunbookSection(r.Context(), id, in.Name, in.Notes)
 	respond(w, map[string]bool{"ok": true}, err)
 }
 

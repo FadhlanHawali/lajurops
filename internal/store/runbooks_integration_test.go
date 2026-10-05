@@ -64,6 +64,16 @@ func TestRunbooksAndTemplates(t *testing.T) {
 		t.Errorf("task counts = %d/%d, want 1/3", got.RunbookDone, got.RunbookTotal)
 	}
 
+	// Markdown notes on a step and a section.
+	notes := "Run:\n```bash\n./migrate up\n```"
+	if _, err := st.UpdateRunbookStep(ctx, s1.ID, user.ID, RunbookStepInput{Notes: &notes}); err != nil {
+		t.Fatal(err)
+	}
+	prereq := "Needs VPN"
+	if err := st.UpdateRunbookSection(ctx, prep.ID, nil, &prereq); err != nil {
+		t.Fatal(err)
+	}
+
 	// Order: Implementation first.
 	if err := st.OrderRunbookSections(ctx, task.ID, []string{impl.ID, prep.ID}); err != nil {
 		t.Fatal(err)
@@ -99,6 +109,10 @@ func TestRunbooksAndTemplates(t *testing.T) {
 	rb2, _ := st.Runbook(ctx, task2.ID)
 	if len(rb2) != 2 || len(rb2[1].Steps) != 2 || rb2[1].Steps[0].Done || !rb2[1].Steps[0].StartAt.Equal(later.Add(-47*time.Hour)) || rb2[1].Steps[1].StartAt != nil {
 		t.Fatalf("applied runbook = %+v", rb2)
+	}
+	// Notes travel with the template; the section keeps its name.
+	if rb2[1].Notes != prereq || rb2[1].Steps[0].Notes != notes || rb2[1].Name != "Preparation" {
+		t.Errorf("notes not applied: section %q, step %q", rb2[1].Notes, rb2[1].Steps[0].Notes)
 	}
 
 	// Templates stay in their workspace.

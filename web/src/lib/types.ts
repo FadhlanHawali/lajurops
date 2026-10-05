@@ -312,6 +312,8 @@ export interface RunbookStep {
   id: string
   section_id: string
   title: string
+  /** Markdown. */
+  notes: string
   start_at: string | null
   duration_minutes: number | null
   done: boolean
@@ -325,6 +327,8 @@ export interface RunbookSection {
   id: string
   task_id: string
   name: string
+  /** Markdown, shown under the section's name. */
+  notes: string
   position: number
   steps: RunbookStep[]
 }
