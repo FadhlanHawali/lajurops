@@ -52,3 +52,17 @@ export function pillStyle(color: string | null | undefined, ring = 1): CSSProper
 }
 
 export const dotStyle = (color: string | null | undefined): CSSProperties => ({ backgroundColor: hexOf(color) })
+
+/** The tinted chip colours (background, text, border) for a colour, for libraries that take plain values. */
+export function tintColors(color: string | null | undefined): { bg: string; text: string; border: string } {
+  const c = hexOf(color)
+  return { bg: mix(c, '#ffffff', 0.85), text: mix(c, '#000000', 0.5), border: mix(c, '#ffffff', 0.2) }
+}
+
+/** A stable palette colour for something without one of its own (e.g. a project), from its id. */
+export function colorForId(id: string): string {
+  const names = PALETTE_NAMES.filter((n) => n !== 'slate')
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
+  return names[Math.abs(h) % names.length]
+}
