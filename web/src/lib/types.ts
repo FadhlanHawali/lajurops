@@ -146,6 +146,9 @@ export interface Task {
   project_category_id: string | null
   project_category_name: string | null
   project_category_color: EnvColor | null
+  /** Runbook checklist progress. */
+  runbook_total: number
+  runbook_done: number
 }
 
 export interface ProjectCategory {
@@ -302,4 +305,36 @@ export interface ImportResult {
   comments: number
   assignments: number
   unknown_users: string[]
+}
+
+/** A runbook checklist item; times are optional. */
+export interface RunbookStep {
+  id: string
+  section_id: string
+  title: string
+  start_at: string | null
+  duration_minutes: number | null
+  done: boolean
+  done_at: string | null
+  done_by: string | null
+  position: number
+}
+
+/** A named group of runbook steps, e.g. "Preparation". */
+export interface RunbookSection {
+  id: string
+  task_id: string
+  name: string
+  position: number
+  steps: RunbookStep[]
+}
+
+/** A workspace's reusable runbook; step times are relative to the task start. */
+export interface RunbookTemplate {
+  id: string
+  workspace_id: string
+  name: string
+  step_count: number
+  updated_at: string
+  sections: { name: string; steps: { title: string; offset_minutes: number | null; duration_minutes: number | null }[] }[]
 }

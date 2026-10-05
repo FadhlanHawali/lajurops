@@ -54,6 +54,9 @@ type Task struct {
 	ProjectCategoryID    *string `json:"project_category_id"`
 	ProjectCategoryName  *string `json:"project_category_name"`
 	ProjectCategoryColor *string `json:"project_category_color"`
+	// Runbook checklist progress (steps in all sections).
+	RunbookTotal int `json:"runbook_total"`
+	RunbookDone  int `json:"runbook_done"`
 }
 
 type TaskInput struct {
@@ -122,7 +125,9 @@ const taskCols = `t.id::text, t.workspace_id::text, p.key, t.parent_id::text, t.
 	(SELECT count(*) FROM task_dependencies d JOIN tasks b ON b.id = d.depends_on_id
 	  WHERE d.task_id = t.id AND b.status <> 'done'),
 	t.environment_id::text, e.name, e.color,
-	t.project_category_id::text, pc.name, pc.color`
+	t.project_category_id::text, pc.name, pc.color,
+	(SELECT count(*) FROM runbook_steps rs JOIN runbook_sections sec ON sec.id = rs.section_id WHERE sec.task_id = t.id),
+	(SELECT count(*) FILTER (WHERE rs.done) FROM runbook_steps rs JOIN runbook_sections sec ON sec.id = rs.section_id WHERE sec.task_id = t.id)`
 
 const taskFrom = ` FROM tasks t JOIN workspaces p ON p.id = t.workspace_id
 	LEFT JOIN project_environments e ON e.id = t.environment_id
@@ -136,7 +141,7 @@ func scanTask(row pgx.Row) (Task, error) {
 		&t.EstimateHours, &t.ActualHours, &t.Progress, &t.Position,
 		&t.CompletedAt, &t.CreatedAt, &t.UpdatedAt, &t.SubtaskCount, &t.SubtaskDone, &t.CommentCount,
 		&t.BlockedBy, &t.OpenBlockers, &t.EnvironmentID, &t.EnvironmentName, &t.EnvironmentColor,
-		&t.ProjectCategoryID, &t.ProjectCategoryName, &t.ProjectCategoryColor)
+		&t.ProjectCategoryID, &t.ProjectCategoryName, &t.ProjectCategoryColor, &t.RunbookTotal, &t.RunbookDone)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
 	}

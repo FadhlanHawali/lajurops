@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { AdminUser, AdminUserInput, MemberAccess, MemberRole, Comment, Commitment, CommitmentBrief, CommitmentInput, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, MemberAccess, MemberRole, RunbookSection, RunbookStep, RunbookTemplate, Comment, Commitment, CommitmentBrief, CommitmentInput, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -291,6 +291,67 @@ export function useCommentMutations(taskId: string) {
     remove: useMutation({
       mutationFn: (id: string) => api(`/comments/${id}`, { method: 'DELETE' }),
       onSettled,
+    }),
+  }
+}
+
+// --- runbooks ---
+
+export const useRunbook = (taskId?: string) =>
+  useQuery({ queryKey: ['runbook', taskId], queryFn: () => api<RunbookSection[]>(`/tasks/${taskId}/runbook`), enabled: !!taskId })
+
+export const useRunbookTemplates = (workspaceId?: string) =>
+  useQuery({ queryKey: ['runbook-templates', workspaceId], queryFn: () => api<RunbookTemplate[]>(`/workspaces/${workspaceId}/runbook-templates`), enabled: !!workspaceId })
+
+export interface StepInput {
+  title?: string
+  start_at?: string | null
+  duration_minutes?: number | null
+  done?: boolean
+}
+
+/** Every runbook change refreshes the runbook and the task's progress counts. */
+export function useRunbookMutations(taskId: string, workspaceId: string) {
+  const qc = useQueryClient()
+  const onSettled = () => {
+    qc.invalidateQueries({ queryKey: ['runbook', taskId] })
+    qc.invalidateQueries({ queryKey: ['tasks'] })
+    qc.invalidateQueries({ queryKey: ['task', taskId] })
+  }
+  const m = <V,>(fn: (v: V) => Promise<unknown>) => useMutation({ mutationFn: fn, onSettled })
+  return {
+    addSection: m((name: string) => api(`/tasks/${taskId}/runbook/sections`, { method: 'POST', body: { name } })),
+    renameSection: m(({ id, name }: { id: string; name: string }) => api(`/runbook/sections/${id}`, { method: 'PATCH', body: { name } })),
+    deleteSection: m((id: string) => api(`/runbook/sections/${id}`, { method: 'DELETE' })),
+    orderSections: m((ids: string[]) => api(`/tasks/${taskId}/runbook/order`, { method: 'PUT', body: { section_ids: ids } })),
+    addStep: m(({ sectionId, input }: { sectionId: string; input: StepInput }) =>
+      api<RunbookStep>(`/runbook/sections/${sectionId}/steps`, { method: 'POST', body: input }),
+    ),
+    // Ticking shows at once; the server's answer (or a failure) settles it.
+    updateStep: useMutation({
+      mutationFn: ({ id, input }: { id: string; input: StepInput }) => api<RunbookStep>(`/runbook/steps/${id}`, { method: 'PATCH', body: input }),
+      onMutate: async ({ id, input }) => {
+        await qc.cancelQueries({ queryKey: ['runbook', taskId] })
+        const prev = qc.getQueryData<RunbookSection[]>(['runbook', taskId])
+        if (prev)
+          qc.setQueryData<RunbookSection[]>(
+            ['runbook', taskId],
+            prev.map((sec) => ({ ...sec, steps: sec.steps.map((st) => (st.id === id ? { ...st, ...input } as RunbookStep : st)) })),
+          )
+        return { prev }
+      },
+      onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(['runbook', taskId], ctx.prev),
+      onSettled,
+    }),
+    deleteStep: m((id: string) => api(`/runbook/steps/${id}`, { method: 'DELETE' })),
+    applyTemplate: m((templateId: string) => api(`/tasks/${taskId}/runbook/apply-template`, { method: 'POST', body: { template_id: templateId } })),
+    saveTemplate: useMutation({
+      mutationFn: (name: string) => api<RunbookTemplate>(`/tasks/${taskId}/runbook/save-template`, { method: 'POST', body: { name } }),
+      onSettled: () => qc.invalidateQueries({ queryKey: ['runbook-templates', workspaceId] }),
+    }),
+    deleteTemplate: useMutation({
+      mutationFn: (id: string) => api(`/runbook-templates/${id}`, { method: 'DELETE' }),
+      onSettled: () => qc.invalidateQueries({ queryKey: ['runbook-templates', workspaceId] }),
     }),
   }
 }

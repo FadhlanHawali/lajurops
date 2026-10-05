@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { addDays, startOfDay } from 'date-fns'
-import { FolderKanban, Hourglass, MessageSquare, Plus } from 'lucide-react'
+import { FolderKanban, Hourglass, ListChecks, MessageSquare, Plus } from 'lucide-react'
 import { ColumnSearch, ColumnToolButtons, useColumnViews } from '../components/ColumnTools'
 import { DateFilter, EnvironmentFilter, inDateRange, ProjectFilter, thisWeek, type DateRangeFilter } from '../components/BoardFilters'
 import { useTaskModal } from '../components/TaskModal'
@@ -267,6 +267,17 @@ function Card({
         <TypeBadge type={t.type} kind={t.project_kind} />
         <span className="text-[11px] font-medium text-slate-500">{t.key}</span>
         <span className="ml-auto flex items-center gap-1.5">
+          {t.runbook_total > 0 && (
+            <span
+              className={clsx(
+                'flex items-center gap-0.5 text-[11px] font-medium',
+                t.runbook_done === t.runbook_total ? 'text-emerald-600' : t.status === 'done' ? 'text-amber-600' : 'text-slate-400',
+              )}
+              title={`Runbook: ${t.runbook_done} of ${t.runbook_total} steps done${t.status === 'done' && t.runbook_done < t.runbook_total ? ' (task is done with steps left)' : ''}`}
+            >
+              <ListChecks size={12} /> {t.runbook_done}/{t.runbook_total}
+            </span>
+          )}
           {t.comment_count > 0 && (
             <span className="flex items-center gap-0.5 text-[11px] text-slate-400" title={`${t.comment_count} comment(s)`}>
               <MessageSquare size={12} /> {t.comment_count}

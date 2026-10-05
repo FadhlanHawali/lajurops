@@ -1,17 +1,18 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
-import { ArrowLeft, CalendarX, CheckCircle2, ChevronRight, CircleDot, Eye, Flag, Hourglass, Loader2, Plus, Tags, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CalendarX, CheckCircle2, ChevronRight, CircleDot, Eye, Flag, Hourglass, Loader2, Plus, Tags, Trash2, X } from 'lucide-react'
 import { ReadOnlyContext, useAccess, useReadOnly } from '../lib/access'
 import { dotStyle } from '../lib/colors'
 import { formatCreatedFull, fromInput, toInput } from '../lib/dates'
-import { saveEnvironments, useProjectProgress, useUsers, useCategories, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
+import { saveEnvironments, useProjectProgress, useRunbook, useUsers, useCategories, useCreateTask, useEnvironments, useDeleteTask, useTask, useTasks, useUpdateTask, useWorkspaces, type TaskCreate, type TaskPatch } from '../lib/queries'
 import { canContain, defaultChildType, PRIORITIES, PROJECT_KINDS, STATUSES, TASK_TYPES, type Priority, type ProjectKind, type Status, type EnvironmentDraft, type Task, type TaskType } from '../lib/types'
 import { Comments } from './Comments'
 import { DateRangeField, HourlyScheduleField } from './DateTimePicker'
 import { ParentPicker } from './ParentPicker'
 import { ProjectProgress } from './ProjectProgress'
 import { Dependencies } from './Dependencies'
+import { Runbook } from './Runbook'
 import { EnvBadge, EnvironmentListEditor, EnvironmentPicker, ProjectEnvironments } from './Environments'
 import { SearchSelect } from './SearchSelect'
 import { MultiUserPicker } from './UserPicker'
@@ -319,6 +320,9 @@ function TaskForm({
   }
 
   const busy = update.isPending || create.isPending
+  // Marking a task done with unticked runbook steps only warns.
+  const { data: runbook = [] } = useRunbook(task?.id)
+  const openSteps = runbook.flatMap((s) => s.steps).filter((s) => !s.done).length
   const typeInfo = TASK_TYPES.find((t) => t.id === f.type)!
 
   return (
@@ -375,6 +379,7 @@ function TaskForm({
           </fieldset>
 
           {task?.type === 'project' && <ProjectEnvironments projectId={task.id} />}
+          {task && <Runbook task={task} />}
           {!task && f.type === 'project' && (
             <section>
               <h3 className="mb-2 text-sm font-semibold text-slate-700">Environments</h3>
@@ -573,7 +578,14 @@ function TaskForm({
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
-        <span className="text-sm text-red-600">{err}</span>
+        <span className="flex flex-col gap-0.5">
+          {err && <span className="text-sm text-red-600">{err}</span>}
+          {openSteps > 0 && f.status === 'done' && f.type !== 'project' && (
+            <span className="flex items-center gap-1 text-xs text-amber-700">
+              <AlertTriangle size={13} /> {openSteps} runbook step{openSteps === 1 ? ' isn’t' : 's aren’t'} ticked yet
+            </span>
+          )}
+        </span>
         {readOnly ? (
           <Button onClick={onClose}>Close</Button>
         ) : (
