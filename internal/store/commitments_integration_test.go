@@ -87,7 +87,7 @@ func TestCommitments(t *testing.T) {
 	if err := st.SaveCommitment(ctx, me.ID, week.Add(time.Hour), CommitmentInput{}, scope, scope); !errors.Is(err, ErrInvalid) {
 		t.Errorf("not a week start: %v", err)
 	}
-	for name, id := range map[string]string{"a project": project, "someone else's task": theirs, "an hourly task": unscheduled} {
+	for name, id := range map[string]string{"a project": project, "an hourly task": unscheduled} {
 		if err := st.SaveCommitment(ctx, me.ID, week, CommitmentInput{TaskIDs: []string{id}}, scope, scope); !errors.Is(err, ErrInvalid) {
 			t.Errorf("picking %s: %v", name, err)
 		}
@@ -202,5 +202,30 @@ func TestCommitments(t *testing.T) {
 		if len(x.AssigneeIDs) > 0 {
 			t.Errorf("assignee_id=none returned %s, which has owners", x.Title)
 		}
+	}
+
+	// Someone else's daily task: listed for me under "others", refused
+	// without edit access, and picking it adds me next to its owner.
+	others, err := st.ListTasks(ctx, TaskFilter{WorkspaceID: ws.ID, OthersOf: me.ID, Types: []string{"daily"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(others) != 1 || others[0].ID != theirs {
+		t.Errorf("others should list only their daily task: %d tasks", len(others))
+	}
+	if err := st.SaveCommitment(ctx, me.ID, week, CommitmentInput{TaskIDs: []string{theirs}}, scope, Scope{}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("picking someone else's task without edit access: %v", err)
+	}
+	if err := st.SaveCommitment(ctx, me.ID, week, CommitmentInput{TaskIDs: []string{theirs, free.ID}}, scope, scope); err != nil {
+		t.Fatal(err)
+	}
+	if task, err = st.GetTask(ctx, theirs); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(task.AssigneeIDs) != fmt.Sprint([]string{other.ID, me.ID}) {
+		t.Errorf("picked shared task should keep its owner and add me: %v", task.AssigneeIDs)
+	}
+	if others, _ = st.ListTasks(ctx, TaskFilter{WorkspaceID: ws.ID, OthersOf: me.ID, Types: []string{"daily"}}); len(others) != 0 {
+		t.Errorf("once I'm an owner, it isn't someone else's any more: %d tasks", len(others))
 	}
 }

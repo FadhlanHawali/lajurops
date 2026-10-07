@@ -82,9 +82,12 @@ type TaskFilter struct {
 	// ones the caller may see); an empty slice matches nothing.
 	WorkspaceIDs []string
 	AssigneeID   string
-	ParentID     string
-	TopLevel     bool
-	Types        []string
+	// OthersOf, when set, returns tasks that have owners, none of them
+	// this user (?assignee_id=others).
+	OthersOf string
+	ParentID string
+	TopLevel bool
+	Types    []string
 	// From/To select tasks whose schedule overlaps [From, To).
 	From, To *time.Time
 	// Undated, with From/To, also returns tasks without dates: "all", or
@@ -159,6 +162,9 @@ func (s *Store) ListTasks(ctx context.Context, f TaskFilter) ([]Task, error) {
 	}
 	if f.AssigneeID == "none" {
 		where = append(where, "NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id)")
+	} else if f.OthersOf != "" {
+		where = append(where, "EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id)")
+		add("NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = $%d)", f.OthersOf)
 	} else if f.AssigneeID != "" {
 		add("EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = $%d)", f.AssigneeID)
 	}

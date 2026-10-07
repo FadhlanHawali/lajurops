@@ -158,10 +158,16 @@ func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// ?assignee_id=none: unassigned; =others: owned by others, not the caller.
+	assignee, othersOf := q.Get("assignee_id"), ""
+	if assignee == "others" {
+		assignee, othersOf = "", auth.From(r.Context()).ID
+	}
 	tasks, err := a.store.ListTasks(r.Context(), store.TaskFilter{
 		WorkspaceIDs: visible,
 		WorkspaceID:  q.Get("workspace_id"),
-		AssigneeID:   q.Get("assignee_id"),
+		AssigneeID:   assignee,
+		OthersOf:     othersOf,
 		ParentID:     q.Get("parent_id"),
 		TopLevel:     q.Get("top_level") == "true",
 		Types:        splitList(q.Get("type")),

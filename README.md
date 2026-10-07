@@ -79,7 +79,7 @@ export CSV.
 
 ### Weekly Commitment
 Each person picks the daily tasks they intend to finish this week: drag them from the daily tasks assigned to them
-(work left over from last week is marked *carried over*) or from unassigned ones, which assigns them, then order them,
+(work left over from last week is marked *carried over*) from unassigned ones (which assigns them) or from other people's (which adds them as a co-owner), then order them,
 set their capacity and add a note. A picked task without dates is scheduled Monday to Friday of that week. Hourly tasks
 assigned to them that start in the week are committed **automatically**. Planned hours are the hourly time (counted
 like the workload report) plus the daily tasks' estimates, and turn red over capacity. The **Team** view shows
@@ -363,7 +363,7 @@ GET    /api/config                         runtime config for the SPA
 GET    /api/me | /api/users
 GET    /api/workspaces          POST /api/workspaces
 GET    /api/workspaces/{id}     PATCH/DELETE /api/workspaces/{id}
-GET    /api/tasks?workspace_id=&assignee_id=(id|none)&type=daily,hourly&top_level=&parent_id=&from=&to=
+GET    /api/tasks?workspace_id=&assignee_id=(id|none|others)&type=daily,hourly&top_level=&parent_id=&from=&to=
        &undated=open|all     with from/to, also tasks without dates (all, or not done)
        &ancestors=true       also the parents/grandparents of the matches
        &q=&limit=            search title or key ("APP-12"), best match first

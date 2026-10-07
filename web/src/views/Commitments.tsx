@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { addDays, addWeeks, format, formatISO, parseISO, startOfWeek } from 'date-fns'
-import { AlertTriangle, ArrowDown, CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight, Clock, FolderKanban, GripVertical, Loader2, Lock, MessageSquare, Plus, RotateCcw, Search, Target, UserCheck, UserPlus, X } from 'lucide-react'
+import { AlertTriangle, ArrowDown, CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight, Clock, FolderKanban, GripVertical, Loader2, Lock, MessageSquare, Plus, RotateCcw, Search, Target, UserCheck, UserPlus, Users, X } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
 import { EnvBadge } from '../components/Environments'
 import { INDEPENDENT, ProjectMultiFilter } from '../components/ProjectMultiFilter'
 import { WeekPicker } from '../components/WeekPicker'
-import { Avatar, Button, Empty, StatusPill, TypeBadge, inputCls, userName } from '../components/ui'
+import { Avatar, AvatarStack, Button, Empty, StatusPill, TypeBadge, inputCls, userName } from '../components/ui'
 import { useAccess } from '../lib/access'
 import { formatSchedule, hoursBetween } from '../lib/dates'
 import { useCommitments, useMe, useMyCommitment, useSaveCommitment, useTasks, useUpdateTask, useUsers, useWorkspaces } from '../lib/queries'
@@ -162,6 +162,19 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
   const { data: listed = [] } = useTasks({ assignee_id: me?.id, type: 'daily', ancestors: true }, !!me)
   // Unassigned daily tasks: picking one assigns it to you on save.
   const { data: unassignedListed = [] } = useTasks({ assignee_id: 'none', type: 'daily', ancestors: true })
+  // Which list "Available to commit" shows; Assigned to you unless asked.
+  const [tab, setTab] = useState<'overdue' | 'mine' | 'others' | 'free'>('mine')
+  // Other people's daily tasks this week (or unscheduled): picking one adds
+  // you as an owner. Loaded once the tab is opened, as it can be long.
+  const [othersOpened, setOthersOpened] = useState(false)
+  useEffect(() => {
+    if (tab === 'others') setOthersOpened(true)
+  }, [tab])
+  const weekEnd = formatISO(addDays(parseISO(week), 7))
+  const { data: othersListed = [], isFetching: othersLoading } = useTasks(
+    { assignee_id: 'others', type: 'daily', ancestors: true, from: week, to: weekEnd, undated: 'open' },
+    othersOpened,
+  )
   const { canEdit } = useAccess()
   const modal = useTaskModal()
   const [picked, setPicked] = useState<Set<string>>(new Set())
@@ -189,7 +202,10 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
   useEffect(() => onDirty(dirty), [dirty, onDirty])
   useEffect(() => () => onDirty(false), [onDirty])
 
-  const byId = useMemo(() => new Map([...unassignedListed, ...listed, ...(mine?.tasks ?? [])].map((t) => [t.id, t])), [unassignedListed, listed, mine])
+  const byId = useMemo(
+    () => new Map([...othersListed, ...unassignedListed, ...listed, ...(mine?.tasks ?? [])].map((t) => [t.id, t])),
+    [othersListed, unassignedListed, listed, mine],
+  )
   /** The project a task sits in (parent or grandparent), if any. */
   const projectOf = (t: Task): Task | undefined => {
     for (let p = t.parent_id ? byId.get(t.parent_id) : undefined; p; p = p.parent_id ? byId.get(p.parent_id) : undefined) {
@@ -203,6 +219,9 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
   const isMine = (t: Task) => !!me && t.assignee_ids.includes(me.id)
   /** Unassigned, in a workspace you can edit: you can take it on. */
   const isFree = (t: Task) => t.assignee_ids.length === 0 && canEdit(t.workspace_id)
+  /** Someone else's, in a workspace you can edit: you can join as an owner. */
+  const isShared = (t: Task) => t.assignee_ids.length > 0 && !isMine(t) && canEdit(t.workspace_id)
+  const canTake = (t: Task) => isMine(t) || isFree(t) || isShared(t)
   const available = (list: Task[]) => list.filter((t) => t.type === 'daily' && t.status !== 'done' && !ids.includes(t.id))
   // Unfinished commitments from earlier weeks get their own section (and
   // aren't repeated under "Assigned to you"); picked ones move to the right.
@@ -210,9 +229,10 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
   const overdueIds = new Set(openOverdue.map((t) => t.id))
   const openMine = available(assigned).filter((t) => !overdueIds.has(t.id))
   const openFree = available(unassignedListed.filter(isFree))
+  const openOthers = available(othersListed.filter(isShared))
   const projectCounts = new Map<string, number>()
   const projects = new Map<string, Task>()
-  for (const t of [...openOverdue, ...openMine, ...openFree]) {
+  for (const t of [...openOverdue, ...openMine, ...openOthers, ...openFree]) {
     const p = projectOf(t)
     if (p) projects.set(p.id, p)
     const k = p?.id ?? INDEPENDENT
@@ -226,6 +246,7 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
       .sort((a, b) => Number(carried.has(b.id)) - Number(carried.has(a.id)) || (a.start_at ?? '9').localeCompare(b.start_at ?? '9'))
   const backlogMine = filtered(openMine)
   const backlogFree = filtered(openFree)
+  const backlogOthers = filtered(openOthers)
   // Overdue, oldest week first: [week, tasks][]
   const overdueGroups = new Map<string, CommittedTask[]>()
   for (const t of filtered(openOverdue) as CommittedTask[]) {
@@ -234,11 +255,10 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
   }
   const backlogOverdue = [...overdueGroups].sort(([a], [b]) => a.localeCompare(b))
   const overdueShown = backlogOverdue.reduce((a, [, list]) => a + list.length, 0)
-  const pickableOverdue = openOverdue.filter((t) => !t.automatic && (isMine(t) || isFree(t)))
+  const pickableOverdue = openOverdue.filter((t) => !t.automatic && canTake(t))
   const narrowed = !!q || picked.size > 0
 
   // Which list "Available to commit" shows; Assigned to you unless asked.
-  const [tab, setTab] = useState<'overdue' | 'mine' | 'free'>('mine')
   // Rendering thousands of rows at once freezes the page, so lists show
   // LIST_PAGE rows at a time (counts and search still cover everything).
   const [limit, setLimit] = useState(LIST_PAGE)
@@ -348,6 +368,7 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
               [
                 ['overdue', 'Overdue', overdueShown, AlertTriangle],
                 ['mine', 'Assigned to you', backlogMine.length, UserCheck],
+                ['others', 'Assigned to others', othersOpened && !othersLoading ? backlogOthers.length : null, Users],
                 ['free', 'Unassigned', backlogFree.length, UserPlus],
               ] as const
             )
@@ -365,7 +386,9 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
                 >
                   <Icon size={14} className={id === 'overdue' ? 'text-red-500' : undefined} />
                   {label}
-                  <span className={clsx('rounded-full px-1.5 text-[11px] tabular-nums', id === 'overdue' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600')}>{count}</span>
+                  {count !== null && (
+                    <span className={clsx('rounded-full px-1.5 text-[11px] tabular-nums', id === 'overdue' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600')}>{count}</span>
+                  )}
                 </button>
               ))}
           </div>
@@ -426,6 +449,26 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
                 {backlogMine.length === 0 && <p className="p-6 text-center text-sm text-slate-400">{narrowed ? 'No matching tasks.' : 'Nothing left to pick.'}</p>}
               </div>
             )}
+            {tab === 'others' && (
+              <>
+                <div className="border-b border-slate-100 bg-slate-50 px-4 py-1.5 text-xs text-slate-500">
+                  Other people's daily tasks this week (or unscheduled). Picking one adds you as an owner when you save; nobody is removed.
+                </div>
+                {othersLoading && othersListed.length === 0 ? (
+                  <div className="flex justify-center p-6 text-slate-400">
+                    <Loader2 className="animate-spin" size={18} />
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {backlogOthers.slice(0, limit).map((t) => (
+                      <TaskRow key={t.id} task={t} project={projectOf(t)?.title} owners={t.assignee_ids} onDrag={setDragging} action={{ icon: Plus, title: 'Join as an owner and commit to it', run: () => commit(t.id) }} />
+                    ))}
+                    <ShowMore shown={Math.min(limit, backlogOthers.length)} total={backlogOthers.length} onMore={() => setLimit((l) => l + LIST_PAGE)} />
+                    {backlogOthers.length === 0 && <p className="p-6 text-center text-sm text-slate-400">{narrowed ? 'No matching tasks.' : "Nobody else has open daily tasks this week in workspaces you can edit."}</p>}
+                  </div>
+                )}
+              </>
+            )}
             {tab === 'free' && (
               <>
                 <div className="border-b border-slate-100 bg-slate-50 px-4 py-1.5 text-xs text-slate-500">Picking an unassigned task assigns it to you when you save.</div>
@@ -457,9 +500,10 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
                 project={projectOf(t)?.title}
                 committed
                 carried={carried.has(t.id)}
-                unassigned={!isMine(t) && !isFree(t)}
+                unassigned={!canTake(t)}
                 pending={[
                   ...(isFree(t) ? ['will be assigned to you'] : []),
+                  ...(isShared(t) ? ["you'll be added as an owner"] : []),
                   ...(!t.start_at && !t.end_at && canEdit(t.workspace_id) ? ['will be scheduled Mon–Fri'] : []),
                 ]}
                 onDrag={setDragging}
@@ -510,7 +554,7 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
                 className={clsx(!dirty && 'ml-auto')}
                 disabled={save.isPending || (!dirty && !!mine.updated_at)}
                 // Tasks now assigned only to others can't stay committed.
-                onClick={() => save.mutate({ capacity_hours: capacity, note, task_ids: committed.filter((t) => isMine(t) || isFree(t)).map((t) => t.id) })}
+                onClick={() => save.mutate({ capacity_hours: capacity, note, task_ids: committed.filter(canTake).map((t) => t.id) })}
               >
                 {save.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} {mine.updated_at ? 'Save commitment' : 'Share commitment'}
               </Button>
@@ -595,6 +639,7 @@ function TaskRow({
   committed,
   carried,
   unassigned,
+  owners,
   pending = [],
   action,
   onDrag,
@@ -606,6 +651,8 @@ function TaskRow({
   committed?: boolean
   carried?: boolean
   unassigned?: boolean
+  /** Current owners, shown as avatars (for other people's tasks). */
+  owners?: string[]
   /** What saving will change on the task (e.g. assign or schedule it). */
   pending?: string[]
   /** Omitted for automatic (hourly) rows, which can't be moved or removed. */
@@ -669,6 +716,7 @@ function TaskRow({
         </div>
       </button>
       <div className="flex flex-col items-end gap-1">
+        {owners && owners.length > 0 && <AvatarStack ids={owners} max={3} />}
         <StatusPill status={t.status} />
         <span className="text-xs tabular-nums text-slate-500" title={t.estimate_hours == null && t.type === 'daily' ? 'No estimate' : undefined}>
           {h ? fmtH(h) : '—'}

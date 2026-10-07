@@ -358,8 +358,9 @@ func (r prefixRow) Scan(dest ...any) error { return r.Row.Scan(append(r.first, d
 
 // SaveCommitment replaces userID's commitment for the week. Tasks must be
 // daily tasks in scope (hourly tasks are committed by their schedule) that
-// are assigned to the user, or unassigned in a workspace they can edit
-// (editable; nil means all), which assigns them to the user. Picked tasks
+// are assigned to the user, or any daily task in a workspace they can edit
+// (editable; nil means all), which adds them as an owner next to anyone
+// already assigned. Picked tasks
 // without dates the user can edit are scheduled Monday to Friday of the
 // week. Committed tasks outside scope (workspaces the user can no longer
 // see) are kept.
@@ -398,21 +399,21 @@ func (s *Store) SaveCommitment(ctx context.Context, userID string, week time.Tim
 		WHERE t.id::text = ANY($1) AND t.type = 'daily'
 		  AND ($3::text[] IS NULL OR t.workspace_id::text = ANY($3))
 		  AND (EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = $2)
-		       OR (NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id)
-		           AND ($4::text[] IS NULL OR t.workspace_id::text = ANY($4))))`,
+		       OR $4::text[] IS NULL OR t.workspace_id::text = ANY($4))`,
 		ids, userID, scopeArg(scope), scopeArg(editable)).Scan(&ok)
 	if err != nil {
 		return err
 	}
 	if ok != len(ids) {
-		return invalid("you can only pick daily tasks assigned to you, or unassigned ones in a workspace you can edit; hourly tasks scheduled in the week are committed automatically")
+		return invalid("you can only pick daily tasks assigned to you, or other daily tasks in a workspace you can edit; hourly tasks scheduled in the week are committed automatically")
 	}
 
-	// Picking an unassigned task takes it on.
+	// Picking a task you don't own (unassigned, or someone else's) makes you
+	// an owner; existing owners stay.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO task_assignees (task_id, user_id)
-		SELECT t.id, $2 FROM tasks t
-		WHERE t.id::text = ANY($1) AND NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id)`,
+		SELECT t.id, $2 FROM tasks t WHERE t.id::text = ANY($1)
+		ON CONFLICT DO NOTHING`,
 		ids, userID); err != nil {
 		return err
 	}
