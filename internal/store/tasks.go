@@ -157,7 +157,9 @@ func (s *Store) ListTasks(ctx context.Context, f TaskFilter) ([]Task, error) {
 	if f.WorkspaceIDs != nil {
 		add("t.workspace_id::text = ANY($%d)", f.WorkspaceIDs)
 	}
-	if f.AssigneeID != "" {
+	if f.AssigneeID == "none" {
+		where = append(where, "NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id)")
+	} else if f.AssigneeID != "" {
 		add("EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = $%d)", f.AssigneeID)
 	}
 	if f.ParentID != "" {

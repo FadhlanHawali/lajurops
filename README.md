@@ -9,7 +9,7 @@
 
 <p align="center">
   Open-source planning for ops teams: projects, requests and deployments on one timeline, across every environment.<br>
-  Board · Projects · Timeline down to the hour · Calendar · Workload · Keycloak · single binary
+  Board · Projects · Timeline down to the hour · Calendar · Hourly Workload · Weekly Commitment · Keycloak · single binary
 </p>
 
 <p align="center">
@@ -70,11 +70,20 @@ toolbar, shortcuts and preview.
 
 <img src="docs/media/comments.gif" alt="Writing and previewing a Markdown comment" width="900">
 
-### Workload report
-Per person, per week or month: hourly hours, hourly/daily task counts and completion. Drill into a person's tasks
-and export CSV.
+### Hourly Workload
+Per person, per week or month: time spent on **hourly tasks** (support, deployments, implementation), plus hourly/daily
+task counts and completion. Daily tasks have no hours and are planned on Weekly Commitment. Drill into a person's tasks and
+export CSV.
 
 <img src="docs/media/workload.gif" alt="Workload report: weekly and monthly, per-person drill-down" width="900">
+
+### Weekly Commitment
+Each person picks the daily tasks they intend to finish this week: drag them from the daily tasks assigned to them
+(work left over from last week is marked *carried over*) or from unassigned ones, which assigns them, then order them,
+set their capacity and add a note. A picked task without dates is scheduled Monday to Friday of that week. Hourly tasks
+assigned to them that start in the week are committed **automatically**. Planned hours are the hourly time (counted
+like the workload report) plus the daily tasks' estimates, and turn red over capacity. The **Team** view shows
+everyone's commitment, progress and notes, and **last week kept** shows how many committed tasks were done in time.
 
 ### Backup and restore
 Export a workspace to JSON and import it (from a file or a URL) as a new workspace, with a preview first.
@@ -115,7 +124,7 @@ Keycloak to clean up people deleted there.
   the task it waits for ends)
 - **Comments** on projects, daily and hourly tasks, written in **Markdown** (GitHub flavoured: checklists, tables, code blocks) with a formatting toolbar and preview; authors can edit/delete their own comments, admins can delete any
 - **Backup & restore**: export a workspace to JSON; import a backup from a file or a URL as a new workspace
-- **Workload report**: per user, per week or month: hourly hours, hourly/daily task counts, completion; drill down and export CSV
+- **Hourly Workload**: per user, per week or month: hourly hours, hourly/daily task counts, completion; drill down and export CSV
 - **Week grid**: people × days for one week, listing each person's hourly tasks per day with daily and weekly hours (parallel work counted once)
 - **Keycloak** sign-in (OIDC + PKCE) with an in-app sign-in screen
 - **User management** for admins: create, edit, disable, delete users, reset passwords and grant the admin role (via the Keycloak Admin API)
@@ -193,7 +202,7 @@ immediately; deleted or disabled users disappear from assignee lists but keep th
 that no longer exist in Keycloak are marked *Deleted* and listed under "Deleted in Keycloak", where
 an admin can **Remove from LajurOps**, either keeping their tasks (just unassigned) or deleting the
 tasks only they own. Shared tasks, and tasks containing someone else's work, are only unassigned;
-comments stay, shown as by a deleted user. Workload hides deleted/disabled people unless they have
+comments stay, shown as by a deleted user. Hourly Workload hides deleted/disabled people unless they have
 tasks in the selected period.
 
 ### Roles and workspace access
@@ -354,7 +363,7 @@ GET    /api/config                         runtime config for the SPA
 GET    /api/me | /api/users
 GET    /api/workspaces          POST /api/workspaces
 GET    /api/workspaces/{id}     PATCH/DELETE /api/workspaces/{id}
-GET    /api/tasks?workspace_id=&assignee_id=&type=daily,hourly&top_level=&parent_id=&from=&to=
+GET    /api/tasks?workspace_id=&assignee_id=(id|none)&type=daily,hourly&top_level=&parent_id=&from=&to=
        &undated=open|all     with from/to, also tasks without dates (all, or not done)
        &ancestors=true       also the parents/grandparents of the matches
        &q=&limit=            search title or key ("APP-12"), best match first
@@ -377,6 +386,10 @@ PATCH  /api/comments/{id}       { body }   (author only)
 DELETE /api/comments/{id}       (author or lajurops-admin)
 GET    /api/reports/workload?from=&to=&workspace_id=
 GET    /api/reports/workload/{userId}/tasks?from=&to=&workspace_id=
+GET    /api/commitments?week=&workspace_id=          everyone's commitment; week = Monday 00:00 local, RFC 3339
+GET    /api/commitments/me?week=
+PUT    /api/commitments/me?week=  { capacity_hours, note, task_ids: [] }   daily tasks, in order (hourly ones are automatic);
+       unassigned picks are assigned to you and unscheduled ones get Mon–Fri of the week (editors only)
 
 # lajurops-admin only
 POST   /api/admin/users/sync                 mirror Keycloak users; mark missing ones deleted

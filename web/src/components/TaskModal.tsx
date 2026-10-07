@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
-import { ArrowLeft, CheckCircle2, ChevronRight, CircleDot, Eye, Flag, Hourglass, Loader2, Plus, Tags, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CalendarX, CheckCircle2, ChevronRight, CircleDot, Eye, Flag, Hourglass, Loader2, Plus, Tags, Trash2, X } from 'lucide-react'
 import { ReadOnlyContext, useAccess, useReadOnly } from '../lib/access'
 import { dotStyle } from '../lib/colors'
 import { formatCreatedFull, fromInput, toInput } from '../lib/dates'
@@ -515,14 +515,36 @@ function TaskForm({
           <Field label={f.type === 'project' ? 'Owners' : 'Assignees'}>
             <MultiUserPicker value={f.assignee_ids} onChange={(ids) => up('assignee_ids', ids)} />
           </Field>
-          {dateBased ? (
-            <Field label={f.type === 'project' ? 'Timeline' : 'Start → due date'}>
+          {f.type === 'project' ? (
+            <Field label="Timeline">
               <DateRangeField start={f.start} end={f.end} onChange={(start, end) => setF((s) => ({ ...s, start, end }))} placeholder="Not scheduled" />
             </Field>
           ) : (
-            <Field label="Schedule">
-              <HourlyScheduleField start={f.start} end={f.end} onChange={(start, end) => setF((s) => ({ ...s, start, end }))} />
-            </Field>
+            <div>
+              {/* Daily/hourly work can be left "to be arranged": no dates until someone plans it. */}
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-slate-500">{dateBased ? 'Start → due date' : 'Schedule'}</span>
+                {f.start || f.end ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                    title="Remove the dates; the task stays unscheduled until someone plans it"
+                    onClick={() => setF((s) => ({ ...s, start: '', end: '' }))}
+                  >
+                    <CalendarX size={12} /> To be arranged
+                  </button>
+                ) : (
+                  <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700" title="No dates yet; pick some to schedule it">
+                    To be arranged
+                  </span>
+                )}
+              </div>
+              {dateBased ? (
+                <DateRangeField start={f.start} end={f.end} onChange={(start, end) => setF((s) => ({ ...s, start, end }))} placeholder="To be arranged · pick dates" />
+              ) : (
+                <HourlyScheduleField start={f.start} end={f.end} onChange={(start, end) => setF((s) => ({ ...s, start, end }))} />
+              )}
+            </div>
           )}
           {f.type !== 'project' && (
             <div className="grid grid-cols-2 gap-2">

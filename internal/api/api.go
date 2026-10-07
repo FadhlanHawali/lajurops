@@ -87,6 +87,10 @@ func (a *API) routes(r chi.Router) {
 	r.Get("/reports/workload", a.workloadReport)
 	r.Get("/reports/workload/{userID}/tasks", a.workloadTasks)
 
+	r.Get("/commitments", a.listCommitments)
+	r.Get("/commitments/me", a.myCommitment)
+	r.Put("/commitments/me", a.saveMyCommitment)
+
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(a.adminOnly)
 		r.Get("/users", a.adminListUsers)

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { AdminUser, AdminUserInput, MemberAccess, MemberRole, Comment, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, MemberAccess, MemberRole, Comment, Commitment, CommitmentBrief, CommitmentInput, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -77,12 +77,35 @@ export const useWorkloadTasks = (userId: string | null, from: string, to: string
     enabled: !!userId,
   })
 
+// --- weekly commitments (week: the Monday's start as RFC 3339 with the local offset) ---
+
+export const useCommitments = (week: string, workspaceId: string) =>
+  useQuery({
+    queryKey: ['commitments', week, workspaceId],
+    queryFn: () => api<CommitmentBrief[]>('/commitments', { query: { week, workspace_id: workspaceId } }),
+    placeholderData: keepPreviousData,
+  })
+
+export const useMyCommitment = (week: string) =>
+  useQuery({ queryKey: ['commitments', 'me', week], queryFn: () => api<Commitment>('/commitments/me', { query: { week } }) })
+
+export function useSaveCommitment(week: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: CommitmentInput) => api<Commitment>('/commitments/me', { method: 'PUT', query: { week }, body: input }),
+    onSuccess: (data) => qc.setQueryData(['commitments', 'me', week], data),
+    // Saving can assign and schedule the picked tasks.
+    onSettled: () => invalidateTaskData(qc),
+  })
+}
+
 function invalidateTaskData(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: ['tasks'] })
   qc.invalidateQueries({ queryKey: ['task'] })
   qc.invalidateQueries({ queryKey: ['workspaces'] })
   qc.invalidateQueries({ queryKey: ['workload'] })
   qc.invalidateQueries({ queryKey: ['workload-tasks'] })
+  qc.invalidateQueries({ queryKey: ['commitments'] })
 }
 
 export type TaskPatch = Partial<
@@ -115,14 +138,23 @@ export function useUpdateTask() {
     // Optimistically patch every cached task list so drags feel instant.
     onMutate: async ({ id, patch }) => {
       await qc.cancelQueries({ queryKey: ['tasks'] })
+      await qc.cancelQueries({ queryKey: ['commitments'] })
       const snapshots = qc.getQueriesData<Task[]>({ queryKey: ['tasks'] })
       for (const [key, list] of snapshots) {
         if (list) qc.setQueryData(key, list.map((t) => (t.id === id ? { ...t, ...patch } : t)))
       }
-      return { snapshots }
+      // Commitments too (a list for Team, one for My week), so ticking a task done is instant.
+      const patchTasks = <T extends { id: string }>(list: T[]) => list.map((t) => (t.id === id ? { ...t, ...patch } : t))
+      const patchOne = <C extends Commitment | CommitmentBrief>(c: C) => ({ ...c, tasks: patchTasks(c.tasks), overdue: patchTasks(c.overdue) })
+      const commitmentSnapshots = qc.getQueriesData<Commitment | CommitmentBrief[]>({ queryKey: ['commitments'] })
+      for (const [key, data] of commitmentSnapshots) {
+        if (data) qc.setQueryData(key, Array.isArray(data) ? data.map(patchOne) : patchOne(data))
+      }
+      return { snapshots, commitmentSnapshots }
     },
     onError: (_err, _vars, ctx) => {
       for (const [key, list] of ctx?.snapshots ?? []) qc.setQueryData(key, list)
+      for (const [key, data] of ctx?.commitmentSnapshots ?? []) qc.setQueryData(key, data)
     },
     onSettled: () => invalidateTaskData(qc),
   })

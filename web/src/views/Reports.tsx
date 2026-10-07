@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import clsx from 'clsx'
+import { Link } from 'react-router-dom'
 import { addMonths, addWeeks, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns'
 import { ChevronDown, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { useTaskModal } from '../components/TaskModal'
@@ -106,10 +107,10 @@ export default function Reports() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Hourly support hours" value={fmtH(totals.hours)} accent="text-violet-600" />
+        <Stat label="Hourly support hours (hourly tasks only)" value={fmtH(totals.hours)} accent="text-violet-600" />
         <Stat label="Hourly tasks" value={totals.hourly} />
-        <Stat label="Daily tasks" value={totals.daily} accent="text-sky-600" />
-        <Stat label="Completed" value={`${totals.done} / ${totals.total}`} accent="text-emerald-600" />
+        <Stat label="Daily tasks (count only, no hours)" value={totals.daily} accent="text-sky-600" />
+        <Stat label="Completed (hourly + daily)" value={`${totals.done} / ${totals.total}`} accent="text-emerald-600" />
       </div>
 
       {view === 'grid' ? (
@@ -149,8 +150,12 @@ export default function Reports() {
       )}
       <p className="text-xs text-slate-400">
         {view === 'grid' && 'The grid shows hourly tasks on the day they start; click one to open it. '}
-        Tasks count toward the period their start date falls in ({active.length} of {rows.length} members active). Hourly support is the time spent on hourly
-        tasks: each task's scheduled time (or its actual hours from the start), with overlapping tasks counted once.
+        Hourly Workload measures <b className="font-semibold text-slate-500">hourly tasks only</b>: hours are each hourly task's scheduled time (or its actual hours
+        from the start), with overlapping tasks counted once. Daily tasks have no hours, so they're only counted here; plan them on{' '}
+        <Link to="/commitments" className="font-medium text-blue-600 hover:underline">
+          Weekly Commitment
+        </Link>
+        . Tasks count toward the period their start date falls in ({active.length} of {rows.length} members active).
       </p>
     </div>
   )

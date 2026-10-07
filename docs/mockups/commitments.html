@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commitments mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  body { background: #f8fafc; }
+  .drag-over { outline: 2px dashed #38bdf8; outline-offset: -4px; background: #f0f9ff; }
+</style>
+</head>
+<body class="text-slate-800">
+<div class="flex h-screen">
+  <!-- Sidebar (same as the app) -->
+  <aside class="hidden w-60 shrink-0 flex-col bg-slate-900 md:flex">
+    <div class="flex items-center gap-2 px-4 py-4">
+      <div class="h-7 w-7 rounded bg-sky-400/80"></div>
+      <span class="text-lg font-semibold tracking-tight text-white">Lajur<span class="text-sky-300">Ops</span></span>
+    </div>
+    <nav class="flex-1 space-y-1 px-2 text-sm">
+      <a class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-slate-300 hover:bg-slate-800">📅 Calendar</a>
+      <a class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-slate-300 hover:bg-slate-800">📊 Workload</a>
+      <a class="flex items-center gap-2 rounded-md bg-slate-700 px-2.5 py-1.5 text-white">🎯 Commitments <span class="ml-auto rounded bg-sky-500 px-1.5 text-[10px] font-semibold">NEW</span></a>
+      <a class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-slate-300 hover:bg-slate-800">👥 Users</a>
+      <div class="px-2.5 pt-5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Workspaces</div>
+      <a class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-slate-300">🗂 <span class="flex-1">Platform Ops</span><span class="text-[10px] text-slate-500">OPS</span></a>
+      <a class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-slate-300">🗂 <span class="flex-1">Data Team</span><span class="text-[10px] text-slate-500">DATA</span></a>
+    </nav>
+    <div class="flex items-center gap-2 border-t border-slate-800 px-4 py-3">
+      <div class="flex h-8 w-8 items-center justify-center rounded-full bg-sky-600 text-xs font-semibold text-white">FH</div>
+      <div class="min-w-0"><div class="truncate text-sm text-white">Fadhlan Hawali</div><div class="truncate text-xs text-slate-500">fadhlan@example.com</div></div>
+    </div>
+  </aside>
+
+  <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
+    <header class="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-6 py-3">
+      <div>
+        <h1 class="text-lg font-semibold">Commitments</h1>
+        <p class="text-xs text-slate-500">What each person commits to finishing this week</p>
+      </div>
+      <nav class="ml-auto flex rounded-md border border-slate-300 bg-slate-50 p-0.5 text-sm">
+        <button data-tab="mine" class="tab rounded px-3 py-1">My week</button>
+        <button data-tab="team" class="tab rounded px-3 py-1">Team</button>
+      </nav>
+    </header>
+
+    <div class="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
+      <!-- Toolbar -->
+      <div class="mb-4 flex flex-wrap items-center gap-2">
+        <button class="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-100">‹</button>
+        <span class="min-w-56 text-center text-sm font-medium text-slate-700">Oct 5 – Oct 11, 2026 · Week 41</span>
+        <button class="rounded-md px-2 py-1 text-slate-600 hover:bg-slate-100">›</button>
+        <button class="rounded-md border border-slate-300 bg-white px-3 py-1 text-sm">This week</button>
+        <select class="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"><option>All workspaces</option><option>OPS · Platform Ops</option></select>
+        <span class="ml-auto inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200" id="lockBadge">● Planning open · locks Mon 12:00</span>
+      </div>
+
+      <!-- ================= MY WEEK ================= -->
+      <section id="mine">
+        <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <div class="text-xs font-medium text-slate-500">Committed</div>
+            <div class="mt-1 text-2xl font-semibold" id="statCount">0 tasks</div>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <div class="text-xs font-medium text-slate-500">Planned hours / capacity</div>
+            <div class="mt-1 text-2xl font-semibold text-violet-600"><span id="statHours">0h</span> <span class="text-base font-normal text-slate-400">/ 32h</span></div>
+            <div class="mt-2 h-2 overflow-hidden rounded bg-slate-100"><div id="capBar" class="h-full rounded bg-violet-500" style="width:0"></div></div>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <div class="text-xs font-medium text-slate-500">Done so far</div>
+            <div class="mt-1 text-2xl font-semibold text-emerald-600" id="statDone">0 / 0</div>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <div class="text-xs font-medium text-slate-500">Last week kept</div>
+            <div class="mt-1 text-2xl font-semibold text-sky-600">6 / 8 <span class="text-base font-normal text-slate-400">· 75%</span></div>
+          </div>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+          <!-- Backlog -->
+          <div class="flex flex-col rounded-lg border border-slate-200 bg-white">
+            <div class="flex items-center gap-2 border-b border-slate-200 px-4 py-2.5">
+              <h2 class="text-sm font-semibold">Available to commit</h2>
+              <span class="text-xs text-slate-400">assigned to you, not done</span>
+              <input placeholder="Search…" class="ml-auto w-36 rounded-md border border-slate-300 px-2 py-1 text-xs">
+            </div>
+            <div id="backlog" class="drop min-h-40 flex-1 divide-y divide-slate-100"></div>
+          </div>
+
+          <!-- Commitment -->
+          <div class="flex flex-col rounded-lg border-2 border-sky-200 bg-white">
+            <div class="flex items-center gap-2 border-b border-slate-200 px-4 py-2.5">
+              <h2 class="text-sm font-semibold">🎯 This week I will finish</h2>
+              <span class="text-xs text-slate-400">drag to reorder · drop here to commit</span>
+            </div>
+            <div id="committed" class="drop min-h-40 flex-1 divide-y divide-slate-100"></div>
+            <div class="border-t border-slate-200 p-3">
+              <label class="text-xs font-medium text-slate-500">Note for the team (optional)</label>
+              <textarea class="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" rows="2" placeholder="e.g. Out Thursday afternoon; prod deploy depends on QA sign-off">Out Thursday afternoon. Prod cutover depends on QA sign-off from DATA.</textarea>
+              <div class="mt-2 flex items-center gap-2">
+                <span class="text-xs text-slate-400">Saved · visible to your workspace members</span>
+                <button class="ml-auto rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">Share commitment</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TEAM ================= -->
+      <section id="team" class="hidden">
+        <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div class="rounded-lg border border-slate-200 bg-white p-4"><div class="text-xs font-medium text-slate-500">Members committed</div><div class="mt-1 text-2xl font-semibold">4 / 5</div></div>
+          <div class="rounded-lg border border-slate-200 bg-white p-4"><div class="text-xs font-medium text-slate-500">Tasks committed</div><div class="mt-1 text-2xl font-semibold">19</div></div>
+          <div class="rounded-lg border border-slate-200 bg-white p-4"><div class="text-xs font-medium text-slate-500">Done so far</div><div class="mt-1 text-2xl font-semibold text-emerald-600">7 / 19</div></div>
+          <div class="rounded-lg border border-slate-200 bg-white p-4"><div class="text-xs font-medium text-slate-500">Over capacity</div><div class="mt-1 text-2xl font-semibold text-red-600">1 person</div></div>
+        </div>
+        <div id="teamGrid" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div>
+        <p class="mt-4 text-xs text-slate-400">A commitment is a person's own pick of tasks for the week. Progress counts committed tasks moved to Done before the week ends; tasks finished late or dropped show in the next week's review.</p>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+const STATUS = { todo: ['To Do','bg-slate-100 text-slate-600'], in_progress: ['In Progress','bg-blue-100 text-blue-700'], in_review: ['In Review','bg-amber-100 text-amber-700'], done: ['Done','bg-emerald-100 text-emerald-700'] }
+const TYPE = { project: 'bg-indigo-100 text-indigo-700', daily: 'bg-sky-100 text-sky-700', hourly: 'bg-violet-100 text-violet-700' }
+const tasks = [
+  { key:'OPS-142', title:'Migrate payments DB to PG16', type:'daily', status:'in_progress', env:['Production','bg-red-100 text-red-700'], project:'DB Upgrade Q4', h:8, due:'Wed', committed:true },
+  { key:'OPS-155', title:'Rotate TLS certs on edge proxies', type:'hourly', status:'todo', env:['Staging','bg-amber-100 text-amber-700'], project:'Security hygiene', h:3, due:'Tue', committed:true },
+  { key:'OPS-161', title:'Write runbook for failover drill', type:'daily', status:'done', env:null, project:'DB Upgrade Q4', h:4, due:'Mon', committed:true },
+  { key:'DATA-37', title:'Backfill events table for Sept', type:'daily', status:'in_review', env:['QA','bg-emerald-100 text-emerald-700'], project:'Analytics v2', h:6, due:'Thu', committed:true, carried:true },
+  { key:'OPS-170', title:'Upgrade Keycloak to 26.x', type:'daily', status:'todo', env:['Dev','bg-slate-200 text-slate-700'], project:'Security hygiene', h:6, due:'Fri' },
+  { key:'OPS-173', title:'Investigate slow CI runners', type:'hourly', status:'todo', env:null, project:'Developer experience', h:2, due:null },
+  { key:'OPS-181', title:'Grafana alert tuning for API latency', type:'hourly', status:'todo', env:['Production','bg-red-100 text-red-700'], project:'Observability', h:3, due:'Fri' },
+  { key:'DATA-41', title:'Review dbt model naming', type:'hourly', status:'in_progress', env:null, project:'Analytics v2', h:1.5, due:null },
+]
+
+function card(t) {
+  const [sl, sc] = STATUS[t.status]
+  return `<div draggable="true" data-key="${t.key}" class="task group flex cursor-grab items-start gap-3 px-4 py-2.5 hover:bg-slate-50 ${t.status==='done'?'opacity-60':''}">
+    <div class="pt-0.5">${t.committed ? `<span class="inline-block h-4 w-4 rounded ${t.status==='done'?'bg-emerald-500':'border-2 border-slate-300'}"></span>` : `<span class="text-slate-300">⋮⋮</span>`}</div>
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-center gap-1.5 text-xs">
+        <span class="font-mono text-slate-400">${t.key}</span>
+        <span class="rounded px-1.5 py-px font-medium ${TYPE[t.type]}">${t.type}</span>
+        ${t.env ? `<span class="rounded px-1.5 py-px font-medium ${t.env[1]}">${t.env[0]}</span>` : ''}
+        ${t.carried ? `<span class="rounded bg-orange-100 px-1.5 py-px font-medium text-orange-700" title="Committed last week, not finished">↻ carried over</span>` : ''}
+      </div>
+      <div class="mt-0.5 truncate text-sm font-medium ${t.status==='done'?'line-through':''}">${t.title}</div>
+      <div class="text-xs text-slate-500">${t.project}${t.due ? ` · due ${t.due}` : ''}</div>
+    </div>
+    <div class="flex flex-col items-end gap-1">
+      <span class="rounded-full px-2 py-px text-[11px] font-medium ${sc}">${sl}</span>
+      <span class="text-xs tabular-nums text-slate-500">${t.h}h</span>
+    </div>
+    <button class="toggle rounded px-1.5 text-sm text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100" title="${t.committed?'Remove from commitment':'Commit'}">${t.committed?'✕':'＋'}</button>
+  </div>`
+}
+
+function render() {
+  const c = tasks.filter(t => t.committed), b = tasks.filter(t => !t.committed)
+  document.getElementById('committed').innerHTML = c.map(card).join('') || '<p class="p-6 text-center text-sm text-slate-400">Drag tasks here to commit to them this week.</p>'
+  document.getElementById('backlog').innerHTML = b.map(card).join('') || '<p class="p-6 text-center text-sm text-slate-400">Nothing left 🎉</p>'
+  const hours = c.reduce((a, t) => a + t.h, 0)
+  document.getElementById('statCount').textContent = `${c.length} tasks`
+  document.getElementById('statHours').textContent = `${hours}h`
+  const bar = document.getElementById('capBar')
+  bar.style.width = Math.min(100, hours / 32 * 100) + '%'
+  bar.className = 'h-full rounded ' + (hours > 32 ? 'bg-red-500' : 'bg-violet-500')
+  document.getElementById('statDone').textContent = `${c.filter(t => t.status === 'done').length} / ${c.length}`
+  document.querySelectorAll('.toggle').forEach(btn => btn.onclick = () => { const t = tasks.find(x => x.key === btn.closest('.task').dataset.key); t.committed = !t.committed; render() })
+  document.querySelectorAll('.task').forEach(el => el.ondragstart = e => e.dataTransfer.setData('text', el.dataset.key))
+}
+document.querySelectorAll('.drop').forEach(z => {
+  z.ondragover = e => { e.preventDefault(); z.classList.add('drag-over') }
+  z.ondragleave = () => z.classList.remove('drag-over')
+  z.ondrop = e => { e.preventDefault(); z.classList.remove('drag-over'); const t = tasks.find(x => x.key === e.dataTransfer.getData('text')); t.committed = z.id === 'committed'; render() }
+})
+
+const team = [
+  { n:'Fadhlan Hawali', i:'FH', c:'bg-sky-600', done:1, total:4, h:21, cap:32, note:'Out Thursday afternoon. Prod cutover depends on QA sign-off from DATA.', items:[['OPS-161','Write runbook for failover drill','done'],['OPS-142','Migrate payments DB to PG16','in_progress'],['DATA-37','Backfill events table for Sept','in_review'],['OPS-155','Rotate TLS certs on edge proxies','todo']] },
+  { n:'Ayu Lestari', i:'AL', c:'bg-pink-600', done:3, total:5, h:30, cap:40, note:'', items:[['DATA-30','Dashboard for churn cohort','done'],['DATA-33','Fix late-arriving events','done'],['DATA-35','Airflow DAG retries','done'],['DATA-39','PII scrub in staging','in_progress'],['DATA-42','Document metrics layer','todo']] },
+  { n:'Budi Santoso', i:'BS', c:'bg-amber-600', done:2, total:6, h:46, cap:40, note:'On-call this week — may slip.', items:[['OPS-120','K8s node pool resize','done'],['OPS-133','Nginx config cleanup','done'],['OPS-150','Prod deploy: billing v3','in_progress'],['OPS-151','QA deploy: billing v3','in_review'],['OPS-158','Backup restore test','todo'],['OPS-166','Patch base images','todo']] },
+  { n:'Citra Dewi', i:'CD', c:'bg-emerald-600', done:1, total:4, h:18, cap:24, note:'', items:[['OPS-149','SLO review','done'],['OPS-163','Status page revamp','in_progress'],['OPS-167','Pager rotation update','todo'],['OPS-171','Incident postmortem #12','todo']] },
+  { n:'Dimas Pratama', i:'DP', c:'bg-violet-600', done:0, total:0, h:0, cap:40, note:'', items:[] },
+]
+document.getElementById('teamGrid').innerHTML = team.map(p => {
+  const pct = p.total ? Math.round(p.done / p.total * 100) : 0, over = p.h > p.cap
+  return `<div class="flex flex-col rounded-lg border ${p.total ? 'border-slate-200' : 'border-dashed border-slate-300'} bg-white">
+    <div class="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
+      <div class="flex h-8 w-8 items-center justify-center rounded-full ${p.c} text-xs font-semibold text-white">${p.i}</div>
+      <div class="min-w-0 flex-1"><div class="text-sm font-medium">${p.n}</div>
+        <div class="text-xs ${over ? 'font-medium text-red-600' : 'text-slate-500'}">${p.total ? `${p.h}h planned / ${p.cap}h capacity${over ? ' · over' : ''}` : 'No commitment yet'}</div></div>
+      ${p.total ? `<div class="text-right"><div class="text-lg font-semibold tabular-nums">${p.done}<span class="text-sm text-slate-400">/${p.total}</span></div><div class="text-[10px] uppercase text-slate-400">done</div></div>` : `<button class="rounded-md border border-slate-300 px-2 py-1 text-xs">Nudge</button>`}
+    </div>
+    ${p.total ? `<div class="h-1.5 bg-slate-100"><div class="h-full bg-emerald-500" style="width:${pct}%"></div></div>` : ''}
+    <ul class="flex-1 space-y-1 px-4 py-3 text-sm">${p.items.map(([k, t, s]) => `<li class="flex items-center gap-2 ${s === 'done' ? 'text-slate-400 line-through' : ''}">
+      <span class="inline-block h-3.5 w-3.5 shrink-0 rounded ${s === 'done' ? 'bg-emerald-500' : 'border-2 border-slate-300'}"></span>
+      <span class="font-mono text-xs text-slate-400">${k}</span><span class="min-w-0 flex-1 truncate">${t}</span>
+      ${s !== 'done' ? `<span class="rounded-full px-1.5 text-[10px] font-medium ${STATUS[s][1]}">${STATUS[s][0]}</span>` : ''}</li>`).join('')}</ul>
+    ${p.note ? `<div class="border-t border-slate-100 px-4 py-2 text-xs text-slate-500">💬 ${p.note}</div>` : ''}
+  </div>`
+}).join('')
+
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.className = 'tab rounded px-3 py-1 ' + (x === b ? 'bg-white font-medium shadow-sm' : 'text-slate-600 hover:text-slate-900'))
+  document.getElementById('mine').classList.toggle('hidden', b.dataset.tab !== 'mine')
+  document.getElementById('team').classList.toggle('hidden', b.dataset.tab !== 'team')
+})
+document.querySelector('.tab').click()
+render()
+</script>
+</body>
+</html>

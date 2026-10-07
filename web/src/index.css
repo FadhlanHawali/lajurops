@@ -54,6 +54,14 @@
   font-weight: 700;
   box-shadow: inset 0 0 0 1px #93c5fd;
 }
+/* Week picker: the week under the mouse, and week numbers */
+.planner-rdp .planner-rdp-hover-week {
+  background: #f1f5f9;
+}
+.planner-rdp .rdp-week_number {
+  font-size: 0.7rem;
+  color: #94a3b8;
+}
 .planner-rdp .rdp-chevron {
   fill: #64748b;
   width: 16px;

@@ -129,14 +129,11 @@ func (s *Store) hourlyHours(ctx context.Context, from, to time.Time, scope Scope
 		if err := rows.Scan(&user, &start, &end, &actual); err != nil {
 			return nil, err
 		}
-		switch {
-		case start != nil && actual != nil:
-			spans[user] = append(spans[user], span{*start, start.Add(time.Duration(*actual * float64(time.Hour)))})
-		case start != nil && end != nil && end.After(*start):
-			spans[user] = append(spans[user], span{*start, *end})
-		case actual != nil:
-			loose[user] += *actual
+		sp, hours := hourlySpan(start, end, actual)
+		if sp != nil {
+			spans[user] = append(spans[user], *sp)
 		}
+		loose[user] += hours
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

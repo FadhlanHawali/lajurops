@@ -65,6 +65,21 @@ func (a *API) visible(r *http.Request) ([]string, error) {
 	return out, nil
 }
 
+// editable lists the workspaces the caller can edit; nil means all (admins).
+func (a *API) editable(r *http.Request) ([]string, error) {
+	roles, err := a.roles(r)
+	if roles == nil || err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for ws, role := range roles {
+		if levelOf(role) >= levelEditor {
+			out = append(out, ws)
+		}
+	}
+	return out, nil
+}
+
 // canCreateWorkspaces: admins, and anyone who is an editor somewhere.
 func (a *API) canCreateWorkspaces(r *http.Request) (bool, error) {
 	roles, err := a.roles(r)

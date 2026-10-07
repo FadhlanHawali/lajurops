@@ -84,9 +84,9 @@ const STATUS_CLS: Record<Status, string> = {
   done: 'bg-emerald-100 text-emerald-700',
 }
 
-export function StatusPill({ status }: { status: Status }) {
+export function StatusPill({ status, className }: { status: Status; className?: string }) {
   return (
-    <span className={clsx('inline-flex rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide', STATUS_CLS[status])}>
+    <span className={clsx('inline-flex rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide', STATUS_CLS[status], className)}>
       {statusLabel(status)}
     </span>
   )

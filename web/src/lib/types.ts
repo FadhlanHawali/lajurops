@@ -212,6 +212,58 @@ export interface Workload {
   active: boolean
 }
 
+/** A committed task and the project it sits in (null for independent tasks). */
+export interface CommittedTask extends Task {
+  project_id: string | null
+  project_title: string | null
+  /** Hourly tasks are committed by their schedule (assigned + starting in the week), not picked. */
+  automatic: boolean
+  /** On overdue tasks: the Monday (YYYY-MM-DD) of the week it was committed for. */
+  committed_week?: string
+}
+
+/** What one person intends to finish in a week. */
+export interface Commitment {
+  user_id: string
+  username: string
+  display_name: string
+  email: string
+  /** The Monday the week starts on, YYYY-MM-DD. */
+  week: string
+  capacity_hours: number
+  note: string
+  /** null until the person commits for this week. */
+  updated_at: string | null
+  tasks: CommittedTask[]
+  /** Time the hourly tasks take, counted like the workload report (overlaps once). */
+  hourly_hours: number
+  /** Last week's committed tasks that still aren't done. */
+  carried_over: string[]
+  /** Tasks committed last week, and how many were done before it ended. */
+  prev_total: number
+  prev_kept: number
+  /** Tasks committed in the 4 weeks before this one that still aren't done (and aren't committed this week). */
+  overdue: CommittedTask[]
+}
+
+/** What the Team view gets of a committed task (the full task is fetched when opened). */
+export type TaskBrief = Pick<
+  CommittedTask,
+  'id' | 'workspace_id' | 'key' | 'title' | 'type' | 'status' | 'estimate_hours' | 'environment_name' | 'environment_color' | 'project_title' | 'automatic' | 'committed_week'
+>
+
+/** A Commitment with TaskBriefs, as the Team view gets it. */
+export interface CommitmentBrief extends Omit<Commitment, 'tasks' | 'overdue' | 'carried_over'> {
+  tasks: TaskBrief[]
+  overdue: TaskBrief[]
+}
+
+export interface CommitmentInput {
+  capacity_hours: number
+  note: string
+  task_ids: string[]
+}
+
 export const STATUSES: { id: Status; label: string }[] = [
   { id: 'todo', label: 'To Do' },
   { id: 'in_progress', label: 'In Progress' },

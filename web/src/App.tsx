@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import clsx from 'clsx'
-import { AlertTriangle, BarChart3, CalendarDays, Eye, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Settings, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
+import { formatISO, startOfWeek } from 'date-fns'
+import { AlertTriangle, BarChart3, CalendarDays, Eye, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Settings, Target, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
 import { ImportDialog } from './components/ImportDialog'
 import { TaskModalProvider, useTaskModal } from './components/TaskModal'
 import { Avatar, Button, Field, inputCls, userName } from './components/ui'
 import { useAccess } from './lib/access'
 import { AUTH_ERROR_EVENT } from './lib/api'
 import { accountUrl, authEnabled, logout } from './lib/auth'
-import { downloadWorkspaceBackup, useCreateWorkspace, useDeleteWorkspace, useMe, useWorkspace, useWorkspaces } from './lib/queries'
+import { downloadWorkspaceBackup, useCreateWorkspace, useDeleteWorkspace, useMe, useMyCommitment, useWorkspace, useWorkspaces } from './lib/queries'
 import Board from './views/Board'
 import Calendar from './views/Calendar'
+import Commitments, { OverdueBadge } from './views/Commitments'
 import Gantt from './views/Gantt'
 import Reports from './views/Reports'
 import Users from './views/Users'
@@ -38,9 +40,19 @@ export default function App() {
               <Route
                 path="/reports"
                 element={
-                  <Page title="Workload" subtitle="Tasks and hourly support hours per member">
+                  <Page title="Hourly Workload" subtitle="Time each member spends on hourly tasks (support, deployments, implementation)">
                     <div className="h-full overflow-y-auto">
                       <Reports />
+                    </div>
+                  </Page>
+                }
+              />
+              <Route
+                path="/commitments"
+                element={
+                  <Page title="Weekly Commitment" subtitle="What each person commits to finishing this week">
+                    <div className="h-full overflow-y-auto">
+                      <Commitments />
                     </div>
                   </Page>
                 }
@@ -93,6 +105,8 @@ function Sidebar() {
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
   const { canCreateWorkspace } = useAccess()
+  // Unfinished commitments from earlier weeks, seen from this week.
+  const overdue = useMyCommitment(formatISO(startOfWeek(new Date(), { weekStartsOn: 1 }))).data?.overdue.length ?? 0
   const link = ({ isActive }: { isActive: boolean }) =>
     clsx('flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm', isActive ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white')
 
@@ -109,7 +123,11 @@ function Sidebar() {
           <CalendarDays size={16} /> Calendar
         </NavLink>
         <NavLink to="/reports" className={link}>
-          <BarChart3 size={16} /> Workload
+          <BarChart3 size={16} /> Hourly Workload
+        </NavLink>
+        <NavLink to="/commitments" className={link}>
+          <Target size={16} /> <span className="flex-1">Weekly Commitment</span>
+          {overdue > 0 && <OverdueBadge count={overdue} />}
         </NavLink>
         {me?.is_admin && (
           <NavLink to="/admin/users" className={link}>
