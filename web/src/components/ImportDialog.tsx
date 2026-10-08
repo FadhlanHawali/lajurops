@@ -238,7 +238,7 @@ function Preview({ doc, origin, onBack, onDone }: { doc: WorkspaceBackup; origin
         </p>
       )}
       {preview && (
-        <div className={clsx('grid grid-cols-5 gap-2 text-center transition', checking && 'opacity-60')}>
+        <div className={clsx('grid grid-cols-4 gap-2 text-center transition', checking && 'opacity-60')}>
           {(
             [
               ['Tasks', preview.tasks],
@@ -246,6 +246,8 @@ function Preview({ doc, origin, onBack, onDone }: { doc: WorkspaceBackup; origin
               ['Dependencies', preview.dependencies],
               ['Comments', preview.comments],
               ['Assignments', preview.assignments],
+              ['Runbook steps', preview.runbook_steps ?? 0],
+              ['Runbook templates', preview.runbook_templates ?? 0],
             ] as const
           ).map(([label, n]) => (
             <div key={label} className="rounded-md border border-slate-200 px-1 py-2">

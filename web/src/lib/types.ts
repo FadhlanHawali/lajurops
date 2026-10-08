@@ -304,6 +304,8 @@ export interface ImportResult {
   dependencies: number
   comments: number
   assignments: number
+  runbook_steps: number
+  runbook_templates: number
   unknown_users: string[]
 }
 

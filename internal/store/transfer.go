@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -43,6 +44,37 @@ type ExportDoc struct {
 	// Categories were added after version 1 shipped; older backups get the
 	// default categories on import.
 	Categories []ExportCategory `json:"project_categories,omitempty"`
+	// Runbooks (also added after version 1; older backups have none).
+	RunbookSections  []ExportRunbookSection  `json:"runbook_sections,omitempty"`
+	RunbookSteps     []ExportRunbookStep     `json:"runbook_steps,omitempty"`
+	RunbookTemplates []ExportRunbookTemplate `json:"runbook_templates,omitempty"`
+}
+
+type ExportRunbookSection struct {
+	Ref      string `json:"ref"`
+	Task     string `json:"task"`
+	Name     string `json:"name"`
+	Notes    string `json:"notes,omitempty"`
+	Position int    `json:"position"`
+}
+
+type ExportRunbookStep struct {
+	Section         string     `json:"section"`
+	Title           string     `json:"title"`
+	Notes           string     `json:"notes,omitempty"`
+	StartAt         *time.Time `json:"start_at"`
+	DurationMinutes *int       `json:"duration_minutes"`
+	Done            bool       `json:"done"`
+	DoneAt          *time.Time `json:"done_at"`
+	DoneBy          *string    `json:"done_by"`
+	Position        int        `json:"position"`
+	// LinkedTask is the (daily) task the step is tracked as, if any.
+	LinkedTask *string `json:"linked_task,omitempty"`
+}
+
+type ExportRunbookTemplate struct {
+	Name     string            `json:"name"`
+	Sections []TemplateSection `json:"sections"`
 }
 
 type ExportCategory struct {
@@ -118,6 +150,7 @@ func (s *Store) ExportWorkspaceData(ctx context.Context, id, exportedBy string) 
 		Format: ExportFormat, Version: ExportVersion, ExportedAt: time.Now().UTC(), ExportedBy: exportedBy,
 		Users: []ExportUser{}, Tasks: []ExportTask{}, Environments: []ExportEnvironment{},
 		Dependencies: []ExportDependency{}, Comments: []ExportComment{}, Categories: []ExportCategory{},
+		RunbookSections: []ExportRunbookSection{}, RunbookSteps: []ExportRunbookStep{}, RunbookTemplates: []ExportRunbookTemplate{},
 	}
 	err := s.db.QueryRow(ctx, `SELECT key, name, description FROM workspaces WHERE id = $1`, id).
 		Scan(&doc.Workspace.Key, &doc.Workspace.Name, &doc.Workspace.Description)
@@ -229,6 +262,10 @@ func (s *Store) ExportWorkspaceData(ctx context.Context, id, exportedBy string) 
 	}
 	rows.Close()
 
+	if err := s.exportRunbooks(ctx, id, &doc, use); err != nil {
+		return doc, err
+	}
+
 	ids := make([]string, 0, len(users))
 	for u := range users {
 		ids = append(ids, u)
@@ -266,6 +303,10 @@ type ImportResult struct {
 	Dependencies int        `json:"dependencies"`
 	Comments     int        `json:"comments"`
 	Assignments  int        `json:"assignments"`
+	// RunbookSteps and RunbookTemplates count restored runbook steps and
+	// workspace runbook templates.
+	RunbookSteps     int `json:"runbook_steps"`
+	RunbookTemplates int `json:"runbook_templates"`
 	// UnknownUsers are people in the backup who don't exist in this planner;
 	// their assignments are dropped and their comments lose the author.
 	UnknownUsers []string `json:"unknown_users"`
@@ -621,6 +662,10 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 		res.Comments++
 	}
 
+	if err := importRunbooks(ctx, tx, wsID, doc, taskID, mapUser, &res); err != nil {
+		return res, err
+	}
+
 	// Derive the imported projects' status/progress from their tasks.
 	projects := []string{}
 	for ref, t := range byRef {
@@ -642,4 +687,152 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 	ws, err := s.GetWorkspace(ctx, wsID)
 	res.Workspace = &ws
 	return res, err
+}
+
+// exportRunbooks adds the workspace's runbooks (sections and steps of its
+// tasks) and runbook templates to doc; use records people who ticked steps.
+func (s *Store) exportRunbooks(ctx context.Context, wsID string, doc *ExportDoc, use func(*string)) error {
+	rows, err := s.db.Query(ctx, `
+		SELECT sec.id::text, sec.task_id::text, sec.name, sec.notes, sec.position
+		FROM runbook_sections sec JOIN tasks t ON t.id = sec.task_id
+		WHERE t.workspace_id = $1 ORDER BY t.number, sec.position, sec.created_at`, wsID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var sec ExportRunbookSection
+		if err := rows.Scan(&sec.Ref, &sec.Task, &sec.Name, &sec.Notes, &sec.Position); err != nil {
+			rows.Close()
+			return err
+		}
+		doc.RunbookSections = append(doc.RunbookSections, sec)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// A step's linked task is kept only when it is in this workspace (it
+	// always is, but the backup must not point outside itself).
+	rows, err = s.db.Query(ctx, `
+		SELECT st.section_id::text, st.title, st.notes, st.start_at, st.duration_minutes, st.done, st.done_at, st.done_by::text, st.position,
+		       CASE WHEN lt.workspace_id = $1 THEN lt.id::text END
+		FROM runbook_steps st
+		JOIN runbook_sections sec ON sec.id = st.section_id
+		JOIN tasks t ON t.id = sec.task_id
+		LEFT JOIN tasks lt ON lt.id = st.task_id
+		WHERE t.workspace_id = $1 ORDER BY t.number, sec.position, st.position, st.created_at`, wsID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var st ExportRunbookStep
+		if err := rows.Scan(&st.Section, &st.Title, &st.Notes, &st.StartAt, &st.DurationMinutes, &st.Done, &st.DoneAt, &st.DoneBy, &st.Position, &st.LinkedTask); err != nil {
+			rows.Close()
+			return err
+		}
+		use(st.DoneBy)
+		doc.RunbookSteps = append(doc.RunbookSteps, st)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	rows, err = s.db.Query(ctx, `SELECT name, sections FROM runbook_templates WHERE workspace_id = $1 ORDER BY lower(name)`, wsID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var t ExportRunbookTemplate
+		if err := rows.Scan(&t.Name, &t.Sections); err != nil {
+			return err
+		}
+		doc.RunbookTemplates = append(doc.RunbookTemplates, t)
+	}
+	return rows.Err()
+}
+
+// importRunbooks restores runbook sections, steps (re-linked to their
+// restored daily tasks) and templates into the new workspace wsID.
+func importRunbooks(ctx context.Context, tx pgx.Tx, wsID string, doc ExportDoc, taskID map[string]string,
+	mapUser func(*string) *string, res *ImportResult) error {
+	sectionID := map[string]string{}
+	for _, sec := range doc.RunbookSections {
+		tid, ok := taskID[sec.Task]
+		if !ok || sec.Ref == "" || sectionID[sec.Ref] != "" {
+			return bad("a runbook section belongs to a task that isn't in the backup, or has a missing or repeated ref")
+		}
+		name, err := cleanName(sec.Name, 60, "section name")
+		if err != nil {
+			return bad("runbook section names must be 1-60 characters (%q)", sec.Name)
+		}
+		if len(sec.Notes) > maxNotes {
+			return bad("the notes of runbook section %q are too long", name)
+		}
+		var id string
+		if err := tx.QueryRow(ctx, `INSERT INTO runbook_sections (task_id, name, notes, position) VALUES ($1, $2, $3, $4) RETURNING id::text`,
+			tid, name, sec.Notes, sec.Position).Scan(&id); err != nil {
+			return mapConstraintErr(err)
+		}
+		sectionID[sec.Ref] = id
+	}
+
+	for _, st := range doc.RunbookSteps {
+		sid, ok := sectionID[st.Section]
+		if !ok {
+			return bad("a runbook step belongs to a section that isn't in the backup")
+		}
+		title, err := cleanName(st.Title, 300, "step title")
+		if err != nil {
+			return bad("runbook step titles must be 1-300 characters (%q)", st.Title)
+		}
+		switch {
+		case len(st.Notes) > maxNotes:
+			return bad("the notes of runbook step %q are too long", title)
+		case st.DurationMinutes != nil && (*st.DurationMinutes < 1 || *st.DurationMinutes > 10080):
+			return bad("runbook step %q has a duration outside 1-10080 minutes", title)
+		}
+		var linked *string
+		if st.LinkedTask != nil {
+			id, ok := taskID[*st.LinkedTask]
+			if !ok {
+				return bad("runbook step %q is tracked as a task that isn't in the backup", title)
+			}
+			linked = &id
+		}
+		doneAt := st.DoneAt
+		if !st.Done {
+			doneAt = nil
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO runbook_steps (section_id, title, notes, start_at, duration_minutes, done, done_at, done_by, position, task_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			sid, title, st.Notes, st.StartAt, st.DurationMinutes, st.Done, doneAt, mapUser(st.DoneBy), st.Position, linked); err != nil {
+			return mapConstraintErr(err)
+		}
+		res.RunbookSteps++
+	}
+
+	names := map[string]bool{}
+	for _, t := range doc.RunbookTemplates {
+		name, err := cleanName(t.Name, 80, "template name")
+		if err != nil || names[strings.ToLower(name)] {
+			return bad("runbook template names must be 1-80 characters and unique (%q)", t.Name)
+		}
+		names[strings.ToLower(name)] = true
+		if len(t.Sections) == 0 {
+			return bad("runbook template %q has no sections", name)
+		}
+		body, err := json.Marshal(t.Sections)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO runbook_templates (workspace_id, name, sections) VALUES ($1, $2, $3)`, wsID, name, string(body)); err != nil {
+			return mapConstraintErr(err)
+		}
+		res.RunbookTemplates++
+	}
+	return nil
 }
