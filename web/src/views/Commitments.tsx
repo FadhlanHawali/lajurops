@@ -14,9 +14,12 @@ import type { Commitment, CommitmentBrief, CommittedTask, Task } from '../lib/ty
 
 const fmtH = (h: number) => (Math.round(h * 10) / 10).toLocaleString() + 'h'
 
+/** Daily tasks this long or shorter are committed automatically in the week they're due (store.AutoDailyMaxDays). */
+const AUTO_DAILY_MAX_DAYS = 7
+
 /** A task's hours as shown on its row: the estimate, else an hourly task's scheduled time. */
 const taskHours = (t: Task) => t.estimate_hours ?? (t.type === 'hourly' ? hoursBetween(t.start_at, t.end_at) : 0)
-/** Planned hours: picked daily tasks' estimates plus the hourly time (counted on the server like Workload). */
+/** Planned hours: committed daily tasks' estimates plus the hourly time (counted on the server like Workload). */
 const plannedHours = (c: Pick<Commitment, 'hourly_hours'>, daily: Pick<Task, 'estimate_hours'>[]) => c.hourly_hours + daily.reduce((a, t) => a + (t.estimate_hours ?? 0), 0)
 
 export default function Commitments() {
@@ -187,8 +190,11 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
   const [dragging, setDragging] = useState<string | null>(null)
   const [over, setOver] = useState<'committed' | 'backlog' | null>(null)
 
-  // Start from the saved commitment whenever it (re)loads.
+  // Start from the saved commitment whenever it (re)loads. Automatic tasks
+  // are hourly ones scheduled this week and short daily ones due this week.
   const auto = useMemo(() => (mine?.tasks ?? []).filter((t) => t.automatic), [mine])
+  const autoHourly = auto.filter((t) => t.type === 'hourly')
+  const autoDaily = auto.filter((t) => t.type === 'daily')
   const savedIds = useMemo(() => (mine?.tasks ?? []).filter((t) => !t.automatic).map((t) => t.id), [mine])
   useEffect(() => {
     if (!mine) return
@@ -222,7 +228,8 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
   /** Someone else's, in a workspace you can edit: you can join as an owner. */
   const isShared = (t: Task) => t.assignee_ids.length > 0 && !isMine(t) && canEdit(t.workspace_id)
   const canTake = (t: Task) => isMine(t) || isFree(t) || isShared(t)
-  const available = (list: Task[]) => list.filter((t) => t.type === 'daily' && t.status !== 'done' && !ids.includes(t.id))
+  const autoIds = new Set(auto.map((t) => t.id))
+  const available = (list: Task[]) => list.filter((t) => t.type === 'daily' && t.status !== 'done' && !ids.includes(t.id) && !autoIds.has(t.id))
   // Unfinished commitments from earlier weeks get their own section (and
   // aren't repeated under "Assigned to you"); picked ones move to the right.
   const openOverdue = (mine?.overdue ?? []).filter((t) => !ids.includes(t.id))
@@ -255,7 +262,8 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
   }
   const backlogOverdue = [...overdueGroups].sort(([a], [b]) => a.localeCompare(b))
   const overdueShown = backlogOverdue.reduce((a, [, list]) => a + list.length, 0)
-  const pickableOverdue = openOverdue.filter((t) => !t.automatic && canTake(t))
+  // Daily tasks can be committed to again (automatic ones too); hourly ones are rescheduled.
+  const pickableOverdue = openOverdue.filter((t) => t.type === 'daily' && !autoIds.has(t.id) && canTake(t))
   const narrowed = !!q || picked.size > 0
 
   // Which list "Available to commit" shows; Assigned to you unless asked.
@@ -286,7 +294,7 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
     setFlash(true)
     setTimeout(() => setFlash(false), 1500)
   }
-  const hours = mine ? plannedHours(mine, committed) : 0
+  const hours = mine ? plannedHours(mine, [...committed, ...autoDaily]) : 0
 
   const commit = (id: string, before?: string) =>
     setIds((list) => {
@@ -319,8 +327,8 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
     <>
       <OverdueStrip count={openOverdue.length} onReview={review} />
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <TypeStat label="Daily tasks" tasks={committed} />
-        <TypeStat label="Hourly tasks" tasks={auto} hours={mine.hourly_hours} />
+        <TypeStat label="Daily tasks" tasks={[...committed, ...autoDaily]} />
+        <TypeStat label="Hourly tasks" tasks={autoHourly} hours={mine.hourly_hours} />
         <Stat label="Planned hours / capacity" accent={hours > capacity ? 'text-red-600' : 'text-violet-600'}>
           <span className="whitespace-nowrap">{fmtH(hours)}</span>{' '}
           <span className="text-base font-normal whitespace-nowrap text-slate-400">
@@ -426,7 +434,7 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
                     </div>
                     <div className="divide-y divide-slate-100">
                       {list.map((t) =>
-                        t.automatic ? (
+                        t.type === 'hourly' ? (
                           // Hourly tasks follow their dates: reschedule to move them.
                           <TaskRow key={t.id} task={t} project={t.project_title ?? undefined} action={{ icon: CalendarClock, title: 'Reschedule (opens the task)', run: () => modal.openTask(t.id) }} />
                         ) : (
@@ -513,12 +521,22 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
             ))}
             {committed.length === 0 && <p className="p-6 text-center text-sm text-slate-400">Drag daily tasks here, or click + on one, to commit to it this week.</p>}
           </div>
+          {autoDaily.length > 0 && (
+            <>
+              <SectionHeader icon={CalendarDays} title="Daily tasks due this week" hint={`automatic: assigned to you, at most ${AUTO_DAILY_MAX_DAYS} days long`} />
+              <div className="divide-y divide-slate-100">
+                {autoDaily.map((t) => (
+                  <TaskRow key={t.id} task={t} project={t.project_title ?? undefined} committed carried={carried.has(t.id)} />
+                ))}
+              </div>
+            </>
+          )}
           <SectionHeader icon={Clock} title="Hourly tasks" hint="automatic: assigned to you and scheduled this week" />
           <div className="divide-y divide-slate-100">
-            {auto.map((t) => (
+            {autoHourly.map((t) => (
               <TaskRow key={t.id} task={t} project={t.project_title ?? undefined} committed carried={carried.has(t.id)} />
             ))}
-            {auto.length === 0 && <p className="p-4 text-center text-sm text-slate-400">No hourly tasks scheduled for you this week.</p>}
+            {autoHourly.length === 0 && <p className="p-4 text-center text-sm text-slate-400">No hourly tasks scheduled for you this week.</p>}
           </div>
           </div>
           <div className="sticky bottom-0 rounded-b-lg border-t border-slate-200 bg-white p-3">
@@ -563,7 +581,8 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
         </div>
       </div>
       <p className="text-xs text-slate-400">
-        Hourly tasks assigned to you that start this week are committed automatically; reschedule or reassign one to change that. Their hours are counted like
+        Hourly tasks assigned to you that start this week, and daily tasks of at most {AUTO_DAILY_MAX_DAYS} days assigned to you whose last day is this week, are
+        committed automatically; reschedule or reassign one to change that. Hourly time is counted like
         Hourly Workload (actual hours, else the schedule; overlapping tasks once), and daily tasks add their estimates. A task counts as kept when it's done before the week ends.
       </p>
     </>
@@ -655,7 +674,7 @@ function TaskRow({
   owners?: string[]
   /** What saving will change on the task (e.g. assign or schedule it). */
   pending?: string[]
-  /** Omitted for automatic (hourly) rows, which can't be moved or removed. */
+  /** Omitted for automatic rows (by their schedule), which can't be moved or removed. */
   action?: { icon: typeof Plus; title: string; run: () => void }
   onDrag?: (id: string | null) => void
   onDropBefore?: (id: string) => void
@@ -775,14 +794,15 @@ function Team({ week, workspaceId }: { week: string; workspaceId: string }) {
         </div>
       )}
       <p className="text-xs text-slate-400">
-        A commitment is the daily tasks a person picks for the week plus their hourly tasks scheduled in it. Done counts committed tasks that are done now; "kept" on My week counts tasks done before the week ended.
+        A commitment is the daily tasks a person picks for the week plus what is automatic: their hourly tasks scheduled in it and their daily tasks of at most{' '}
+        {AUTO_DAILY_MAX_DAYS} days due in it. Done counts committed tasks that are done now; "kept" on My week counts tasks done before the week ended.
       </p>
     </>
   )
 }
 
 const hasCommitment = (c: CommitmentBrief) => !!c.updated_at || c.tasks.length > 0
-const cardHours = (c: CommitmentBrief) => plannedHours(c, c.tasks.filter((t) => !t.automatic))
+const cardHours = (c: CommitmentBrief) => plannedHours(c, c.tasks.filter((t) => t.type === 'daily'))
 
 /** "Daily 1/3 done"-style chip for one task type on a person's card. */
 function TypeCount({ icon: Icon, label, tasks, cls, hours }: { icon: typeof Clock; label: string; tasks: Pick<Task, 'status'>[]; cls: string; hours?: number }) {
@@ -842,8 +862,8 @@ function PersonCard({ c }: { c: CommitmentBrief }) {
           <div className="truncate text-sm font-medium">{userName(c)}</div>
           {has ? (
             <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] font-medium">
-              <TypeCount icon={CalendarDays} label="Daily" tasks={c.tasks.filter((t) => !t.automatic)} cls="bg-sky-50 text-sky-700" />
-              <TypeCount icon={Clock} label="Hourly" tasks={c.tasks.filter((t) => t.automatic)} cls="bg-violet-50 text-violet-700" hours={c.hourly_hours} />
+              <TypeCount icon={CalendarDays} label="Daily" tasks={c.tasks.filter((t) => t.type === 'daily')} cls="bg-sky-50 text-sky-700" />
+              <TypeCount icon={Clock} label="Hourly" tasks={c.tasks.filter((t) => t.type === 'hourly')} cls="bg-violet-50 text-violet-700" hours={c.hourly_hours} />
               {/* Only the exceptions: over capacity, or daily tasks not picked yet. */}
               {over && (
                 <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-700" title={`${fmtH(hours)} planned, ${fmtH(c.capacity_hours)} capacity`}>
@@ -888,7 +908,12 @@ function PersonCard({ c }: { c: CommitmentBrief }) {
             <button className="min-w-0 flex-1 text-left" onClick={() => modal.openTask(t.id)}>
               <span className={clsx('flex items-center gap-2', t.status === 'done' && 'text-slate-400 line-through')}>
                 <span className="font-mono text-xs text-slate-400">{t.key}</span>
-                {t.automatic && <Clock size={11} className="shrink-0 text-violet-500" aria-label="Hourly, scheduled this week" />}
+                {t.automatic &&
+                  (t.type === 'hourly' ? (
+                    <Clock size={11} className="shrink-0 text-violet-500" aria-label="Hourly, scheduled this week" />
+                  ) : (
+                    <CalendarDays size={11} className="shrink-0 text-sky-500" aria-label="Daily, due this week (automatic)" />
+                  ))}
                 <span className="min-w-0 flex-1 truncate">{t.title}</span>
               </span>
               <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">

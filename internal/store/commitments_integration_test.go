@@ -229,3 +229,98 @@ func TestCommitments(t *testing.T) {
 		t.Errorf("once I'm an owner, it isn't someone else's any more: %d tasks", len(others))
 	}
 }
+
+// Short daily tasks (at most AutoDailyMaxDays) are committed automatically
+// in the week they are due.
+func TestAutoDailyCommitments(t *testing.T) {
+	st, pool := testStore(t)
+	ctx := context.Background()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	key := "AD" + suffix[len(suffix)-6:]
+	ws, err := st.CreateWorkspace(ctx, WorkspaceInput{Key: key, Name: "auto daily"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM workspaces WHERE key = $1`, key) })
+	me, _ := st.UpsertUser(ctx, "ad-me-"+suffix, "ad-me-"+suffix, "", "")
+	other, _ := st.UpsertUser(ctx, "ad-other-"+suffix, "ad-other-"+suffix, "", "")
+	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM users WHERE id = ANY($1::uuid[])`, []string{me.ID, other.ID}) })
+
+	zone := time.FixedZone("WIB", 7*3600)
+	week := time.Date(2026, 10, 5, 0, 0, 0, 0, zone) // Monday
+	prev := week.AddDate(0, 0, -7)
+	day := func(d int) *time.Time { v := week.AddDate(0, 0, d); return &v }
+	// Daily tasks run from the start of their first day to the midnight after the last.
+	mk := func(title, owner string, first, last int, dated bool) string {
+		t.Helper()
+		in := TaskInput{WorkspaceID: ws.ID, Title: title, Type: "daily", AssigneeIDs: []string{owner}}
+		if dated {
+			in.StartAt, in.EndAt = day(first), day(last+1)
+		}
+		task, err := st.CreateTask(ctx, in, "")
+		if err != nil {
+			t.Fatalf("%s: %v", title, err)
+		}
+		return task.ID
+	}
+	short := mk("Mon-Wed", me.ID, 0, 2, true)
+	crossing := mk("Fri-Tue", me.ID, -3, 1, true) // due this week
+	week7 := mk("Sun-Sat", me.ID, -1, 5, true)    // exactly 7 days
+	mk("12 days", me.ID, -7, 4, true)             // too long: picked by hand
+	mk("Sat-Tue", me.ID, 5, 8, true)              // due next week
+	mk("undated", me.ID, 0, 0, false)
+	mk("theirs", other.ID, 0, 2, true)
+	picked := mk("Thu-Fri, picked", me.ID, 3, 4, true)
+	lastWeek := mk("last week, open", me.ID, -5, -3, true)
+	keptLastWeek := mk("last week, done", me.ID, -7, -6, true)
+	if _, err := pool.Exec(ctx, `UPDATE tasks SET status = 'done', completed_at = $2 WHERE id = $1`, keptLastWeek, prev.AddDate(0, 0, 2)); err != nil {
+		t.Fatal(err)
+	}
+	scope := Scope{ws.ID}
+	if err := st.SaveCommitment(ctx, me.ID, week, CommitmentInput{TaskIDs: []string{picked}}, scope, scope); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := st.Commitments(ctx, week, scope, me.ID, false)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("commitments: %v", err)
+	}
+	c := list[0]
+	got := map[string]bool{} // id -> automatic
+	for _, x := range c.Tasks {
+		if _, dup := got[x.ID]; dup {
+			t.Errorf("%s listed twice", x.Title)
+		}
+		got[x.ID] = x.Automatic
+	}
+	want := map[string]bool{picked: false, short: true, crossing: true, week7: true}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("this week's tasks (id: automatic) = %v, want %v", got, want)
+	}
+	if c.HourlyHours != 0 {
+		t.Errorf("daily tasks don't add hourly hours: %v", c.HourlyHours)
+	}
+	// Last week: both short tasks due then were committed; one was kept.
+	if c.PrevTotal != 2 || c.PrevKept != 1 || fmt.Sprint(c.CarriedOver) != fmt.Sprint([]string{lastWeek}) {
+		t.Errorf("last week: total %d kept %d carried %v", c.PrevTotal, c.PrevKept, c.CarriedOver)
+	}
+	// ...and the open one is overdue, for the week it was due.
+	if len(c.Overdue) != 1 || c.Overdue[0].ID != lastWeek || !c.Overdue[0].Automatic || c.Overdue[0].CommittedWeek != "2026-09-28" {
+		t.Errorf("overdue: %+v", c.Overdue)
+	}
+	// The crossing task belongs only to the week it is due in.
+	if list, _ := st.Commitments(ctx, prev, scope, me.ID, true); len(list) == 1 {
+		for _, x := range list[0].Tasks {
+			if x.ID == crossing {
+				t.Error("Fri-Tue task also committed in the week it starts")
+			}
+		}
+	}
+	// Another person's short task is theirs, not mine; they're listed with it.
+	team, _ := st.Commitments(ctx, week, scope, "", true)
+	for _, x := range team {
+		if x.UserID == other.ID && (len(x.Tasks) != 1 || !x.Tasks[0].Automatic) {
+			t.Errorf("other user's tasks: %+v", x.Tasks)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,8 +13,10 @@ import (
 const DefaultCapacityHours = 40
 
 // Commitment is what one person intends to finish in a week: the daily
-// tasks they picked (in their order), plus every hourly task assigned to
-// them that starts in the week, which is committed automatically.
+// tasks they picked (in their order), plus what is committed automatically:
+// every hourly task assigned to them that starts in the week, and every
+// short daily task (see AutoDailyMaxDays) assigned to them that is due in
+// the week (its last day falls in it).
 type Commitment struct {
 	UserID      string `json:"user_id"`
 	Username    string `json:"username"`
@@ -94,7 +97,8 @@ const OverdueWeeks = 4
 
 // CommittedTask is a task plus the project it sits in (its parent or
 // grandparent); ProjectID is nil for independent tasks. Automatic marks
-// hourly tasks committed by their schedule rather than picked.
+// tasks committed by their schedule (hourly, or short daily ones) rather
+// than picked.
 type CommittedTask struct {
 	Task
 	ProjectID    *string `json:"project_id"`
@@ -123,10 +127,26 @@ func WeekStart(t time.Time) error {
 
 func weekDate(t time.Time) string { return t.Format(time.DateOnly) }
 
+// AutoDailyMaxDays: daily tasks spanning at most this many days are
+// committed automatically in the week they are due; longer ones are picked.
+const AutoDailyMaxDays = 7
+
+// autoDaily is the condition for daily task d being committed automatically
+// to whoever it is assigned to, in the week [from, to): it has dates, spans
+// at most AutoDailyMaxDays and its last day falls in the week (daily tasks
+// end at the midnight after their last day). Two hours of slack absorb a
+// daylight-saving change inside the span.
+func autoDaily(d, from, to string) string {
+	return d + `.type = 'daily' AND ` + d + `.start_at IS NOT NULL AND ` + d + `.end_at > ` + from + ` AND ` + d + `.end_at <= ` + to +
+		` AND ` + d + `.end_at <= ` + d + `.start_at + interval '` + strconv.Itoa(AutoDailyMaxDays) + ` days 2 hours'`
+}
+
 // committedSQL lists (user_id, task_id, automatic, position) for a week:
-// picked daily tasks ($1 = week date) and assigned hourly tasks starting in
-// [$2, $3), for user $4 (NULL: everyone) in workspaces $5 (NULL: all).
-const committedSQL = `
+// picked daily tasks ($1 = week date), assigned hourly tasks starting in
+// [$2, $3) and assigned short daily tasks due in it, for user $4 (NULL:
+// everyone) in workspaces $5 (NULL: all). A daily task the person also
+// picked is listed once, as picked (it keeps its place in their order).
+var committedSQL = `
 	SELECT ct.user_id, ct.task_id, false AS automatic, ct.position
 	FROM commitment_tasks ct JOIN tasks d ON d.id = ct.task_id
 	WHERE ct.week_start = $1 AND d.type = 'daily'
@@ -135,7 +155,9 @@ const committedSQL = `
 	UNION ALL
 	SELECT ta.user_id, ta.task_id, true, 0
 	FROM task_assignees ta JOIN tasks h ON h.id = ta.task_id
-	WHERE h.type = 'hourly' AND h.start_at >= $2 AND h.start_at < $3
+	WHERE ((h.type = 'hourly' AND h.start_at >= $2 AND h.start_at < $3)
+	       OR (` + autoDaily("h", "$2", "$3") + `
+	           AND NOT EXISTS (SELECT 1 FROM commitment_tasks ct WHERE ct.task_id = h.id AND ct.user_id = ta.user_id AND ct.week_start = $1)))
 	  AND ($4::uuid IS NULL OR ta.user_id = $4)
 	  AND ($5::text[] IS NULL OR h.workspace_id::text = ANY($5))`
 
@@ -177,7 +199,7 @@ func (s *Store) Commitments(ctx context.Context, week time.Time, scope Scope, us
 		WHERE ($2::uuid IS NULL OR u.id = $2)
 		  AND ((u.active AND u.deleted_at IS NULL) OR c.user_id IS NOT NULL
 		       OR EXISTS (SELECT 1 FROM task_assignees ta JOIN tasks h ON h.id = ta.task_id
-		                  WHERE ta.user_id = u.id AND h.type = 'hourly' AND h.start_at >= $4 AND h.start_at < $5))
+		                  WHERE ta.user_id = u.id AND ((h.type = 'hourly' AND h.start_at >= $4 AND h.start_at < $5) OR (`+autoDaily("h", "$4", "$5")+`))))
 		ORDER BY lower(coalesce(nullif(u.display_name, ''), u.username))`,
 		weekDate(week), user, DefaultCapacityHours, week, end)
 	if err != nil {
@@ -196,7 +218,7 @@ func (s *Store) Commitments(ctx context.Context, week time.Time, scope Scope, us
 		byUser[out[i].UserID] = &out[i]
 	}
 
-	// This week's tasks: picked daily tasks in order, then hourly by start.
+	// This week's tasks: picked daily tasks in order, then automatic ones by start.
 	rows, err = s.db.Query(ctx, `SELECT x.user_id::text, x.automatic,
 		       CASE WHEN p1.type = 'project' THEN p1.id::text WHEN p2.type = 'project' THEN p2.id::text END,
 		       CASE WHEN p1.type = 'project' THEN p1.title WHEN p2.type = 'project' THEN p2.title END,
@@ -282,7 +304,8 @@ func (s *Store) overdue(ctx context.Context, week time.Time, user any, scope Sco
 		       `+cols+taskFrom+`
 		JOIN (
 			-- Filters sit in each branch so only open, in-scope work is joined.
-			-- Daily picks must still be the user's; hourly rows come from their assignments.
+			-- Daily picks must still be the user's; automatic rows (hourly, and
+			-- short daily tasks due in those weeks) come from their assignments.
 			SELECT ct.user_id, ct.task_id, ct.week_start AS wk
 			FROM commitment_tasks ct JOIN tasks d ON d.id = ct.task_id
 			WHERE ct.week_start >= $1 AND ct.week_start < $2 AND d.type = 'daily' AND d.status <> 'done'
@@ -292,7 +315,8 @@ func (s *Store) overdue(ctx context.Context, week time.Time, user any, scope Sco
 			UNION ALL
 			SELECT ta.user_id, ta.task_id, NULL
 			FROM task_assignees ta JOIN tasks h ON h.id = ta.task_id
-			WHERE h.type = 'hourly' AND h.status <> 'done' AND h.start_at >= $3 AND h.start_at < $4
+			WHERE h.status <> 'done'
+			  AND ((h.type = 'hourly' AND h.start_at >= $3 AND h.start_at < $4) OR (`+autoDaily("h", "$3", "$4")+`))
 			  AND ($5::uuid IS NULL OR ta.user_id = $5)
 			  AND ($6::text[] IS NULL OR h.workspace_id::text = ANY($6))
 		) x ON x.task_id = t.id
@@ -323,8 +347,12 @@ func (s *Store) overdue(ctx context.Context, week time.Time, user any, scope Sco
 		if wk != nil {
 			t.CommittedWeek = wk.Format(time.DateOnly)
 		} else {
-			// An hourly task belongs to the week it starts in, in the caller's zone.
+			// An automatic task belongs to the week it starts in (hourly) or is
+			// due in (daily: its last day), in the caller's zone.
 			d := t.StartAt.In(week.Location())
+			if t.Type == "daily" {
+				d = t.EndAt.Add(-time.Nanosecond).In(week.Location())
+			}
 			t.CommittedWeek = d.AddDate(0, 0, -((int(d.Weekday()) + 6) % 7)).Format(time.DateOnly)
 			t.Automatic = true
 		}
