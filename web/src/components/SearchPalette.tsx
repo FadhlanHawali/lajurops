@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { AlertTriangle, CalendarRange, CircleCheck, Folder, Loader2, Search, Server, Tag, User } from 'lucide-react'
+import { AlertTriangle, CalendarRange, CircleCheck, CircleHelp, Folder, Loader2, Search, Server, Tag, User, X } from 'lucide-react'
 import { dotStyle } from '../lib/colors'
 import { formatSchedule } from '../lib/dates'
 import { useSearch, useSearchByIds } from '../lib/queries'
@@ -48,6 +48,58 @@ const FILTER_STYLE = {
 const FILTER_PREFIX = { owner: '@', env: '#', is: 'is: ', type: 'type: ', in: 'in: ', due: '' } as const
 const STATUS_CLS = { todo: 'bg-slate-100 text-slate-600', in_progress: 'bg-blue-50 text-blue-700', in_review: 'bg-amber-50 text-amber-800', done: 'bg-emerald-50 text-emerald-700' }
 
+/** What each filter does, with examples you can click to try. */
+const HELP: { kind: keyof typeof FILTER_STYLE | 'key' | 'words'; title: string; hint: string; examples: string[] }[] = [
+  { kind: 'words', title: 'Words', hint: 'Match the title, in any order; small typos are fine.', examples: ['deploy production', 'relase notes'] },
+  { kind: 'key', title: 'Task key', hint: 'Jumps straight to that task.', examples: ['APP-55', '55'] },
+  { kind: 'owner', title: '@person', hint: 'Assigned to someone (username or name); @me is you.', examples: ['@me', '@alice deploy'] },
+  { kind: 'env', title: '#environment', hint: 'Done in that environment.', examples: ['#prod', 'deploy #staging'] },
+  { kind: 'is', title: 'is:open / is:done', hint: 'Not done yet, or done.', examples: ['is:open @me', 'migration is:done'] },
+  { kind: 'type', title: 'type:', hint: 'project, daily or hourly.', examples: ['type:project', 'type:hourly #prod'] },
+  { kind: 'in', title: 'in:project', hint: 'Inside a project whose name contains this.', examples: ['in:billing', 'in:portal type:daily'] },
+  {
+    kind: 'due',
+    title: 'due:',
+    hint: 'Scheduled in a period: today, tomorrow, this-week, last-week, next-week, this-month, a month (oct) or a date.',
+    examples: ['due:this-week @me', 'deploy due:last-week', 'due:oct', 'due:2026-10-08'],
+  },
+]
+
+function FilterHelp({ onTry }: { onTry: (q: string) => void }) {
+  return (
+    <div className="space-y-0.5 px-2.5 py-2">
+      <p className="px-1 pb-1.5 text-xs text-slate-500">Combine words and filters in any order, e.g. <code className="rounded bg-slate-100 px-1">deploy @bob #prod due:this-week is:open</code>. Click an example to try it.</p>
+      {HELP.map((h) => {
+        const style = h.kind in FILTER_STYLE ? FILTER_STYLE[h.kind as keyof typeof FILTER_STYLE] : null
+        return (
+          <div key={h.title} className="grid grid-cols-[150px_minmax(0,1fr)] gap-3 rounded-md px-1.5 py-1.5 hover:bg-slate-50">
+            <span className="flex items-start gap-1.5 pt-0.5 text-sm font-medium text-slate-700">
+              {style ? <style.icon size={14} className="mt-0.5 shrink-0 text-slate-400" /> : <Search size={14} className="mt-0.5 shrink-0 text-slate-400" />}
+              {h.title}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-xs text-slate-500">{h.hint}</span>
+              <span className="mt-1 flex flex-wrap gap-1.5">
+                {h.examples.map((ex) => (
+                  <button
+                    key={ex}
+                    type="button"
+                    className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                    onClick={() => onTry(ex)}
+                    title="Search for this"
+                  >
+                    {ex}
+                  </button>
+                ))}
+              </span>
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 /** Highlights the query's words in a title. */
 function Highlight({ text, words }: { text: string; words: string[] }) {
   const ws = words.filter((w) => w.length > 1)
@@ -73,6 +125,8 @@ function SearchPalette({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState('')
   const [debounced, setDebounced] = useState('')
   const [sel, setSel] = useState(0)
+  const [help, setHelp] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const t = setTimeout(() => setDebounced(text.trim()), 150)
@@ -112,12 +166,13 @@ function SearchPalette({ onClose }: { onClose: () => void }) {
       setSel((s) => Math.max(0, Math.min(flat.length - 1, s + (e.key === 'ArrowDown' ? 1 : -1))))
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      open(flat[sel])
+      if (!help) open(flat[sel])
     } else if (e.key === 'Escape') {
-      // Close only the palette, not a task dialog under it.
+      // Close the filter help, then the palette (never a task dialog under it).
       e.preventDefault()
       e.stopPropagation()
-      onClose()
+      if (help) setHelp(false)
+      else onClose()
     }
   }
 
@@ -128,11 +183,15 @@ function SearchPalette({ onClose }: { onClose: () => void }) {
         <div className="flex items-center gap-2.5 border-b border-slate-200 px-4 py-3">
           <Search size={18} className="shrink-0 text-slate-400" />
           <input
+            ref={inputRef}
             autoFocus
             className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-slate-400"
             placeholder="Search by title or key…"
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value)
+              setHelp(false)
+            }}
             onKeyDown={onKeyDown}
             aria-label="Search tasks"
           />
@@ -160,7 +219,16 @@ function SearchPalette({ onClose }: { onClose: () => void }) {
           </div>
         )}
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5">
-          {loading ? (
+          {help ? (
+            <FilterHelp
+              onTry={(q) => {
+                setText(q)
+                setDebounced(q)
+                setHelp(false)
+                inputRef.current?.focus()
+              }}
+            />
+          ) : loading ? (
             <div className="flex justify-center p-6 text-slate-400">
               <Loader2 className="animate-spin" />
             </div>
@@ -213,6 +281,22 @@ function SearchPalette({ onClose }: { onClose: () => void }) {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 border-t border-slate-200 px-4 py-2 text-[11px] text-slate-500">
+          <button
+            type="button"
+            className={clsx(
+              'mr-0.5 inline-flex items-center gap-1 rounded px-1 py-0.5 font-medium',
+              help ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
+            )}
+            onClick={() => {
+              setHelp(!help)
+              inputRef.current?.focus()
+            }}
+            title={help ? 'Back to results' : 'How to use filters'}
+            aria-label={help ? 'Close filter help' : 'Show filter help'}
+            aria-pressed={help}
+          >
+            {help ? <X size={13} /> : <CircleHelp size={13} />}
+          </button>
           {[
             ['@alice', 'owner'],
             ['#prod', 'environment'],
