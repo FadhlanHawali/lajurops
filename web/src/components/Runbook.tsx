@@ -1,16 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { addMinutes, format, isSameDay } from 'date-fns'
-import { ArrowDown, ArrowUp, CalendarDays, CalendarPlus, ChevronDown, ChevronRight, Clock, FileText, ListChecks, Pencil, Plus, Save, Trash2, Unlink, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, CalendarDays, CalendarPlus, ChevronDown, ChevronRight, FileText, ListChecks, Pencil, Plus, Save, Trash2, Unlink, X } from 'lucide-react'
 import { useReadOnly } from '../lib/access'
 import { colorForId, dotStyle, pillStyle } from '../lib/colors'
 import { formatDuration } from '../lib/dates'
+import { DateField, DateTimeField } from './DateTimePicker'
 import { userTimeZone, useRunbook, useRunbookMutations, useRunbookTemplates, type StepInput } from '../lib/queries'
 import { statusLabel, type RunbookSection, type RunbookStep, type Task } from '../lib/types'
 import { MarkdownEditor } from './Comments'
 import { Markdown } from './Markdown'
 import { Popover } from './Popover'
-import { Button } from './ui'
+import { Button, Field, inputCls } from './ui'
 
 /** Colours for the usual section names; others get a stable colour from their name. */
 const SECTION_COLORS: Record<string, string> = {
@@ -23,6 +25,7 @@ const SECTION_COLORS: Record<string, string> = {
 const sectionColor = (name: string) => SECTION_COLORS[name.trim().toLowerCase()] ?? colorForId(name.toLowerCase())
 const SUGGESTED = ['Preparation', 'Implementation', 'Verification', 'Rollback']
 const DURATIONS = [15, 30, 45, 60, 90, 120, 180, 240, 480, 1440]
+const LOCAL = "yyyy-MM-dd'T'HH:mm"
 
 const minutesOf = (steps: RunbookStep[]) => steps.reduce((a, s) => a + (s.duration_minutes ?? 0), 0)
 const stepEnd = (s: RunbookStep) => (s.start_at ? addMinutes(new Date(s.start_at), s.duration_minutes ?? 0) : null)
@@ -215,7 +218,8 @@ function Section({
   const readOnly = useReadOnly()
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(s.name)
-  const [editing, setEditing] = useState<string | null>(null)
+  // The add/edit step dialog: {} adds a step, {step} edits one.
+  const [dialog, setDialog] = useState<{ step?: RunbookStep } | null>(null)
   const [notesDraft, setNotesDraft] = useState<string | null>(null) // editing the section's notes
   const color = sectionColor(s.name)
   const done = s.steps.filter((x) => x.done).length
@@ -317,46 +321,46 @@ function Section({
       )}
       {open && (
         <ul className="divide-y divide-slate-100">
-          {s.steps.map((st) =>
-            editing === st.id ? (
-              <li key={st.id}>
-                <StepForm
-                  initial={st}
-                  defaultStart={st.start_at ? new Date(st.start_at) : lastEnd}
-                  submitLabel="Save"
-                  onSubmit={(input) => {
-                    onUpdateStep(st.id, input)
-                    setEditing(null)
-                  }}
-                  onCancel={() => setEditing(null)}
-                />
-              </li>
-            ) : (
-              <StepRow
-                key={st.id}
-                step={st}
-                onToggle={(v) => onUpdateStep(st.id, { done: v })}
-                onEdit={() => (st.task ? onOpen?.(st.task.id) : setEditing(st.id))}
-                onDelete={() => {
-                  if (st.task && !confirm(`Remove this step? The daily task ${st.task.workspace_key}-${st.task.number} stays.`)) return
-                  onDeleteStep(st.id)
-                }}
-                onMakeTask={() => onMakeTask(st.id, dayOf(st))}
-                onUnlinkTask={() => {
-                  if (confirm(`Make this a plain checklist item again? The daily task ${st.task!.workspace_key}-${st.task!.number} stays, but ticking one no longer ticks the other.`))
-                    onUnlinkTask(st.id)
-                }}
-                onOpen={onOpen}
-              />
-            ),
-          )}
+          {s.steps.map((st) => (
+            <StepRow
+              key={st.id}
+              step={st}
+              onToggle={(v) => onUpdateStep(st.id, { done: v })}
+              onEdit={() => (st.task ? onOpen?.(st.task.id) : setDialog({ step: st }))}
+              onDelete={() => {
+                if (st.task && !confirm(`Remove this step? The daily task ${st.task.workspace_key}-${st.task.number} stays.`)) return
+                onDeleteStep(st.id)
+              }}
+              onMakeTask={() => onMakeTask(st.id, dayOf(st))}
+              onUnlinkTask={() => {
+                if (confirm(`Make this a plain checklist item again? The daily task ${st.task!.workspace_key}-${st.task!.number} stays, but ticking one no longer ticks the other.`))
+                  onUnlinkTask(st.id)
+              }}
+              onOpen={onOpen}
+            />
+          ))}
           {s.steps.length === 0 && <li className="px-3 py-2 text-xs text-slate-400">No steps yet.</li>}
           {!readOnly && (
             <li>
-              <StepForm allowTask defaultStart={lastEnd} placeholder={`Add a step to ${s.name}`} submitLabel="Add" onSubmit={onAddStep} />
+              <button
+                type="button"
+                className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-blue-600"
+                onClick={() => setDialog({})}
+              >
+                <Plus size={13} /> Add step
+              </button>
             </li>
           )}
         </ul>
+      )}
+      {dialog && (
+        <StepDialog
+          sectionName={s.name}
+          initial={dialog.step}
+          defaultStart={lastEnd}
+          onSubmit={(input) => (dialog.step ? onUpdateStep(dialog.step.id, input) : onAddStep(input))}
+          onClose={() => setDialog(null)}
+        />
       )}
     </div>
   )
@@ -478,140 +482,183 @@ function StepRow({
 }
 
 /**
- * Add or edit a step: what, when (optional) and for how long (optional).
- * With allowTask, a new step can instead be a daily task on a day.
+ * Add or edit a step in a small dialog: what, when (optional) and for how
+ * long (optional). A new step can instead be a daily task on a day.
  */
-function StepForm({
-  allowTask,
+function StepDialog({
+  sectionName,
   initial,
   defaultStart,
-  placeholder = 'Step',
-  submitLabel,
   onSubmit,
-  onCancel,
+  onClose,
 }: {
-  allowTask?: boolean
+  sectionName: string
   initial?: RunbookStep
   defaultStart: Date | null
-  placeholder?: string
-  submitLabel: string
   onSubmit: (input: StepInput) => void
-  onCancel?: () => void
+  onClose: () => void
 }) {
-  const start = initial ? (initial.start_at ? new Date(initial.start_at) : null) : defaultStart
+  const start0 = initial ? (initial.start_at ? new Date(initial.start_at) : null) : defaultStart
+  const [asTask, setAsTask] = useState(false)
   const [title, setTitle] = useState(initial?.title ?? '')
-  const [date, setDate] = useState(start ? format(start, 'yyyy-MM-dd') : '')
-  const [time, setTime] = useState(start ? format(start, 'HH:mm') : '')
-  const [dur, setDur] = useState(initial ? String(initial.duration_minutes ?? '') : '30')
+  const [start, setStart] = useState(start0 ? format(start0, LOCAL) : '') // checklist: date & time
+  const [day, setDay] = useState(start0 ? format(start0, 'yyyy-MM-dd') : '') // daily task: the day
+  const [dur, setDur] = useState<number | null>(initial ? initial.duration_minutes : 30)
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [withNotes, setWithNotes] = useState(!!initial?.notes)
-  const [asTask, setAsTask] = useState(false) // stays on for the next step, handy for several preparations
   const [error, setError] = useState('')
+  const titleRef = useRef<HTMLInputElement>(null)
 
-  const submit = (e?: React.FormEvent) => {
-    e?.preventDefault()
-    if (!title.trim()) return setError('Enter what the step is first')
-    if (asTask) {
-      onSubmit({ title: title.trim(), notes: withNotes ? notes : '', task: { day: date, tz: userTimeZone() } })
-      setError('')
-      setTitle('')
-      setNotes('')
-      setWithNotes(false)
-      return
+  // Escape closes only this dialog, wherever the focus is, and not the task
+  // dialog under it. While a date/time picker is open, Escape closes that.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || document.querySelector('[data-floating-ui-portal] > *')) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      onClose()
     }
-    if (time && !date) return setError('Pick a date for that time')
-    const startAt = date ? new Date(`${date}T${time || '00:00'}`).toISOString() : null
-    onSubmit({ title: title.trim(), notes: withNotes ? notes : '', start_at: startAt, duration_minutes: dur ? Number(dur) : null })
-    setError('')
-    if (!initial) {
-      setTitle('')
-      setNotes('')
-      setWithNotes(false)
-      // Chain the next step after this one.
-      if (startAt && dur) {
-        const next = addMinutes(new Date(startAt), Number(dur))
-        setDate(format(next, 'yyyy-MM-dd'))
-        setTime(format(next, 'HH:mm'))
-      }
-    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+  // Switching kind keeps the day/date in step and the cursor in the title.
+  const switchKind = (task: boolean) => {
+    setAsTask(task)
+    if (task && start) setDay(start.slice(0, 10))
+    if (!task && day && !start) setStart(`${day}T09:00`)
+    titleRef.current?.focus()
   }
 
-  const input = 'h-7 rounded border border-slate-200 bg-white px-1.5 text-xs focus:border-blue-500 focus:outline-none'
+  /** Saves; with another, keeps the dialog open for the next step (starting where this one ends). */
+  const submit = (another = false) => {
+    if (!title.trim()) return setError('Enter what the step is first')
+    const body = withNotes ? notes : ''
+    if (asTask) {
+      onSubmit({ title: title.trim(), notes: body, task: { day, tz: userTimeZone() } })
+    } else {
+      const startAt = start ? new Date(start).toISOString() : null
+      onSubmit({ title: title.trim(), notes: body, start_at: startAt, duration_minutes: dur })
+      if (another && startAt && dur) setStart(format(addMinutes(new Date(startAt), dur), LOCAL))
+    }
+    if (!another) return onClose()
+    setTitle('')
+    setNotes('')
+    setWithNotes(false)
+    setError('')
+    titleRef.current?.focus()
+  }
+
   const kind = (on: boolean) =>
-    clsx('flex h-7 items-center gap-1 px-1.5 text-[11px] font-medium', on ? 'bg-blue-50 text-blue-700' : 'bg-white text-slate-500 hover:bg-slate-50')
-  return (
-    <form onSubmit={submit} className={clsx('px-3 py-1.5', initial && 'bg-blue-50/40')}>
-      <div className="flex flex-wrap items-center gap-1.5">
-        {allowTask && (
-          <span className="flex overflow-hidden rounded border border-slate-200" role="group" aria-label="Add as">
-            <button type="button" className={kind(!asTask)} aria-pressed={!asTask} onClick={() => setAsTask(false)} title="A checklist item in this runbook">
-              <ListChecks size={12} /> Checklist
-            </button>
-            <button
-              type="button"
-              className={clsx(kind(asTask), 'border-l border-slate-200')}
-              aria-pressed={asTask}
-              onClick={() => setAsTask(true)}
-              title="Also a daily task on its day (with this task's project and owners); this task waits for it"
-            >
-              <CalendarDays size={12} /> Daily task
-            </button>
-          </span>
-        )}
-        <input
-          autoFocus={!!initial}
-          className={clsx(input, 'min-w-40 flex-1 text-sm')}
-          placeholder={asTask ? 'Daily task, e.g. Prepare the rollback scripts' : placeholder}
-          value={title}
-          onChange={(e) => {
-            setTitle(e.target.value)
-            setError('')
-          }}
-          onKeyDown={(e) => e.key === 'Escape' && onCancel && (e.stopPropagation(), onCancel())}
-        />
-        <input type="date" className={input} value={date} onChange={(e) => setDate(e.target.value)} aria-label={asTask ? 'Day (optional)' : 'Date'} title={asTask ? 'Day of the daily task; leave empty to plan it later' : undefined} />
-        {!asTask && (
-          <>
-            <input type="time" className={input} value={time} onChange={(e) => setTime(e.target.value)} aria-label="Start time" />
-            <span className="flex items-center gap-1 text-slate-400">
-              <Clock size={12} />
-              <select className={input} value={dur} onChange={(e) => setDur(e.target.value)} aria-label="Duration">
-                <option value="">no duration</option>
-                {DURATIONS.map((m) => (
-                  <option key={m} value={m}>
-                    {m === 1440 ? '1 day' : formatDuration(m)}
-                  </option>
-                ))}
-              </select>
-            </span>
-          </>
-        )}
-        {!withNotes && (
-          <button type="button" className="flex items-center gap-1 px-1 text-xs font-medium text-blue-600 hover:underline" onClick={() => setWithNotes(true)}>
-            <FileText size={12} /> Add notes
+    clsx('flex flex-1 items-center justify-center gap-1.5 px-3 py-1.5 text-sm', on ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50')
+  const chip = (on: boolean) =>
+    clsx(
+      'rounded-full border px-2 py-0.5 text-[11px] font-medium transition',
+      on ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50',
+    )
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-900/30 p-4 pt-[12vh]" onMouseDown={onClose}>
+      <form
+        className="w-full max-w-md rounded-xl bg-white shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault()
+          submit()
+        }}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
+          <h2 className="text-sm font-semibold text-slate-800">{initial ? 'Edit step' : `Add a step to ${sectionName}`}</h2>
+          <button type="button" className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" onClick={onClose} aria-label="Close">
+            <X size={16} />
           </button>
-        )}
-        <Button type="submit" className="h-7 px-2 text-xs">
-          {submitLabel}
-        </Button>
-        {onCancel && (
-          <Button type="button" variant="ghost" className="h-7 px-2 text-xs" onClick={onCancel}>
+        </div>
+        <div className="space-y-3 p-4">
+          {!initial && (
+            <div>
+              <div className="flex overflow-hidden rounded-md border border-slate-300" role="group" aria-label="Add as">
+                <button type="button" className={kind(!asTask)} aria-pressed={!asTask} onClick={() => switchKind(false)}>
+                  <ListChecks size={14} /> Checklist item
+                </button>
+                <button type="button" className={clsx(kind(asTask), 'border-l border-slate-300')} aria-pressed={asTask} onClick={() => switchKind(true)}>
+                  <CalendarDays size={14} /> Daily task
+                </button>
+              </div>
+              {asTask && (
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Creates a daily task on that day, with this task's project and assignees. This task then waits for it, and ticking the step marks it done.
+                </p>
+              )}
+            </div>
+          )}
+          <Field label={asTask ? 'Daily task' : 'Step'}>
+            <input
+              ref={titleRef}
+              autoFocus
+              className={inputCls}
+              placeholder={asTask ? 'e.g. Prepare the rollback scripts' : 'e.g. Run database migrations'}
+              value={title}
+              onChange={(e) => {
+                setTitle(e.target.value)
+                setError('')
+              }}
+            />
+          </Field>
+          {asTask ? (
+            <Field label="Day">
+              <DateField value={day} onChange={setDay} placeholder="Plan later" />
+            </Field>
+          ) : (
+            <>
+              <Field label="Start">
+                <DateTimeField value={start} onChange={setStart} placeholder="No time" />
+              </Field>
+              <Field label="Duration">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button type="button" className={chip(dur === null)} onClick={() => setDur(null)}>
+                    None
+                  </button>
+                  {DURATIONS.map((m) => (
+                    <button key={m} type="button" className={chip(dur === m)} onClick={() => setDur(m)}>
+                      {m === 1440 ? '1 day' : formatDuration(m)}
+                    </button>
+                  ))}
+                  {dur !== null && !DURATIONS.includes(dur) && <span className="text-[11px] font-medium text-slate-500">{formatDuration(dur)}</span>}
+                </div>
+              </Field>
+            </>
+          )}
+          {withNotes ? (
+            <Field label="Notes">
+              <MarkdownEditor
+                value={notes}
+                onChange={setNotes}
+                onSubmit={() => submit()}
+                placeholder={'Markdown supported. Put commands in a code block:\n```bash\n./migrate up\n```'}
+              />
+            </Field>
+          ) : (
+            <button type="button" className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline" onClick={() => setWithNotes(true)}>
+              <FileText size={12} /> Add notes
+            </button>
+          )}
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-2.5">
+          <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-        )}
-      </div>
-      {withNotes && (
-        <div className="mt-1.5">
-          <MarkdownEditor
-            value={notes}
-            onChange={setNotes}
-            onSubmit={() => submit()}
-            placeholder={'Notes… Markdown supported. Put commands in a code block:\n```bash\n./migrate up\n```'}
-          />
+          {!initial && (
+            <Button type="button" onClick={() => submit(true)} title="Add this step and start the next one">
+              Add & next
+            </Button>
+          )}
+          <Button type="submit" variant="primary">
+            {initial ? 'Save' : 'Add'}
+          </Button>
         </div>
-      )}
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-    </form>
+      </form>
+    </div>,
+    document.body,
   )
 }
 
