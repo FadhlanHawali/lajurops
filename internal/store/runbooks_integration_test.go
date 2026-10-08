@@ -232,6 +232,10 @@ func TestRunbookStepTasks(t *testing.T) {
 	if s := stepState(); s.Done || s.Title != "Prepare rollback (v2)" {
 		t.Errorf("step after reopening the task = %+v", s)
 	}
+	// The stored counts follow the linked task too.
+	if rel, _ := st.GetTask(ctx, release.ID); rel.RunbookDone != 0 || rel.RunbookTotal != 1 {
+		t.Errorf("counts after reopening the task = %d/%d, want 0/1", rel.RunbookDone, rel.RunbookTotal)
+	}
 
 	// Runbooks stay on hourly tasks.
 	if _, err := st.UpdateTask(ctx, release.ID, map[string]json.RawMessage{"type": json.RawMessage(`"daily"`)}); err == nil {

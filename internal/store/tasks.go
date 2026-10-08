@@ -126,10 +126,7 @@ const taskCols = `t.id::text, t.workspace_id::text, p.key, t.parent_id::text, t.
 	  WHERE d.task_id = t.id AND b.status <> 'done'),
 	t.environment_id::text, e.name, e.color,
 	t.project_category_id::text, pc.name, pc.color,
-	(SELECT count(*) FROM runbook_steps rs JOIN runbook_sections sec ON sec.id = rs.section_id WHERE sec.task_id = t.id),
-	(SELECT count(*) FILTER (WHERE CASE WHEN rs.task_id IS NULL THEN rs.done ELSE lt.status = 'done' END)
-	  FROM runbook_steps rs JOIN runbook_sections sec ON sec.id = rs.section_id LEFT JOIN tasks lt ON lt.id = rs.task_id
-	  WHERE sec.task_id = t.id)`
+	t.runbook_total, t.runbook_done` // kept current by triggers (migration 015)
 
 const taskFrom = ` FROM tasks t JOIN workspaces p ON p.id = t.workspace_id
 	LEFT JOIN project_environments e ON e.id = t.environment_id

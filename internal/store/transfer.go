@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -312,6 +313,18 @@ type ImportResult struct {
 	UnknownUsers []string `json:"unknown_users"`
 }
 
+// newID makes a random (version 4) UUID, so bulk inserts can link rows
+// without reading ids back.
+func newID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err)
+	}
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
 func bad(format string, args ...any) error {
 	return invalid("invalid backup: " + fmt.Sprintf(format, args...))
 }
@@ -464,7 +477,22 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 		catID[c.Ref] = id
 	}
 
+	// Rows are written in bulk (one statement per table, ids made here) so a
+	// big backup doesn't take a round trip per row.
 	taskID := map[string]string{}
+	for _, t := range order {
+		taskID[t.Ref] = newID()
+	}
+	var tk struct {
+		id, title, desc, typ, status, prio []string
+		parent, kind, reporter, category   []*string
+		number, progress                   []int32
+		start, end, completed              []*time.Time
+		created, updated                   []time.Time
+		estimate, actual                   []*float64
+		position                           []float64
+	}
+	var assignTask, assignUser []string
 	for _, t := range order {
 		t.Title = strings.TrimSpace(t.Title)
 		switch {
@@ -512,28 +540,34 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 		if updated.IsZero() {
 			updated = created
 		}
-		var id string
-		err := tx.QueryRow(ctx, `
-			INSERT INTO tasks (workspace_id, parent_id, number, title, description, type, project_kind, status, priority,
-			                   reporter_id, start_at, end_at, estimate_hours, actual_hours, progress, position,
-			                   completed_at, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-			RETURNING id::text`,
-			wsID, parentID, t.Number, t.Title, t.Description, t.Type, t.ProjectKind, t.Status, t.Priority,
-			mapUser(t.Reporter), t.StartAt, t.EndAt, t.EstimateHours, t.ActualHours, t.Progress, t.Position,
-			completed, created, updated).Scan(&id)
-		if err != nil {
-			return res, mapConstraintErr(err)
-		}
-		taskID[t.Ref] = id
-		res.Tasks++
+		var category *string
 		if t.Category != nil && t.Type == "project" {
 			if cid, ok := catID[*t.Category]; ok {
-				if _, err := tx.Exec(ctx, `UPDATE tasks SET project_category_id = $2 WHERE id = $1`, id, cid); err != nil {
-					return res, err
-				}
+				category = &cid
 			}
 		}
+		id := taskID[t.Ref]
+		tk.id = append(tk.id, id)
+		tk.parent = append(tk.parent, parentID)
+		tk.number = append(tk.number, int32(t.Number))
+		tk.title = append(tk.title, t.Title)
+		tk.desc = append(tk.desc, t.Description)
+		tk.typ = append(tk.typ, t.Type)
+		tk.kind = append(tk.kind, t.ProjectKind)
+		tk.status = append(tk.status, t.Status)
+		tk.prio = append(tk.prio, t.Priority)
+		tk.reporter = append(tk.reporter, mapUser(t.Reporter))
+		tk.start = append(tk.start, t.StartAt)
+		tk.end = append(tk.end, t.EndAt)
+		tk.estimate = append(tk.estimate, t.EstimateHours)
+		tk.actual = append(tk.actual, t.ActualHours)
+		tk.progress = append(tk.progress, int32(t.Progress))
+		tk.position = append(tk.position, t.Position)
+		tk.completed = append(tk.completed, completed)
+		tk.created = append(tk.created, created)
+		tk.updated = append(tk.updated, updated)
+		tk.category = append(tk.category, category)
+		res.Tasks++
 
 		seen := map[string]bool{}
 		for _, a := range t.Assignees {
@@ -542,17 +576,39 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 				continue
 			}
 			seen[*uid] = true
-			if _, err := tx.Exec(ctx, `INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2)`, id, *uid); err != nil {
-				return res, err
-			}
+			assignTask = append(assignTask, id)
+			assignUser = append(assignUser, *uid)
 			res.Assignments++
 		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO tasks (id, workspace_id, parent_id, number, title, description, type, project_kind, status, priority,
+		                   reporter_id, start_at, end_at, estimate_hours, actual_hours, progress, position,
+		                   completed_at, created_at, updated_at, project_category_id)
+		SELECT x.id::uuid, $1, x.parent::uuid, x.number, x.title, x.description, x.type, x.kind, x.status, x.priority,
+		       x.reporter::uuid, x.start_at, x.end_at, x.estimate, x.actual, x.progress, x.position,
+		       x.completed_at, x.created_at, x.updated_at, x.category::uuid
+		FROM unnest($2::text[], $3::text[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[],
+		            $11::text[], $12::timestamptz[], $13::timestamptz[], $14::float8[], $15::float8[], $16::int[], $17::float8[],
+		            $18::timestamptz[], $19::timestamptz[], $20::timestamptz[], $21::text[])
+		     AS x(id, parent, number, title, description, type, kind, status, priority, reporter, start_at, end_at,
+		          estimate, actual, progress, position, completed_at, created_at, updated_at, category)`,
+		wsID, tk.id, tk.parent, tk.number, tk.title, tk.desc, tk.typ, tk.kind, tk.status, tk.prio,
+		tk.reporter, tk.start, tk.end, tk.estimate, tk.actual, tk.progress, tk.position,
+		tk.completed, tk.created, tk.updated, tk.category); err != nil {
+		return res, mapConstraintErr(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO task_assignees (task_id, user_id) SELECT t::uuid, u::uuid FROM unnest($1::text[], $2::text[]) AS x(t, u)`,
+		assignTask, assignUser); err != nil {
+		return res, err
 	}
 
 	// --- environments (per project) and which tasks use them ---
 	envID := map[string]string{}
 	envProject := map[string]string{} // env ref -> project ref
 	names := map[string]bool{}
+	var envIDs, envProjects, envNames, envColors []string
+	var envPositions []int32
 	for _, e := range doc.Environments {
 		p := byRef[e.Project]
 		if p == nil || p.Type != "project" {
@@ -567,14 +623,21 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 		if !validColor(e.Color) {
 			e.Color = "slate"
 		}
-		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO project_environments (project_id, name, color, position) VALUES ($1, $2, $3, $4) RETURNING id::text`,
-			taskID[e.Project], e.Name, e.Color, e.Position).Scan(&id); err != nil {
-			return res, mapConstraintErr(err)
-		}
+		id := newID()
 		envID[e.Ref] = id
 		envProject[e.Ref] = e.Project
+		envIDs = append(envIDs, id)
+		envProjects = append(envProjects, taskID[e.Project])
+		envNames = append(envNames, e.Name)
+		envColors = append(envColors, e.Color)
+		envPositions = append(envPositions, int32(e.Position))
 		res.Environments++
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO project_environments (id, project_id, name, color, position)
+		SELECT id::uuid, project::uuid, name, color, position FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::int[]) AS x(id, project, name, color, position)`,
+		envIDs, envProjects, envNames, envColors, envPositions); err != nil {
+		return res, mapConstraintErr(err)
 	}
 	rootOf := func(t *ExportTask) string {
 		for p := t.Parent; p != nil; p = byRef[*p].Parent {
@@ -584,6 +647,7 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 		}
 		return ""
 	}
+	var envTasks, envOf []string
 	for _, t := range order {
 		if t.Environment == nil {
 			continue
@@ -592,9 +656,13 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 		if !ok || t.Type == "project" || envProject[*t.Environment] != rootOf(t) {
 			return res, bad("task %q uses an environment from another project", t.Title)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE tasks SET environment_id = $2 WHERE id = $1`, taskID[t.Ref], id); err != nil {
-			return res, err
-		}
+		envTasks = append(envTasks, taskID[t.Ref])
+		envOf = append(envOf, id)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE tasks t SET environment_id = x.env::uuid FROM unnest($1::text[], $2::text[]) AS x(task, env) WHERE t.id = x.task::uuid`,
+		envTasks, envOf); err != nil {
+		return res, err
 	}
 
 	// --- dependencies, rejecting loops ---
@@ -629,16 +697,23 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 			return res, bad("dependencies form a loop")
 		}
 	}
+	var depTask, depOn []string
 	for _, d := range doc.Dependencies {
-		tag, err := tx.Exec(ctx, `INSERT INTO task_dependencies (task_id, depends_on_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-			taskID[d.Task], taskID[d.DependsOn])
-		if err != nil {
-			return res, err
-		}
-		res.Dependencies += int(tag.RowsAffected())
+		depTask = append(depTask, taskID[d.Task])
+		depOn = append(depOn, taskID[d.DependsOn])
 	}
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO task_dependencies (task_id, depends_on_id)
+		SELECT t::uuid, d::uuid FROM unnest($1::text[], $2::text[]) AS x(t, d) ON CONFLICT DO NOTHING`, depTask, depOn)
+	if err != nil {
+		return res, err
+	}
+	res.Dependencies = int(tag.RowsAffected())
 
 	// --- comments ---
+	var cTask, cBody []string
+	var cAuthor []*string
+	var cCreated, cUpdated []time.Time
 	for _, c := range doc.Comments {
 		id, ok := taskID[c.Task]
 		if !ok {
@@ -655,11 +730,18 @@ func (s *Store) ImportWorkspaceData(ctx context.Context, doc ExportDoc, opt Impo
 		if updated.IsZero() {
 			updated = created
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO task_comments (task_id, author_id, body, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)`,
-			id, mapUser(c.Author), body, created, updated); err != nil {
-			return res, err
-		}
+		cTask = append(cTask, id)
+		cAuthor = append(cAuthor, mapUser(c.Author))
+		cBody = append(cBody, body)
+		cCreated = append(cCreated, created)
+		cUpdated = append(cUpdated, updated)
 		res.Comments++
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO task_comments (task_id, author_id, body, created_at, updated_at)
+		SELECT t::uuid, a::uuid, b, c, u FROM unnest($1::text[], $2::text[], $3::text[], $4::timestamptz[], $5::timestamptz[]) AS x(t, a, b, c, u)`,
+		cTask, cAuthor, cBody, cCreated, cUpdated); err != nil {
+		return res, err
 	}
 
 	if err := importRunbooks(ctx, tx, wsID, doc, taskID, mapUser, &res); err != nil {
@@ -759,6 +841,8 @@ func (s *Store) exportRunbooks(ctx context.Context, wsID string, doc *ExportDoc,
 func importRunbooks(ctx context.Context, tx pgx.Tx, wsID string, doc ExportDoc, taskID map[string]string,
 	mapUser func(*string) *string, res *ImportResult) error {
 	sectionID := map[string]string{}
+	var secIDs, secTasks, secNames, secNotes []string
+	var secPos []int32
 	for _, sec := range doc.RunbookSections {
 		tid, ok := taskID[sec.Task]
 		if !ok || sec.Ref == "" || sectionID[sec.Ref] != "" {
@@ -771,14 +855,27 @@ func importRunbooks(ctx context.Context, tx pgx.Tx, wsID string, doc ExportDoc, 
 		if len(sec.Notes) > maxNotes {
 			return bad("the notes of runbook section %q are too long", name)
 		}
-		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO runbook_sections (task_id, name, notes, position) VALUES ($1, $2, $3, $4) RETURNING id::text`,
-			tid, name, sec.Notes, sec.Position).Scan(&id); err != nil {
-			return mapConstraintErr(err)
-		}
+		id := newID()
 		sectionID[sec.Ref] = id
+		secIDs = append(secIDs, id)
+		secTasks = append(secTasks, tid)
+		secNames = append(secNames, name)
+		secNotes = append(secNotes, sec.Notes)
+		secPos = append(secPos, int32(sec.Position))
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO runbook_sections (id, task_id, name, notes, position)
+		SELECT id::uuid, task::uuid, name, notes, position FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::int[]) AS x(id, task, name, notes, position)`,
+		secIDs, secTasks, secNames, secNotes, secPos); err != nil {
+		return mapConstraintErr(err)
 	}
 
+	var stSec, stTitle, stNotes []string
+	var stStart, stDoneAt []*time.Time
+	var stDur []*int32
+	var stPos []int32
+	var stDone []bool
+	var stDoneBy, stLinked []*string
 	for _, st := range doc.RunbookSteps {
 		sid, ok := sectionID[st.Section]
 		if !ok {
@@ -806,13 +903,30 @@ func importRunbooks(ctx context.Context, tx pgx.Tx, wsID string, doc ExportDoc, 
 		if !st.Done {
 			doneAt = nil
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO runbook_steps (section_id, title, notes, start_at, duration_minutes, done, done_at, done_by, position, task_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-			sid, title, st.Notes, st.StartAt, st.DurationMinutes, st.Done, doneAt, mapUser(st.DoneBy), st.Position, linked); err != nil {
-			return mapConstraintErr(err)
+		var dur *int32
+		if st.DurationMinutes != nil {
+			d := int32(*st.DurationMinutes)
+			dur = &d
 		}
+		stSec = append(stSec, sid)
+		stTitle = append(stTitle, title)
+		stNotes = append(stNotes, st.Notes)
+		stStart = append(stStart, st.StartAt)
+		stDur = append(stDur, dur)
+		stDone = append(stDone, st.Done)
+		stDoneAt = append(stDoneAt, doneAt)
+		stDoneBy = append(stDoneBy, mapUser(st.DoneBy))
+		stPos = append(stPos, int32(st.Position))
+		stLinked = append(stLinked, linked)
 		res.RunbookSteps++
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO runbook_steps (section_id, title, notes, start_at, duration_minutes, done, done_at, done_by, position, task_id)
+		SELECT s::uuid, title, notes, start_at, dur, done, done_at, done_by::uuid, pos, linked::uuid
+		FROM unnest($1::text[], $2::text[], $3::text[], $4::timestamptz[], $5::int[], $6::bool[], $7::timestamptz[], $8::text[], $9::int[], $10::text[])
+		     AS x(s, title, notes, start_at, dur, done, done_at, done_by, pos, linked)`,
+		stSec, stTitle, stNotes, stStart, stDur, stDone, stDoneAt, stDoneBy, stPos, stLinked); err != nil {
+		return mapConstraintErr(err)
 	}
 
 	names := map[string]bool{}
