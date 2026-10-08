@@ -13,6 +13,7 @@ import { ParentPicker } from './ParentPicker'
 import { ProjectProgress } from './ProjectProgress'
 import { Dependencies } from './Dependencies'
 import { Runbook } from './Runbook'
+import { rememberTask } from '../lib/recent'
 import { EnvBadge, EnvironmentListEditor, EnvironmentPicker, ProjectEnvironments } from './Environments'
 import { SearchSelect } from './SearchSelect'
 import { MultiUserPicker } from './UserPicker'
@@ -113,6 +114,10 @@ function EditTask({
   backId?: string
 }) {
   const { data, isLoading, error } = useTask(id)
+  // Remembered for the search palette's "Recently opened".
+  useEffect(() => {
+    if (data) rememberTask(id)
+  }, [id, !!data])
   if (isLoading)
     return (
       <div className="flex h-60 items-center justify-center text-slate-400">

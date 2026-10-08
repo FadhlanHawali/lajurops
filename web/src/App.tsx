@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { formatISO, startOfWeek } from 'date-fns'
-import { AlertTriangle, BarChart3, CalendarDays, Eye, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Settings, Target, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
+import { AlertTriangle, BarChart3, CalendarDays, Eye, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Search, Settings, Target, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
 import { ImportDialog } from './components/ImportDialog'
+import { SearchProvider, useSearchPalette } from './components/SearchPalette'
 import { TaskModalProvider, useTaskModal } from './components/TaskModal'
 import { Avatar, Button, Field, inputCls, userName } from './components/ui'
 import { useAccess } from './lib/access'
@@ -20,6 +21,7 @@ import Users from './views/Users'
 export default function App() {
   return (
     <TaskModalProvider>
+      <SearchProvider>
       <div className="flex h-screen bg-slate-50 text-slate-800">
         <Sidebar />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -72,6 +74,7 @@ export default function App() {
           </div>
         </main>
       </div>
+      </SearchProvider>
     </TaskModalProvider>
   )
 }
@@ -105,6 +108,7 @@ function Sidebar() {
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
   const { canCreateWorkspace } = useAccess()
+  const { openSearch } = useSearchPalette()
   // Unfinished commitments from earlier weeks, seen from this week.
   const overdue = useMyCommitment(formatISO(startOfWeek(new Date(), { weekStartsOn: 1 }))).data?.overdue.length ?? 0
   const link = ({ isActive }: { isActive: boolean }) =>
@@ -117,6 +121,17 @@ function Sidebar() {
         <span className="text-lg font-semibold tracking-tight text-white">
           Lajur<span className="text-sky-300">Ops</span>
         </span>
+      </div>
+      <div className="px-2 pb-2">
+        <button
+          type="button"
+          onClick={openSearch}
+          className="flex w-full items-center gap-2 rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-sm text-slate-400 hover:border-slate-600 hover:text-slate-200"
+          title="Search tasks by title or key"
+        >
+          <Search size={15} /> Search
+          <kbd className="ml-auto rounded border border-slate-600 px-1 font-mono text-[10px] text-slate-400">{/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}</kbd>
+        </button>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-2">
         <NavLink to="/calendar" className={link}>

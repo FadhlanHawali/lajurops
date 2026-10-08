@@ -59,6 +59,13 @@ any set of projects.
 
 <img src="docs/media/calendar.gif" alt="Calendar: month and week views, selecting a slot creates an hourly task" width="900">
 
+### Search
+Press **Ctrl+K** (or the **Search** box in the sidebar) to find any task by title or key across your workspaces, even
+with a typo. Results are grouped into projects, daily and hourly tasks and say where each one lives. Narrow down as you
+type: `@alice` (owner, `@me` for you), `#prod` (environment), `is:open` / `is:done`, `type:daily`, `in:billing`
+(inside a project) and `due:this-week` / `last-week` / `next-week` / `today` / `oct` / `2026-10-08`. With an empty
+box it lists the tasks you opened recently.
+
 ### Creating tasks
 Pick the type, search for the project (or daily task) it belongs to, choose the environment, schedule it with the
 date/time pickers (type times like `9:30pm`, one-click durations) and assign several owners.
@@ -376,6 +383,7 @@ GET    /api/config                         runtime config for the SPA
 GET    /api/me | /api/users
 GET    /api/workspaces          POST /api/workspaces
 GET    /api/workspaces/{id}     PATCH/DELETE /api/workspaces/{id}
+GET    /api/search?q=&tz=                      tasks by title or key, with filters (@owner #env is: type: in: due:); ?ids=a,b returns those tasks
 GET    /api/tasks?workspace_id=&assignee_id=(id|none|others)&type=daily,hourly&top_level=&parent_id=&from=&to=
        &undated=open|all     with from/to, also tasks without dates (all, or not done)
        &ancestors=true       also the parents/grandparents of the matches

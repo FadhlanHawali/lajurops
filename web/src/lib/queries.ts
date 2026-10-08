@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { AdminUser, AdminUserInput, MemberAccess, MemberRole, RunbookSection, RunbookStep, RunbookTemplate, Comment, Commitment, CommitmentBrief, CommitmentInput, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, MemberAccess, MemberRole, RunbookSection, RunbookStep, RunbookTemplate, SearchResults, Comment, Commitment, CommitmentBrief, CommitmentInput, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -295,6 +295,26 @@ export function useCommentMutations(taskId: string) {
     }),
   }
 }
+
+// --- search (Ctrl+K) ---
+
+/** Tasks matching a query of words and filters, across the workspaces you can see. */
+export const useSearch = (q: string) =>
+  useQuery({
+    queryKey: ['search', q],
+    queryFn: () => api<SearchResults>('/search', { query: { q, tz: userTimeZone() } }),
+    enabled: q.trim() !== '',
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+  })
+
+/** The given tasks, in order (recently opened ones). */
+export const useSearchByIds = (ids: string[], enabled: boolean) =>
+  useQuery({
+    queryKey: ['search', 'ids', ids.join()],
+    queryFn: () => api<SearchResults>('/search', { query: { ids: ids.join() } }),
+    enabled: enabled && ids.length > 0,
+  })
 
 // --- runbooks ---
 

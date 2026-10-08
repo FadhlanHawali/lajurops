@@ -357,3 +357,32 @@ export interface RunbookTemplate {
   updated_at: string
   sections: { name: string; steps: { title: string; offset_minutes: number | null; duration_minutes: number | null; as_task?: boolean; task_days?: number }[] }[]
 }
+
+/** A task as the search palette shows it (see the server's store.SearchResult). */
+export interface SearchResult {
+  id: string
+  workspace_id: string
+  workspace_key: string
+  key: string
+  title: string
+  type: TaskType
+  status: Status
+  /** Titles of its project and daily parent, outermost first. */
+  path: string[]
+  environment_name: string | null
+  environment_color: string | null
+  category_name: string | null
+  category_color: string | null
+  start_at: string | null
+  end_at: string | null
+  assignee_ids: string[]
+}
+
+export interface SearchResults {
+  results: SearchResult[]
+  /** Filters understood from the query (owner, env, is, type, in, due). */
+  filters: { kind: 'owner' | 'env' | 'is' | 'type' | 'in' | 'due'; label: string }[]
+  /** Tokens that look like filters but aren't, e.g. "due:soon". */
+  unknown: string[]
+  more: boolean
+}

@@ -67,6 +67,7 @@ func (a *API) routes(r chi.Router) {
 	r.Post("/workspaces/import", a.importWorkspace)
 	r.Post("/import/fetch", a.fetchBackup)
 
+	r.Get("/search", a.search)
 	r.Get("/tasks", a.listTasks)
 	r.Post("/tasks", a.createTask)
 	r.Get("/tasks/{id}", a.getTask)
