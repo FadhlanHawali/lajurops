@@ -218,7 +218,9 @@ function Section({
   const readOnly = useReadOnly()
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(s.name)
-  // The add/edit step dialog: {} adds a step, {step} edits one.
+  // Steps share one grid per section, so columns fit its widest date and
+  // duration and rows stay aligned. The add/edit step dialog: {} adds a
+  // step, {step} edits one.
   const [dialog, setDialog] = useState<{ step?: RunbookStep } | null>(null)
   const [notesDraft, setNotesDraft] = useState<string | null>(null) // editing the section's notes
   const color = sectionColor(s.name)
@@ -320,7 +322,7 @@ function Section({
         </div>
       )}
       {open && (
-        <ul className="divide-y divide-slate-100">
+        <ul className="grid grid-cols-[auto_auto_auto_minmax(0,1fr)_auto] gap-x-2 divide-y divide-slate-100">
           {s.steps.map((st) => (
             <StepRow
               key={st.id}
@@ -339,9 +341,9 @@ function Section({
               onOpen={onOpen}
             />
           ))}
-          {s.steps.length === 0 && <li className="px-3 py-2 text-xs text-slate-400">No steps yet.</li>}
+          {s.steps.length === 0 && <li className="col-span-full px-3 py-2 text-xs text-slate-400">No steps yet.</li>}
           {!readOnly && (
-            <li>
+            <li className="col-span-full">
               <button
                 type="button"
                 className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-blue-600"
@@ -393,8 +395,8 @@ function StepRow({
   const overdue = !s.done && !!due && Date.parse(due) < Date.now()
   const action = 'rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700'
   return (
-    <li className="group">
-    <div className="grid grid-cols-[18px_128px_52px_minmax(0,1fr)_auto] items-center gap-2 px-3 py-1.5 text-sm">
+    <li className="group col-span-full grid grid-cols-subgrid">
+    <div className="col-span-full grid grid-cols-subgrid items-center px-3 py-1.5 text-sm">
       <input
         type="checkbox"
         checked={s.done}
@@ -473,7 +475,7 @@ function StepRow({
       )}
     </div>
     {hasNotes && showNotes && (
-      <div className="mx-3 mb-2 ml-[30px] rounded-md border border-slate-200 bg-white px-3 py-1.5">
+      <div className="col-span-full mx-3 mb-2 ml-[30px] rounded-md border border-slate-200 bg-white px-3 py-1.5">
         <Markdown className="text-[13px]">{s.notes}</Markdown>
       </div>
     )}
