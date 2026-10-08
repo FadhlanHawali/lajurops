@@ -140,7 +140,7 @@ const committedSQL = `
 	  AND ($5::text[] IS NULL OR h.workspace_id::text = ANY($5))`
 
 // taskColsLite returns the same columns as taskCols for scanTask, without
-// the per-row lookups (owners, subtask/comment counts, dependencies) that
+// the per-row lookups (owners, subtask/comment/runbook counts, dependencies) that
 // only the task dialog needs; it keeps the team view fast for big teams.
 const taskColsLite = `t.id::text, t.workspace_id::text, p.key, t.parent_id::text, t.number,
 	t.title, '', t.type, t.project_kind, t.status, t.priority,
@@ -149,7 +149,8 @@ const taskColsLite = `t.id::text, t.workspace_id::text, p.key, t.parent_id::text
 	t.completed_at, t.created_at, t.updated_at,
 	0::bigint, 0::bigint, 0::bigint, '{}'::text[], 0::bigint,
 	t.environment_id::text, e.name, e.color,
-	t.project_category_id::text, pc.name, pc.color`
+	t.project_category_id::text, pc.name, pc.color,
+	0::bigint, 0::bigint`
 
 // Commitments returns every active user's commitment for the week starting
 // at week (plus inactive users with committed tasks), with tasks limited to
