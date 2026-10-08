@@ -187,14 +187,18 @@ func TestRunbookStepTasks(t *testing.T) {
 	if _, err := st.MakeStepTask(ctx, step.ID, user.ID, StepTaskInput{Day: "2026-10-08", TZ: "Nowhere/City"}); err == nil {
 		t.Error("unknown time zone accepted")
 	}
-	taskID, err := st.MakeStepTask(ctx, step.ID, user.ID, StepTaskInput{Day: "2026-10-08", TZ: "Asia/Jakarta"})
+	if _, err := st.MakeStepTask(ctx, step.ID, user.ID, StepTaskInput{Day: "2026-10-08", EndDay: "2026-10-07", TZ: "Asia/Jakarta"}); err == nil {
+		t.Error("end day before start accepted")
+	}
+	// Two days: Oct 7-8.
+	taskID, err := st.MakeStepTask(ctx, step.ID, user.ID, StepTaskInput{Day: "2026-10-07", EndDay: "2026-10-08", TZ: "Asia/Jakarta"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	prepTask, _ := st.GetTask(ctx, taskID)
-	wantStart := time.Date(2026, 10, 7, 17, 0, 0, 0, time.UTC)
+	wantStart := time.Date(2026, 10, 6, 17, 0, 0, 0, time.UTC)
 	if prepTask.Type != "daily" || prepTask.ParentID == nil || *prepTask.ParentID != project.ID || prepTask.Description != "see wiki" ||
-		!prepTask.StartAt.Equal(wantStart) || !prepTask.EndAt.Equal(wantStart.Add(24*time.Hour)) ||
+		!prepTask.StartAt.Equal(wantStart) || !prepTask.EndAt.Equal(wantStart.Add(48*time.Hour)) ||
 		len(prepTask.AssigneeIDs) != 1 || prepTask.AssigneeIDs[0] != user.ID {
 		t.Fatalf("daily task = %+v", prepTask)
 	}
@@ -236,7 +240,7 @@ func TestRunbookStepTasks(t *testing.T) {
 
 	// Templates remember steps tracked as tasks and create new ones.
 	tpl, err := st.SaveRunbookTemplate(ctx, release.ID, "Release", user.ID)
-	if err != nil || !tpl.Sections[0].Steps[0].AsTask {
+	if err != nil || !tpl.Sections[0].Steps[0].AsTask || tpl.Sections[0].Steps[0].TaskDays != 2 {
 		t.Fatalf("template = %+v %v", tpl.Sections, err)
 	}
 	later, laterEnd := start.AddDate(0, 0, 7), end.AddDate(0, 0, 7)
@@ -245,7 +249,7 @@ func TestRunbookStepTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	rb2, _ := st.Runbook(ctx, release2.ID)
-	if s := rb2[0].Steps[0]; s.Task == nil || s.Task.ID == taskID || !s.StartAt.Equal(wantStart.AddDate(0, 0, 7)) {
+	if s := rb2[0].Steps[0]; s.Task == nil || s.Task.ID == taskID || !s.StartAt.Equal(wantStart.AddDate(0, 0, 7)) || !s.Task.EndAt.Equal(wantStart.AddDate(0, 0, 9)) {
 		t.Fatalf("applied step = %+v", s)
 	}
 

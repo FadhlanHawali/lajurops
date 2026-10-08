@@ -353,5 +353,5 @@ export interface RunbookTemplate {
   name: string
   step_count: number
   updated_at: string
-  sections: { name: string; steps: { title: string; offset_minutes: number | null; duration_minutes: number | null; as_task?: boolean }[] }[]
+  sections: { name: string; steps: { title: string; offset_minutes: number | null; duration_minutes: number | null; as_task?: boolean; task_days?: number }[] }[]
 }

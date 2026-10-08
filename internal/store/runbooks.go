@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -368,8 +369,10 @@ type TemplateStep struct {
 	Notes           string `json:"notes,omitempty"`
 	OffsetMinutes   *int   `json:"offset_minutes"`
 	DurationMinutes *int   `json:"duration_minutes"`
-	// AsTask: applying the template creates a daily task for this step.
-	AsTask bool `json:"as_task,omitempty"`
+	// AsTask: applying the template creates a daily task for this step,
+	// spanning TaskDays days (0 or 1 = one day).
+	AsTask   bool `json:"as_task,omitempty"`
+	TaskDays int  `json:"task_days,omitempty"`
 }
 
 type TemplateSection struct {
@@ -448,6 +451,9 @@ func (s *Store) SaveRunbookTemplate(ctx context.Context, taskID, name, userID st
 				off := int(st.StartAt.Sub(*taskStart).Minutes())
 				step.OffsetMinutes = &off
 			}
+			if st.Task != nil && st.Task.StartAt != nil && st.Task.EndAt != nil {
+				step.TaskDays = int(math.Round(st.Task.EndAt.Sub(*st.Task.StartAt).Hours() / 24))
+			}
 			ts.Steps = append(ts.Steps, step)
 		}
 		t.Sections = append(t.Sections, ts)
@@ -482,7 +488,7 @@ func (s *Store) ApplyRunbookTemplate(ctx context.Context, taskID, templateID, us
 	if err != nil {
 		return err
 	}
-	type pending struct{ stepID, day string }
+	type pending struct{ stepID, day, endDay string }
 	var asTasks []pending
 	var taskWS, tplWS string
 	var taskStart *time.Time
@@ -524,7 +530,9 @@ func (s *Store) ApplyRunbookTemplate(ctx context.Context, taskID, templateID, us
 			if st.AsTask {
 				p := pending{stepID: stepID}
 				if start != nil {
-					p.day = start.In(loc).Format(time.DateOnly)
+					first := start.In(loc)
+					p.day = first.Format(time.DateOnly)
+					p.endDay = first.AddDate(0, 0, max(st.TaskDays, 1)-1).Format(time.DateOnly)
 				}
 				asTasks = append(asTasks, p)
 			}
@@ -534,7 +542,7 @@ func (s *Store) ApplyRunbookTemplate(ctx context.Context, taskID, templateID, us
 		return err
 	}
 	for _, p := range asTasks {
-		if _, err := s.MakeStepTask(ctx, p.stepID, userID, StepTaskInput{Day: p.day, TZ: tz}); err != nil {
+		if _, err := s.MakeStepTask(ctx, p.stepID, userID, StepTaskInput{Day: p.day, EndDay: p.endDay, TZ: tz}); err != nil {
 			return err
 		}
 	}
@@ -552,11 +560,13 @@ func (s *Store) DeleteRunbookTemplate(ctx context.Context, id string) error {
 
 // --- steps tracked as tasks ---
 
-// StepTaskInput places the daily task created for a step on Day
-// (YYYY-MM-DD, empty = no date yet), in the user's time zone TZ.
+// StepTaskInput places the daily task created for a step from Day to
+// EndDay (YYYY-MM-DD, both inclusive; EndDay empty = one day; Day empty = no
+// dates yet), in the user's time zone TZ.
 type StepTaskInput struct {
-	Day string `json:"day"`
-	TZ  string `json:"tz"`
+	Day    string `json:"day"`
+	EndDay string `json:"end_day"`
+	TZ     string `json:"tz"`
 }
 
 func loadTZ(tz string) (*time.Location, error) {
@@ -570,9 +580,9 @@ func loadTZ(tz string) (*time.Location, error) {
 	return loc, nil
 }
 
-// dayBounds returns the start of day and of the next day, the way daily
-// tasks are stored.
-func dayBounds(day, tz string) (*time.Time, *time.Time, error) {
+// dayBounds returns the start of the first day and of the day after the
+// last, the way daily tasks are stored.
+func dayBounds(day, endDay, tz string) (*time.Time, *time.Time, error) {
 	if day == "" {
 		return nil, nil, nil
 	}
@@ -584,7 +594,16 @@ func dayBounds(day, tz string) (*time.Time, *time.Time, error) {
 	if err != nil {
 		return nil, nil, invalid("day must be YYYY-MM-DD")
 	}
-	end := d.AddDate(0, 0, 1)
+	last := d
+	if endDay != "" {
+		if last, err = time.ParseInLocation(time.DateOnly, endDay, loc); err != nil {
+			return nil, nil, invalid("end_day must be YYYY-MM-DD")
+		}
+		if last.Before(d) {
+			return nil, nil, invalid("the end day is before the start day")
+		}
+	}
+	end := last.AddDate(0, 0, 1)
 	return &d, &end, nil
 }
 
@@ -593,7 +612,7 @@ func dayBounds(day, tz string) (*time.Time, *time.Time, error) {
 // owners. The runbook's (hourly) task then waits for it, so the link shows
 // as a dependency on both. Returns the new task's id.
 func (s *Store) MakeStepTask(ctx context.Context, stepID, userID string, in StepTaskInput) (string, error) {
-	start, end, err := dayBounds(in.Day, in.TZ)
+	start, end, err := dayBounds(in.Day, in.EndDay, in.TZ)
 	if err != nil {
 		return "", err
 	}

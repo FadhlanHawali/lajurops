@@ -310,8 +310,8 @@ export interface StepInput {
   start_at?: string | null
   duration_minutes?: number | null
   done?: boolean
-  /** On add: track the step as a daily task on this day (YYYY-MM-DD, '' = no date yet). */
-  task?: { day: string; tz: string }
+  /** On add: track the step as a daily task from day to end_day (YYYY-MM-DD, inclusive; '' = no dates yet). */
+  task?: { day: string; end_day?: string; tz: string }
 }
 
 /** The browser's time zone, so daily tasks land on the user's day. */

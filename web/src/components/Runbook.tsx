@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { addMinutes, format, isSameDay } from 'date-fns'
+import { addMinutes, format, isSameDay, subDays } from 'date-fns'
 import { ArrowDown, ArrowUp, CalendarDays, CalendarPlus, ChevronDown, ChevronRight, FileText, ListChecks, Pencil, Plus, Save, Trash2, Unlink, X } from 'lucide-react'
 import { useReadOnly } from '../lib/access'
 import { colorForId, dotStyle, pillStyle } from '../lib/colors'
 import { formatDuration } from '../lib/dates'
-import { DateField, DateTimeField } from './DateTimePicker'
+import { DateRangeField, DateTimeField } from './DateTimePicker'
 import { userTimeZone, useRunbook, useRunbookMutations, useRunbookTemplates, type StepInput } from '../lib/queries'
 import { statusLabel, type RunbookSection, type RunbookStep, type Task } from '../lib/types'
 import { MarkdownEditor } from './Comments'
@@ -37,6 +37,14 @@ function spanOf(steps: RunbookStep[]): string {
   const a = new Date(Math.min(...timed.map((s) => Date.parse(s.start_at!))))
   const b = new Date(Math.max(...timed.map((s) => stepEnd(s)!.getTime())))
   return isSameDay(a, b) ? format(a, 'EEE MMM d') : `${format(a, 'EEE MMM d')} – ${format(b, 'EEE MMM d')}`
+}
+
+/** "Tue Oct 6", or "Tue Oct 6 – Thu Oct 8" for a daily task over several days. */
+function taskDays(t: { start_at: string | null; end_at: string | null }): string {
+  if (!t.start_at) return 'no date yet'
+  const a = new Date(t.start_at)
+  const b = t.end_at ? subDays(new Date(t.end_at), 1) : a // end is the start of the day after
+  return b > a && !isSameDay(a, b) ? `${format(a, 'EEE MMM d')} – ${format(b, 'EEE MMM d')}` : format(a, 'EEE MMM d')
 }
 
 /** The day a step falls on, as YYYY-MM-DD ('' when it has no date). */
@@ -407,7 +415,7 @@ function StepRow({
         title={t ? `Ticking this marks ${key} done` : undefined}
       />
       <span className={clsx('text-xs tabular-nums', overdue ? 'font-medium text-red-600' : 'text-slate-500')} title={overdue ? 'Overdue' : undefined}>
-        {t ? (s.start_at ? format(new Date(s.start_at), 'EEE MMM d') : 'no date yet') : s.start_at ? format(new Date(s.start_at), 'EEE MMM d · HH:mm') : 'no time'}
+        {t ? taskDays(t) : s.start_at ? format(new Date(s.start_at), 'EEE MMM d · HH:mm') : 'no time'}
       </span>
       {t ? (
         <span className="flex items-center justify-center gap-0.5 rounded bg-blue-50 px-1 text-[11px] font-medium text-blue-700" title="Tracked as a daily task">
@@ -505,7 +513,8 @@ function StepDialog({
   const [asTask, setAsTask] = useState(false)
   const [title, setTitle] = useState(initial?.title ?? '')
   const [start, setStart] = useState(start0 ? format(start0, LOCAL) : '') // checklist: date & time
-  const [day, setDay] = useState(start0 ? format(start0, 'yyyy-MM-dd') : '') // daily task: the day
+  const [day, setDay] = useState(start0 ? format(start0, 'yyyy-MM-dd') : '') // daily task: first day
+  const [endDay, setEndDay] = useState(day) // and last day (inclusive)
   const [dur, setDur] = useState<number | null>(initial ? initial.duration_minutes : 30)
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [withNotes, setWithNotes] = useState(!!initial?.notes)
@@ -527,7 +536,10 @@ function StepDialog({
   // Switching kind keeps the day/date in step and the cursor in the title.
   const switchKind = (task: boolean) => {
     setAsTask(task)
-    if (task && start) setDay(start.slice(0, 10))
+    if (task && start) {
+      setDay(start.slice(0, 10))
+      setEndDay(start.slice(0, 10))
+    }
     if (!task && day && !start) setStart(`${day}T09:00`)
     titleRef.current?.focus()
   }
@@ -537,7 +549,7 @@ function StepDialog({
     if (!title.trim()) return setError('Enter what the step is first')
     const body = withNotes ? notes : ''
     if (asTask) {
-      onSubmit({ title: title.trim(), notes: body, task: { day, tz: userTimeZone() } })
+      onSubmit({ title: title.trim(), notes: body, task: { day, end_day: endDay || day, tz: userTimeZone() } })
     } else {
       const startAt = start ? new Date(start).toISOString() : null
       onSubmit({ title: title.trim(), notes: body, start_at: startAt, duration_minutes: dur })
@@ -589,7 +601,7 @@ function StepDialog({
               </div>
               {asTask && (
                 <p className="mt-1.5 text-xs text-slate-500">
-                  Creates a daily task on that day, with this task's project and assignees. This task then waits for it, and ticking the step marks it done.
+                  Creates a daily task on those days, with this task's project and assignees. This task then waits for it, and ticking the step marks it done.
                 </p>
               )}
             </div>
@@ -608,8 +620,16 @@ function StepDialog({
             />
           </Field>
           {asTask ? (
-            <Field label="Day">
-              <DateField value={day} onChange={setDay} placeholder="Plan later" />
+            <Field label="Days">
+              <DateRangeField
+                start={day}
+                end={endDay}
+                onChange={(a, b) => {
+                  setDay(a)
+                  setEndDay(b)
+                }}
+                placeholder="Plan later"
+              />
             </Field>
           ) : (
             <>

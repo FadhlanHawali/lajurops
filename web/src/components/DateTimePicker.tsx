@@ -191,41 +191,6 @@ export function DateRangeField({
   )
 }
 
-/** A single date as "yyyy-MM-dd" (e.g. the day of a runbook step's daily task). */
-export function DateField({ value, onChange, placeholder = 'Pick a date' }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
-  const [open, setOpen] = useState(false)
-  const current = parseDate(value)
-  const [month, setMonth] = useState<Date>(current ?? new Date())
-  useEffect(() => {
-    if (open) setMonth(current ?? new Date())
-  }, [open])
-  const pick = (d: Date) => {
-    onChange(fmtDate(d))
-    setOpen(false)
-  }
-  const today = new Date()
-  return (
-    <Popover
-      open={open}
-      onOpenChange={setOpen}
-      trigger={(props, isOpen) => (
-        <TriggerButton icon={CalendarDays} placeholder={placeholder} open={isOpen} onClear={() => onChange('')} {...props}>
-          {current && <span className="flex-1 truncate pr-5 font-medium text-slate-800">{friendlyDate(current)}</span>}
-        </TriggerButton>
-      )}
-    >
-      <Presets
-        items={[
-          { label: 'Today', onClick: () => pick(today), active: !!current && isSameDay(current, today) },
-          { label: 'Tomorrow', onClick: () => pick(addDays(today, 1)), active: !!current && isSameDay(current, addDays(today, 1)) },
-          { label: 'Next Monday', onClick: () => pick(nextMonday(today)), active: !!current && isSameDay(current, nextMonday(today)) },
-        ]}
-      />
-      <DayPicker {...calendarProps} mode="single" required month={month} onMonthChange={setMonth} selected={current} onSelect={(d) => d && pick(d)} />
-    </Popover>
-  )
-}
-
 // --- date + time (hourly tasks) --------------------------------------------
 
 const SLOT_MIN = 15
