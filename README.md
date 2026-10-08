@@ -37,7 +37,8 @@ task is waiting for.
 ### Projects, categories and environments
 A task is a **Project**, **Daily** or **Hourly** item, nested Project → Daily → Hourly. Projects are **long**
 (a quarter or more) or **short** (about a month) and belong to a **category** (KPI, Enhancement, Ad Hoc, or your
-own). A project's **status and progress come from its tasks**. Each project defines its **environments**
+own). A project's **progress comes from its tasks**, but it's **done only when you mark it done** (finishing every
+task flags it *All tasks done · not closed yet*). Each project defines its **environments**
 (e.g. Dev → QA → Staging → Production) and its tasks are grouped by environment; opening a task from a project
 stacks it, with a way back.
 
@@ -64,6 +65,13 @@ date/time pickers (type times like `9:30pm`, one-click durations) and assign sev
 
 <img src="docs/media/create-task.gif" alt="Creating an hourly task with parent search, environment, schedule and owners" width="900">
 
+### Runbooks
+An hourly task (a release, a maintenance window) can carry a **runbook**: sections you name (Preparation,
+Implementation, Verification, Rollback…) with steps that have a time and duration, Markdown notes (commands in code
+blocks get a copy button) and a tick for who did what. A step can also be tracked as its own **daily task** over a
+range of days (preparation the day before, say): the hourly task then waits for it, and ticking one completes the
+other. Save a runbook as a workspace **template** and apply it to the next release; times move with the task.
+
 ### Markdown comments
 Comment on projects, daily and hourly tasks in GitHub-flavoured Markdown (checklists, tables, code) with a
 toolbar, shortcuts and preview.
@@ -80,13 +88,15 @@ export CSV.
 ### Weekly Commitment
 Each person picks the daily tasks they intend to finish this week: drag them from the daily tasks assigned to them
 (work left over from last week is marked *carried over*) from unassigned ones (which assigns them) or from other people's (which adds them as a co-owner), then order them,
-set their capacity and add a note. A picked task without dates is scheduled Monday to Friday of that week. Hourly tasks
-assigned to them that start in the week are committed **automatically**. Planned hours are the hourly time (counted
+set their capacity and add a note. A picked task without dates is scheduled Monday to Friday of that week. Committed
+**automatically**: hourly tasks assigned to them that start in the week, and daily tasks of at most 7 days assigned to
+them whose last day is in the week. Planned hours are the hourly time (counted
 like the workload report) plus the daily tasks' estimates, and turn red over capacity. The **Team** view shows
 everyone's commitment, progress and notes, and **last week kept** shows how many committed tasks were done in time.
 
 ### Backup and restore
-Export a workspace to JSON and import it (from a file or a URL) as a new workspace, with a preview first.
+Export a workspace to JSON (tasks, comments, runbooks and templates included) and import it (from a file or a URL)
+as a new workspace, with a preview first.
 
 <img src="docs/media/backup.gif" alt="Exporting a workspace and importing the backup as a new workspace" width="900">
 
@@ -108,8 +118,8 @@ Keycloak to clean up people deleted there.
     Each project is either **long** (a quarter or more) or **short** (short notice, about a month);
     the dialog suggests switching when the timeline doesn't match.
     Projects belong to a **category** (default *KPI Project*, *Enhancement Project*, *Ad Hoc Project*;
-    customisable per workspace); the board shows projects in category columns. A project's **status and
-    progress are derived from its daily/hourly tasks** (all done → done, any started → in progress)
+    customisable per workspace); the board shows projects in category columns. A project's **progress
+    is derived from its daily/hourly tasks** (any started → in progress), and it's **done once you mark it done**
   - `daily`: requests and deliverables, scheduled by whole days (start date → due date)
   - `hourly`: implementation, deployment and support work, with exact start and end times (snapped to 15 min on the hour zoom)
 
@@ -122,6 +132,8 @@ Keycloak to clean up people deleted there.
 - **Dependencies** between daily/hourly tasks ("Deploy to Staging" *waits for* "Set up staging"): cycles are
   rejected, blocked cards show what they wait for, and the timeline draws arrows (red when a task starts before
   the task it waits for ends)
+- **Runbooks** on hourly tasks: named sections of timed steps with Markdown notes, steps that are their own daily
+  tasks, and reusable workspace templates
 - **Comments** on projects, daily and hourly tasks, written in **Markdown** (GitHub flavoured: checklists, tables, code blocks) with a formatting toolbar and preview; authors can edit/delete their own comments, admins can delete any
 - **Backup & restore**: export a workspace to JSON; import a backup from a file or a URL as a new workspace
 - **Hourly Workload**: per user, per week or month: hourly hours, hourly/daily task counts, completion; drill down and export CSV
@@ -334,7 +346,8 @@ The browser must trust the certificate on its own, through the OS or browser cer
 ## Backup and restore
 
 - **Export**: the download button on a workspace page saves `<KEY>-<date>.json` with the workspace, all
-  tasks (hierarchy, dates, status, owners), environments, categories, dependencies and comments.
+  tasks (hierarchy, dates, status, owners), environments, categories, dependencies, comments, runbooks
+  (with steps tracked as daily tasks) and runbook templates.
 - **Import**: the upload button next to *Workspaces* in the sidebar. Pick/drop a file or enter a URL; a
   preview shows what will be created. A backup is always restored as a **new** workspace (choose a new key
   if the original is taken); task numbers are kept. People are matched **by username**: owners missing from
@@ -384,11 +397,22 @@ DELETE /api/tasks/{id}/dependencies/{dependsOnId}
 GET    /api/tasks/{id}/comments   POST /api/tasks/{id}/comments { body }   (Markdown)
 PATCH  /api/comments/{id}       { body }   (author only)
 DELETE /api/comments/{id}       (author or lajurops-admin)
+GET    /api/tasks/{id}/runbook                     sections with their steps
+POST   /api/tasks/{id}/runbook/sections             { name }   (hourly tasks only)
+PUT    /api/tasks/{id}/runbook/order                { section_ids: [] }
+PATCH  /api/runbook/sections/{id}   DELETE /api/runbook/sections/{id}     { name?, notes? }
+POST   /api/runbook/sections/{id}/steps             { title, notes, start_at, duration_minutes, task?: { day, end_day, tz } }
+PATCH  /api/runbook/steps/{id}      DELETE /api/runbook/steps/{id}        { title?, notes?, start_at?, duration_minutes?, done? }  null clears
+POST   /api/runbook/steps/{id}/task                 { day, end_day, tz }   track the step as a daily task
+DELETE /api/runbook/steps/{id}/task                 back to a plain step (the task stays)
+POST   /api/tasks/{id}/runbook/save-template        { name }   (same name replaces)
+POST   /api/tasks/{id}/runbook/apply-template       { template_id, tz }
+GET    /api/workspaces/{id}/runbook-templates   DELETE /api/runbook-templates/{id}
 GET    /api/reports/workload?from=&to=&workspace_id=
 GET    /api/reports/workload/{userId}/tasks?from=&to=&workspace_id=
 GET    /api/commitments?week=&workspace_id=          everyone's commitment; week = Monday 00:00 local, RFC 3339
 GET    /api/commitments/me?week=
-PUT    /api/commitments/me?week=  { capacity_hours, note, task_ids: [] }   daily tasks, in order (hourly ones are automatic);
+PUT    /api/commitments/me?week=  { capacity_hours, note, task_ids: [] }   daily tasks, in order (hourly ones and short daily ones are automatic);
        unassigned picks are assigned to you and unscheduled ones get Mon–Fri of the week (editors only)
 
 # lajurops-admin only
