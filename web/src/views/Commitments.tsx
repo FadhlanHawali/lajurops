@@ -188,6 +188,12 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
   const [note, setNote] = useState('')
   const [search, setSearch] = useState('')
   const [dragging, setDragging] = useState<string | null>(null)
+  // Which list "This week I will finish" shows: daily tasks (picked and
+  // automatic) or hourly ones. Dragging a task shows the daily list to drop on.
+  const [finishTab, setFinishTab] = useState<'daily' | 'hourly'>('daily')
+  useEffect(() => {
+    if (dragging) setFinishTab('daily')
+  }, [dragging])
   const [over, setOver] = useState<'committed' | 'backlog' | null>(null)
 
   // Start from the saved commitment whenever it (re)loads. Automatic tasks
@@ -498,8 +504,33 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
               <Target size={15} className="text-sky-600" /> This week I will finish
             </h2>
           </div>
+          <div className="flex border-b border-slate-200 px-2 text-sm" role="tablist">
+            {(
+              [
+                ['daily', 'Daily tasks', committed.length + autoDaily.length, CalendarDays],
+                ['hourly', 'Hourly tasks', autoHourly.length, Clock],
+              ] as const
+            ).map(([id, label, count, Icon]) => (
+              <button
+                key={id}
+                role="tab"
+                aria-selected={finishTab === id}
+                onClick={() => setFinishTab(id)}
+                className={clsx(
+                  '-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 font-medium whitespace-nowrap',
+                  finishTab === id ? 'border-blue-600 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800',
+                )}
+              >
+                <Icon size={14} />
+                {label}
+                <span className="rounded-full bg-slate-100 px-1.5 text-[11px] text-slate-600 tabular-nums">{count}</span>
+              </button>
+            ))}
+          </div>
           <div className="max-h-[60vh] min-h-40 flex-1 overflow-y-auto lg:max-h-none">
-          <SectionHeader icon={CalendarDays} title="Daily tasks" hint="picked by you · drag to reorder" />
+          {finishTab === 'daily' && (
+          <>
+          <SectionHeader icon={CalendarDays} title="Picked" hint="by you · drag to reorder" />
           <div {...dropProps('committed')} className={clsx('min-h-24 divide-y divide-slate-100', over === 'committed' && dragging && !ids.includes(dragging) && 'bg-sky-50 outline-2 -outline-offset-4 outline-sky-400 outline-dashed')}>
             {committed.map((t) => (
               <TaskRow
@@ -523,7 +554,7 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
           </div>
           {autoDaily.length > 0 && (
             <>
-              <SectionHeader icon={CalendarDays} title="Daily tasks due this week" hint={`automatic: assigned to you, at most ${AUTO_DAILY_MAX_DAYS} days long`} />
+              <SectionHeader icon={Lock} title="Due this week" hint={`automatic: assigned to you, at most ${AUTO_DAILY_MAX_DAYS} days long`} />
               <div className="divide-y divide-slate-100">
                 {autoDaily.map((t) => (
                   <TaskRow key={t.id} task={t} project={t.project_title ?? undefined} committed carried={carried.has(t.id)} />
@@ -531,13 +562,19 @@ function MyWeek({ week, onDirty }: { week: string; onDirty: (dirty: boolean) => 
               </div>
             </>
           )}
-          <SectionHeader icon={Clock} title="Hourly tasks" hint="automatic: assigned to you and scheduled this week" />
+          </>
+          )}
+          {finishTab === 'hourly' && (
+          <>
+          <SectionHeader icon={Lock} title="Scheduled this week" hint="automatic: assigned to you" />
           <div className="divide-y divide-slate-100">
             {autoHourly.map((t) => (
               <TaskRow key={t.id} task={t} project={t.project_title ?? undefined} committed carried={carried.has(t.id)} />
             ))}
             {autoHourly.length === 0 && <p className="p-4 text-center text-sm text-slate-400">No hourly tasks scheduled for you this week.</p>}
           </div>
+          </>
+          )}
           </div>
           <div className="sticky bottom-0 rounded-b-lg border-t border-slate-200 bg-white p-3">
             <label className="text-xs font-medium text-slate-500">
