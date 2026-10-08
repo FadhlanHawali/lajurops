@@ -207,13 +207,15 @@ func (s *Store) OrderRunbookSections(ctx context.Context, taskID string, ids []s
 	return tx.Commit(ctx)
 }
 
-// RunbookStepInput creates or changes a step; nil fields are left alone on update.
+// RunbookStepInput creates or changes a step; nil fields are left alone on
+// update. StartAt and DurationMinutes are raw so a JSON null (clear) differs
+// from an absent key (keep); a pointer would turn null into nil.
 type RunbookStepInput struct {
-	Title           *string          `json:"title"`
-	Notes           *string          `json:"notes"`
-	StartAt         *json.RawMessage `json:"start_at"`
-	DurationMinutes *json.RawMessage `json:"duration_minutes"`
-	Done            *bool            `json:"done"`
+	Title           *string         `json:"title"`
+	Notes           *string         `json:"notes"`
+	StartAt         json.RawMessage `json:"start_at"` // absent = keep, null = clear
+	DurationMinutes json.RawMessage `json:"duration_minutes"`
+	Done            *bool           `json:"done"`
 }
 
 // parseOptTime reads a JSON timestamp or null.
@@ -269,12 +271,12 @@ func (s *Store) AddRunbookStep(ctx context.Context, sectionID string, in Runbook
 	var start *time.Time
 	var dur *int
 	if in.StartAt != nil {
-		if start, err = parseOptTime(*in.StartAt); err != nil {
+		if start, err = parseOptTime(in.StartAt); err != nil {
 			return RunbookStep{}, err
 		}
 	}
 	if in.DurationMinutes != nil {
-		if dur, err = parseOptDuration(*in.DurationMinutes); err != nil {
+		if dur, err = parseOptDuration(in.DurationMinutes); err != nil {
 			return RunbookStep{}, err
 		}
 	}
@@ -306,14 +308,14 @@ func (s *Store) UpdateRunbookStep(ctx context.Context, id, userID string, in Run
 		set("notes", *in.Notes)
 	}
 	if in.StartAt != nil {
-		t, err := parseOptTime(*in.StartAt)
+		t, err := parseOptTime(in.StartAt)
 		if err != nil {
 			return RunbookStep{}, err
 		}
 		set("start_at", t)
 	}
 	if in.DurationMinutes != nil {
-		d, err := parseOptDuration(*in.DurationMinutes)
+		d, err := parseOptDuration(in.DurationMinutes)
 		if err != nil {
 			return RunbookStep{}, err
 		}

@@ -28,7 +28,7 @@ func TestRunbooksAndTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw := func(v any) *json.RawMessage { b, _ := json.Marshal(v); m := json.RawMessage(b); return &m }
+	raw := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 	str := func(s string) *string { return &s }
 
 	prep, err := st.AddRunbookSection(ctx, task.ID, "Preparation")
@@ -52,6 +52,20 @@ func TestRunbooksAndTemplates(t *testing.T) {
 	}
 	if _, err := st.AddRunbookStep(ctx, impl.ID, RunbookStepInput{Title: str("x"), DurationMinutes: raw(0)}); err == nil {
 		t.Error("duration 0 accepted")
+	}
+
+	// Clearing the time and duration (null, as the API receives it) sticks;
+	// fields left out are kept.
+	tmp, _ := st.AddRunbookStep(ctx, impl.ID, RunbookStepInput{Title: str("Temp"), StartAt: raw(start), DurationMinutes: raw(15)})
+	var clear RunbookStepInput
+	if err := json.Unmarshal([]byte(`{"start_at": null, "duration_minutes": null}`), &clear); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.UpdateRunbookStep(ctx, tmp.ID, user.ID, clear); err != nil || got.StartAt != nil || got.DurationMinutes != nil || got.Title != "Temp" {
+		t.Errorf("clear time: %+v %v", got, err)
+	}
+	if err := st.DeleteRunbookStep(ctx, tmp.ID); err != nil {
+		t.Fatal(err)
 	}
 
 	// Ticking records who and when; unticking clears it.

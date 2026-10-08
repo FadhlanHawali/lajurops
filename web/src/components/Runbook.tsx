@@ -157,6 +157,7 @@ export function Runbook({ task, onOpen }: { task: Task; onOpen?: (id: string) =>
             className="flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 focus-within:border-blue-500"
             onSubmit={(e) => {
               e.preventDefault()
+              e.stopPropagation() // not the task form around the runbook
               addSection(newSection)
             }}
           >
@@ -565,6 +566,7 @@ function StepDialog({
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault()
+          e.stopPropagation() // React bubbles submit through the portal to the task form
           submit()
         }}
       >
@@ -738,6 +740,7 @@ function SaveTemplate({ defaultName, onSave }: { defaultName: string; onSave: (n
         className="w-72 space-y-2 p-3"
         onSubmit={async (e) => {
           e.preventDefault()
+          e.stopPropagation() // not the task form (React bubbles through the popover portal)
           if (!name.trim()) return setError('Name the template first')
           setState('saving')
           try {
