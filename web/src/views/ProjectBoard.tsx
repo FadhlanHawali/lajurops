@@ -13,8 +13,8 @@ import { useCategories, useProjectProgress, useTasks, useUpdateTask } from '../l
 import type { Task } from '../lib/types'
 
 /**
- * Projects grouped by category (KPI, Enhancement, Ad Hoc, ...). A project's
- * status isn't set by hand: it comes from its tasks.
+ * Projects grouped by category (KPI, Enhancement, Ad Hoc, ...). Progress
+ * comes from a project's tasks; it's done only when marked done.
  */
 export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: string; assignee: string }) {
   // Projects only; the work inside them is counted by the server.
@@ -115,6 +115,18 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
           </span>
         </p>
         <ProjectProgress project={p} done={c.done} total={c.total} />
+        {canEdit && p.status !== 'done' && c.total > 0 && c.done === c.total && (
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+            onClick={(e) => {
+              e.stopPropagation()
+              update.mutate({ id: p.id, patch: { status: 'done' } })
+            }}
+          >
+            <CheckCircle2 size={13} /> Mark done
+          </button>
+        )}
         <div className="flex items-center gap-2">
           <TypeBadge type={p.type} kind={p.project_kind} />
           <span className="text-[11px] font-medium text-slate-500">{p.key}</span>
@@ -222,7 +234,7 @@ export default function ProjectBoard({ workspaceId, assignee }: { workspaceId: s
           )
         })}
       </div>
-      <p className="text-[11px] text-slate-400">A project's status and progress come from the tasks inside it. Drag projects to reorder them (in manual order) or change their category.</p>
+      <p className="text-[11px] text-slate-400">A project's progress comes from the tasks inside it; it's done only when you mark it done. Drag projects to reorder them (in manual order) or change their category.</p>
       {editing && <ProjectCategoriesDialog workspaceId={workspaceId} onClose={() => setEditing(false)} />}
     </div>
   )

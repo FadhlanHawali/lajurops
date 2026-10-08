@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
-import { AlertTriangle, ArrowLeft, CalendarX, CheckCircle2, ChevronRight, CircleDot, Eye, Flag, Hourglass, Loader2, Plus, Tags, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CalendarX, CheckCircle2, ChevronRight, CircleDot, Eye, Flag, Hourglass, Loader2, Plus, RotateCcw, Tags, Trash2, X } from 'lucide-react'
 import { ReadOnlyContext, useAccess, useReadOnly } from '../lib/access'
 import { dotStyle } from '../lib/colors'
 import { formatCreatedFull, fromInput, toInput } from '../lib/dates'
@@ -286,7 +286,7 @@ function TaskForm({
       type: f.type,
       ...(f.type === 'project' ? { project_kind: f.project_kind } : { environment_id: f.environment_id || null }),
       parent_id: f.parent_id || null,
-      // A project's status and progress come from its tasks.
+      // A project's progress comes from its tasks; its done state has its own button.
       ...(f.type === 'project' ? { project_category_id: f.project_category_id || null } : { status: f.status, progress: f.progress }),
       priority: f.priority,
       assignee_ids: f.assignee_ids,
@@ -563,9 +563,29 @@ function TaskForm({
           )}
           {f.type === 'project' ? (
             task?.type === 'project' && (
-              <Field label="Status & progress (from its tasks)">
-                <div className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2">
+              <Field label="Status & progress">
+                <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2">
                   <ProjectProgress project={task} done={projectCounts.done} total={projectCounts.total} />
+                  {/* Progress follows the tasks; closing the project is a decision, made here. */}
+                  {!readOnly &&
+                    (task.status === 'done' ? (
+                      <Button type="button" variant="ghost" className="h-7 w-full text-xs" disabled={update.isPending} onClick={() => update.mutate({ id: task.id, patch: { status: 'todo' } })}>
+                        <RotateCcw size={13} /> Reopen project
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        className="h-7 w-full text-xs"
+                        disabled={update.isPending}
+                        onClick={() => {
+                          const open = projectCounts.total - projectCounts.done
+                          if (open > 0 && !confirm(`${open} task${open === 1 ? ' isn’t' : 's aren’t'} done yet. Mark the project done anyway?`)) return
+                          update.mutate({ id: task.id, patch: { status: 'done' } })
+                        }}
+                      >
+                        <CheckCircle2 size={13} /> Mark project done
+                      </Button>
+                    ))}
                 </div>
               </Field>
             )

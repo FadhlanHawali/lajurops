@@ -596,8 +596,8 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 			return Task{}, mapConstraintErr(err)
 		}
 	}
-	// Projects' status/progress follow their tasks (this also overrides
-	// any status set directly on a project).
+	// Projects' progress follows their tasks, and so does an open
+	// project's status (todo/in_progress); done is set by hand.
 	newRoot, err := rootProject(ctx, tx, &id)
 	if err != nil {
 		return Task{}, err

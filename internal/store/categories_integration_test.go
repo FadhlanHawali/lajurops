@@ -76,22 +76,33 @@ func TestProjectCategoriesAndDerivedStatus(t *testing.T) {
 	if s, p := status(proj.ID); s != "in_progress" || p != 50 {
 		t.Fatalf("after 1 of 2 done = %s %d%%", s, p)
 	}
+	// Finishing every task doesn't close the project: done is set by hand.
 	patch(d1.ID, map[string]any{"status": "done"})
+	if s, p := status(proj.ID); s != "in_progress" || p != 100 {
+		t.Fatalf("all tasks done = %s %d%%, want in_progress 100%%", s, p)
+	}
+	patch(proj.ID, map[string]any{"status": "done"})
 	if s, p := status(proj.ID); s != "done" || p != 100 {
-		t.Fatalf("all done = %s %d%%", s, p)
+		t.Fatalf("closed by hand = %s %d%%", s, p)
 	}
-	// Manual status on a project is overridden by its tasks.
-	patch(proj.ID, map[string]any{"status": "todo"})
-	if s, _ := status(proj.ID); s != "done" {
-		t.Fatalf("manual status should be overridden, got %s", s)
+	if task, _ := st.GetTask(ctx, proj.ID); task.CompletedAt == nil {
+		t.Error("a closed project should have a completion time")
 	}
+	// A closed project stays closed when work is added to it...
 	d2 := mk(TaskInput{Title: "d2", Type: "daily", ParentID: &proj.ID})
-	if s, p := status(proj.ID); s != "in_progress" || p != 67 {
+	if s, p := status(proj.ID); s != "done" || p != 67 {
 		t.Fatalf("after adding a task = %s %d%%", s, p)
 	}
-	// Moving d2 out makes the project done again; deleting everything resets it.
+	// ...until it is reopened, which derives its status from its tasks again.
+	patch(proj.ID, map[string]any{"status": "todo"})
+	if s, _ := status(proj.ID); s != "in_progress" {
+		t.Fatalf("reopened = %s, want in_progress", s)
+	}
+	if task, _ := st.GetTask(ctx, proj.ID); task.CompletedAt != nil {
+		t.Error("a reopened project shouldn't keep its completion time")
+	}
 	patch(d2.ID, map[string]any{"parent_id": nil})
-	if s, p := status(proj.ID); s != "done" || p != 100 {
+	if s, p := status(proj.ID); s != "in_progress" || p != 100 {
 		t.Fatalf("after moving out = %s %d%%", s, p)
 	}
 	st.DeleteTask(ctx, d1.ID)

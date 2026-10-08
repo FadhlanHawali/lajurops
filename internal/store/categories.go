@@ -160,9 +160,11 @@ func checkCategory(ctx context.Context, tx pgx.Tx, taskType, workspaceID, catego
 	return nil
 }
 
-// recomputeProjectsSQL derives each listed project's status and progress
-// from the daily/hourly tasks inside it (children and grandchildren):
-// all done -> done, any started -> in_progress, otherwise todo.
+// recomputeProjectsSQL derives each listed project's progress from the
+// daily/hourly tasks inside it (children and grandchildren), and its status
+// while it is open: any started -> in_progress, otherwise todo. Done is
+// only ever set by hand (finishing every task doesn't close the project),
+// and a done project stays done until it is reopened.
 const recomputeProjectsSQL = `
 	WITH p AS (SELECT id FROM tasks WHERE type = 'project' AND id::text = ANY($1)),
 	d AS (
@@ -178,10 +180,10 @@ const recomputeProjectsSQL = `
 		FROM p LEFT JOIN d ON d.pid = p.id GROUP BY p.id
 	)
 	UPDATE tasks t
-	   SET status = CASE WHEN s.total > 0 AND s.done = s.total THEN 'done'
+	   SET status = CASE WHEN t.status = 'done' THEN 'done'
 	                     WHEN s.started > 0 THEN 'in_progress' ELSE 'todo' END,
 	       progress = CASE WHEN s.total = 0 THEN 0 ELSE round(100.0 * s.done / s.total)::int END,
-	       completed_at = CASE WHEN s.total > 0 AND s.done = s.total THEN coalesce(t.completed_at, now()) END
+	       completed_at = CASE WHEN t.status = 'done' THEN coalesce(t.completed_at, now()) END
 	  FROM s WHERE t.id = s.pid`
 
 func recomputeProjects(ctx context.Context, q execer, ids ...string) error {
