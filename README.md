@@ -155,7 +155,7 @@ into the Go server with `go:embed`, the same approach [Radar](https://github.com
 
 | Layer    | Tech |
 |----------|------|
-| Backend  | Go 1.22, chi, pgx v5, go-oidc |
+| Backend  | Go 1.27, chi, pgx v5, go-oidc |
 | Database | PostgreSQL 16 (migrations embedded, applied on startup) |
 | Frontend | React 19 + TypeScript, Vite, Tailwind CSS v4, TanStack Query, custom Gantt and calendar |
 | Auth     | Keycloak (public client, Authorization Code + PKCE) |
@@ -244,7 +244,7 @@ new workspace's editor. The server enforces all of this; the UI also hides what 
 
 ## Local development
 
-Requires Go 1.22+, Node 20+ and a PostgreSQL.
+Requires Go 1.27+, Node 20+ and a PostgreSQL.
 
 ```bash
 # terminal 1: API on :8080 without Keycloak (every request is the "dev" user)

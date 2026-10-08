@@ -12,7 +12,7 @@ COPY web/ ./
 RUN npm run build
 
 # 2) Build the Go binary with the frontend embedded
-FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
