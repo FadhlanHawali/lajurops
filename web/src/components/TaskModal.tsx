@@ -320,8 +320,8 @@ function TaskForm({
   }
 
   const busy = update.isPending || create.isPending
-  // Marking a task done with unticked runbook steps only warns.
-  const { data: runbook = [] } = useRunbook(task?.id)
+  // Marking a task done with unticked runbook steps only warns. Runbooks are for hourly tasks.
+  const { data: runbook = [] } = useRunbook(task?.type === 'hourly' ? task.id : undefined)
   const openSteps = runbook.flatMap((s) => s.steps).filter((s) => !s.done).length
   const typeInfo = TASK_TYPES.find((t) => t.id === f.type)!
 
@@ -379,7 +379,7 @@ function TaskForm({
           </fieldset>
 
           {task?.type === 'project' && <ProjectEnvironments projectId={task.id} />}
-          {task && <Runbook task={task} />}
+          {task?.type === 'hourly' && <Runbook task={task} onOpen={onOpen} />}
           {!task && f.type === 'project' && (
             <section>
               <h3 className="mb-2 text-sm font-semibold text-slate-700">Environments</h3>

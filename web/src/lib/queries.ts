@@ -106,6 +106,7 @@ function invalidateTaskData(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: ['workload'] })
   qc.invalidateQueries({ queryKey: ['workload-tasks'] })
   qc.invalidateQueries({ queryKey: ['commitments'] })
+  qc.invalidateQueries({ queryKey: ['runbook'] }) // steps tracked as tasks follow those tasks
 }
 
 export type TaskPatch = Partial<
@@ -309,16 +310,18 @@ export interface StepInput {
   start_at?: string | null
   duration_minutes?: number | null
   done?: boolean
+  /** On add: track the step as a daily task on this day (YYYY-MM-DD, '' = no date yet). */
+  task?: { day: string; tz: string }
 }
+
+/** The browser's time zone, so daily tasks land on the user's day. */
+export const userTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
 
 /** Every runbook change refreshes the runbook and the task's progress counts. */
 export function useRunbookMutations(taskId: string, workspaceId: string) {
   const qc = useQueryClient()
-  const onSettled = () => {
-    qc.invalidateQueries({ queryKey: ['runbook', taskId] })
-    qc.invalidateQueries({ queryKey: ['tasks'] })
-    qc.invalidateQueries({ queryKey: ['task', taskId] })
-  }
+  // Steps can create and complete daily tasks, so refresh task data too.
+  const onSettled = () => invalidateTaskData(qc)
   const m = <V,>(fn: (v: V) => Promise<unknown>) => useMutation({ mutationFn: fn, onSettled })
   return {
     addSection: m((name: string) => api(`/tasks/${taskId}/runbook/sections`, { method: 'POST', body: { name } })),
@@ -345,7 +348,11 @@ export function useRunbookMutations(taskId: string, workspaceId: string) {
       onSettled,
     }),
     deleteStep: m((id: string) => api(`/runbook/steps/${id}`, { method: 'DELETE' })),
-    applyTemplate: m((templateId: string) => api(`/tasks/${taskId}/runbook/apply-template`, { method: 'POST', body: { template_id: templateId } })),
+    makeTask: m(({ id, day }: { id: string; day: string }) => api(`/runbook/steps/${id}/task`, { method: 'POST', body: { day, tz: userTimeZone() } })),
+    unlinkTask: m((id: string) => api(`/runbook/steps/${id}/task`, { method: 'DELETE' })),
+    applyTemplate: m((templateId: string) =>
+      api(`/tasks/${taskId}/runbook/apply-template`, { method: 'POST', body: { template_id: templateId, tz: userTimeZone() } }),
+    ),
     saveTemplate: useMutation({
       mutationFn: (name: string) => api<RunbookTemplate>(`/tasks/${taskId}/runbook/save-template`, { method: 'POST', body: { name } }),
       onSettled: () => qc.invalidateQueries({ queryKey: ['runbook-templates', workspaceId] }),

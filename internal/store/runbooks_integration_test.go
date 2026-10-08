@@ -103,7 +103,7 @@ func TestRunbooksAndTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ApplyRunbookTemplate(ctx, task2.ID, tpl.ID); err != nil {
+	if err := st.ApplyRunbookTemplate(ctx, task2.ID, tpl.ID, user.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	rb2, _ := st.Runbook(ctx, task2.ID)
@@ -116,8 +116,8 @@ func TestRunbooksAndTemplates(t *testing.T) {
 	}
 
 	// Templates stay in their workspace.
-	task3, _ := st.CreateTask(ctx, TaskInput{WorkspaceID: ws2.ID, Title: "elsewhere", Type: "daily"}, "")
-	if err := st.ApplyRunbookTemplate(ctx, task3.ID, tpl.ID); err == nil {
+	task3, _ := st.CreateTask(ctx, TaskInput{WorkspaceID: ws2.ID, Title: "elsewhere", Type: "hourly"}, "")
+	if err := st.ApplyRunbookTemplate(ctx, task3.ID, tpl.ID, user.ID, ""); err == nil {
 		t.Error("template applied across workspaces")
 	}
 	if list, _ := st.RunbookTemplates(ctx, ws2.ID); len(list) != 0 {
@@ -135,3 +135,121 @@ func TestRunbooksAndTemplates(t *testing.T) {
 }
 
 func ptrBool(b bool) *bool { return &b }
+
+// Runbooks are for hourly tasks; a step can be tracked as a daily task.
+func TestRunbookStepTasks(t *testing.T) {
+	st, pool := testStore(t)
+	ctx := context.Background()
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	key := "RT" + suffix[len(suffix)-6:]
+	ws, err := st.CreateWorkspace(ctx, WorkspaceInput{Key: key, Name: "step tasks"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM workspaces WHERE key = $1`, key) })
+	user, _ := st.UpsertUser(ctx, "itest-rt-"+suffix, "rt"+suffix, "", "RT")
+	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, user.ID) })
+	str := func(s string) *string { return &s }
+
+	project, _ := st.CreateTask(ctx, TaskInput{WorkspaceID: ws.ID, Title: "Platform", Type: "project"}, "")
+	daily, _ := st.CreateTask(ctx, TaskInput{WorkspaceID: ws.ID, ParentID: &project.ID, Title: "A daily", Type: "daily"}, "")
+	if _, err := st.AddRunbookSection(ctx, daily.ID, "Preparation"); err == nil {
+		t.Error("runbook added to a daily task")
+	}
+	start := time.Date(2026, 10, 9, 13, 0, 0, 0, time.UTC)
+	end := start.Add(2 * time.Hour)
+	release, err := st.CreateTask(ctx, TaskInput{WorkspaceID: ws.ID, ParentID: &project.ID, Title: "Release", Type: "hourly", StartAt: &start, EndAt: &end, AssigneeIDs: []string{user.ID}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prep, err := st.AddRunbookSection(ctx, release.ID, "Preparation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, _ := st.AddRunbookStep(ctx, prep.ID, RunbookStepInput{Title: str("Prepare rollback scripts"), Notes: str("see wiki")})
+
+	// The daily task lands on the day in the user's zone, under the project,
+	// with the release's owners; the release waits for it.
+	if _, err := st.MakeStepTask(ctx, step.ID, user.ID, StepTaskInput{Day: "2026-10-08", TZ: "Nowhere/City"}); err == nil {
+		t.Error("unknown time zone accepted")
+	}
+	taskID, err := st.MakeStepTask(ctx, step.ID, user.ID, StepTaskInput{Day: "2026-10-08", TZ: "Asia/Jakarta"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepTask, _ := st.GetTask(ctx, taskID)
+	wantStart := time.Date(2026, 10, 7, 17, 0, 0, 0, time.UTC)
+	if prepTask.Type != "daily" || prepTask.ParentID == nil || *prepTask.ParentID != project.ID || prepTask.Description != "see wiki" ||
+		!prepTask.StartAt.Equal(wantStart) || !prepTask.EndAt.Equal(wantStart.Add(24*time.Hour)) ||
+		len(prepTask.AssigneeIDs) != 1 || prepTask.AssigneeIDs[0] != user.ID {
+		t.Fatalf("daily task = %+v", prepTask)
+	}
+	if rel, _ := st.GetTask(ctx, release.ID); len(rel.BlockedBy) != 1 || rel.BlockedBy[0] != taskID {
+		t.Errorf("release waits for %v, want the daily task", rel.BlockedBy)
+	}
+	if _, err := st.MakeStepTask(ctx, step.ID, user.ID, StepTaskInput{}); err == nil {
+		t.Error("step made a task twice")
+	}
+
+	// Ticking the step completes the task, and the other way round.
+	stepState := func() RunbookStep {
+		rb, _ := st.Runbook(ctx, release.ID)
+		return rb[0].Steps[0]
+	}
+	if s := stepState(); s.Task == nil || s.Task.ID != taskID || s.Done || !s.StartAt.Equal(wantStart) {
+		t.Fatalf("linked step = %+v", s)
+	}
+	if _, err := st.UpdateRunbookStep(ctx, step.ID, user.ID, RunbookStepInput{Done: ptrBool(true)}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.GetTask(ctx, taskID); got.Status != "done" {
+		t.Errorf("task status after ticking = %s", got.Status)
+	}
+	if rel, _ := st.GetTask(ctx, release.ID); rel.RunbookDone != 1 || rel.RunbookTotal != 1 {
+		t.Errorf("counts = %d/%d, want 1/1", rel.RunbookDone, rel.RunbookTotal)
+	}
+	if _, err := st.UpdateTask(ctx, taskID, map[string]json.RawMessage{"status": json.RawMessage(`"in_progress"`), "title": json.RawMessage(`"Prepare rollback (v2)"`)}); err != nil {
+		t.Fatal(err)
+	}
+	if s := stepState(); s.Done || s.Title != "Prepare rollback (v2)" {
+		t.Errorf("step after reopening the task = %+v", s)
+	}
+
+	// Runbooks stay on hourly tasks.
+	if _, err := st.UpdateTask(ctx, release.ID, map[string]json.RawMessage{"type": json.RawMessage(`"daily"`)}); err == nil {
+		t.Error("task with a runbook changed to daily")
+	}
+
+	// Templates remember steps tracked as tasks and create new ones.
+	tpl, err := st.SaveRunbookTemplate(ctx, release.ID, "Release", user.ID)
+	if err != nil || !tpl.Sections[0].Steps[0].AsTask {
+		t.Fatalf("template = %+v %v", tpl.Sections, err)
+	}
+	later, laterEnd := start.AddDate(0, 0, 7), end.AddDate(0, 0, 7)
+	release2, _ := st.CreateTask(ctx, TaskInput{WorkspaceID: ws.ID, ParentID: &project.ID, Title: "Release 2", Type: "hourly", StartAt: &later, EndAt: &laterEnd}, "")
+	if err := st.ApplyRunbookTemplate(ctx, release2.ID, tpl.ID, user.ID, "Asia/Jakarta"); err != nil {
+		t.Fatal(err)
+	}
+	rb2, _ := st.Runbook(ctx, release2.ID)
+	if s := rb2[0].Steps[0]; s.Task == nil || s.Task.ID == taskID || !s.StartAt.Equal(wantStart.AddDate(0, 0, 7)) {
+		t.Fatalf("applied step = %+v", s)
+	}
+
+	// Unlinking keeps the task and turns the step into a checklist item.
+	if err := st.UnlinkStepTask(ctx, step.ID); err != nil {
+		t.Fatal(err)
+	}
+	if s := stepState(); s.Task != nil || s.Title != "Prepare rollback (v2)" || s.Done {
+		t.Errorf("unlinked step = %+v", s)
+	}
+	if _, err := st.GetTask(ctx, taskID); err != nil {
+		t.Errorf("task gone after unlinking: %v", err)
+	}
+	// Deleting a linked task leaves the step as a checklist item.
+	if err := st.DeleteTask(ctx, rb2[0].Steps[0].Task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rb2, _ = st.Runbook(ctx, release2.ID); len(rb2[0].Steps) != 1 || rb2[0].Steps[0].Task != nil {
+		t.Errorf("after deleting the task: %+v", rb2[0].Steps)
+	}
+}

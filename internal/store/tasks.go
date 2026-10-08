@@ -127,7 +127,9 @@ const taskCols = `t.id::text, t.workspace_id::text, p.key, t.parent_id::text, t.
 	t.environment_id::text, e.name, e.color,
 	t.project_category_id::text, pc.name, pc.color,
 	(SELECT count(*) FROM runbook_steps rs JOIN runbook_sections sec ON sec.id = rs.section_id WHERE sec.task_id = t.id),
-	(SELECT count(*) FILTER (WHERE rs.done) FROM runbook_steps rs JOIN runbook_sections sec ON sec.id = rs.section_id WHERE sec.task_id = t.id)`
+	(SELECT count(*) FILTER (WHERE CASE WHEN rs.task_id IS NULL THEN rs.done ELSE lt.status = 'done' END)
+	  FROM runbook_steps rs JOIN runbook_sections sec ON sec.id = rs.section_id LEFT JOIN tasks lt ON lt.id = rs.task_id
+	  WHERE sec.task_id = t.id)`
 
 const taskFrom = ` FROM tasks t JOIN workspaces p ON p.id = t.workspace_id
 	LEFT JOIN project_environments e ON e.id = t.environment_id
@@ -552,6 +554,15 @@ func (s *Store) UpdateTask(ctx context.Context, id string, patch map[string]json
 	}
 	if newType != nil && *newType != "project" {
 		sets = append(sets, "project_category_id = NULL")
+	}
+	if newType != nil && *newType != "hourly" {
+		var hasRunbook bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM runbook_sections WHERE task_id = $1)`, id).Scan(&hasRunbook); err != nil {
+			return Task{}, err
+		}
+		if hasRunbook {
+			return Task{}, invalid("this task has a runbook, and runbooks are only for hourly tasks; delete its runbook sections first")
+		}
 	}
 
 	args = append(args, id)

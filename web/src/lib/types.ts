@@ -320,6 +320,19 @@ export interface RunbookStep {
   done_at: string | null
   done_by: string | null
   position: number
+  /** Set when the step is tracked as its own daily task: title, date and done come from it. */
+  task: StepTask | null
+}
+
+/** The daily task a runbook step is tracked as. */
+export interface StepTask {
+  id: string
+  workspace_key: string
+  number: number
+  title: string
+  status: Status
+  start_at: string | null
+  end_at: string | null
 }
 
 /** A named group of runbook steps, e.g. "Preparation". */
@@ -340,5 +353,5 @@ export interface RunbookTemplate {
   name: string
   step_count: number
   updated_at: string
-  sections: { name: string; steps: { title: string; offset_minutes: number | null; duration_minutes: number | null }[] }[]
+  sections: { name: string; steps: { title: string; offset_minutes: number | null; duration_minutes: number | null; as_task?: boolean }[] }[]
 }

@@ -89,6 +89,8 @@ func (a *API) routes(r chi.Router) {
 	r.Post("/runbook/sections/{id}/steps", a.addRunbookStep)
 	r.Patch("/runbook/steps/{id}", a.updateRunbookStep)
 	r.Delete("/runbook/steps/{id}", a.deleteRunbookStep)
+	r.Post("/runbook/steps/{id}/task", a.makeStepTask)
+	r.Delete("/runbook/steps/{id}/task", a.unlinkStepTask)
 	r.Get("/workspaces/{id}/runbook-templates", a.listRunbookTemplates)
 	r.Delete("/runbook-templates/{id}", a.deleteRunbookTemplate)
 

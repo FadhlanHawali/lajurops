@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // runbook step tasks are placed on days in the user's time zone
 
 	"github.com/FadhlanHawali/lajurops/internal/api"
 	"github.com/FadhlanHawali/lajurops/internal/auth"

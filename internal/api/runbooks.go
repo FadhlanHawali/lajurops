@@ -89,8 +89,13 @@ func (a *API) deleteRunbookSection(w http.ResponseWriter, r *http.Request) {
 	respond(w, map[string]bool{"deleted": true}, err)
 }
 
+// addRunbookStep adds a checklist step, or, with "task": {day, tz}, a step
+// tracked as its own daily task.
 func (a *API) addRunbookStep(w http.ResponseWriter, r *http.Request) {
-	var in store.RunbookStepInput
+	var in struct {
+		store.RunbookStepInput
+		Task *store.StepTaskInput `json:"task"`
+	}
 	if err := decode(r, &in); err != nil {
 		respond(w, nil, err)
 		return
@@ -99,8 +104,38 @@ func (a *API) addRunbookStep(w http.ResponseWriter, r *http.Request) {
 	if !a.requireSection(w, r, id) {
 		return
 	}
-	st, err := a.store.AddRunbookStep(r.Context(), id, in)
+	st, err := a.store.AddRunbookStep(r.Context(), id, in.RunbookStepInput)
+	if err == nil && in.Task != nil {
+		if _, err = a.store.MakeStepTask(r.Context(), st.ID, auth.UserFrom(r.Context()).ID, *in.Task); err != nil {
+			_ = a.store.DeleteRunbookStep(r.Context(), st.ID)
+		}
+	}
 	respondStatus(w, http.StatusCreated, st, err)
+}
+
+// makeStepTask tracks an existing step as a daily task ({day, tz}).
+func (a *API) makeStepTask(w http.ResponseWriter, r *http.Request) {
+	var in store.StepTaskInput
+	if err := decode(r, &in); err != nil {
+		respond(w, nil, err)
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if !a.requireStep(w, r, id) {
+		return
+	}
+	taskID, err := a.store.MakeStepTask(r.Context(), id, auth.UserFrom(r.Context()).ID, in)
+	respondStatus(w, http.StatusCreated, map[string]string{"task_id": taskID}, err)
+}
+
+// unlinkStepTask turns a step back into a plain checklist item; the task stays.
+func (a *API) unlinkStepTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if !a.requireStep(w, r, id) {
+		return
+	}
+	err := a.store.UnlinkStepTask(r.Context(), id)
+	respond(w, map[string]bool{"ok": true}, err)
 }
 
 // requireStep checks editor access to the task a step belongs to.
@@ -165,10 +200,12 @@ func (a *API) saveRunbookTemplate(w http.ResponseWriter, r *http.Request) {
 	respondStatus(w, http.StatusCreated, t, err)
 }
 
-// applyRunbookTemplate appends a template ({template_id}) to the task's runbook.
+// applyRunbookTemplate appends a template ({template_id}) to the task's
+// runbook; tz places the daily tasks of steps saved as tasks.
 func (a *API) applyRunbookTemplate(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		TemplateID string `json:"template_id"`
+		TZ         string `json:"tz"`
 	}
 	if err := decode(r, &in); err != nil {
 		respond(w, nil, err)
@@ -178,7 +215,7 @@ func (a *API) applyRunbookTemplate(w http.ResponseWriter, r *http.Request) {
 	if !a.requireTask(w, r, id, levelEditor) {
 		return
 	}
-	if err := a.store.ApplyRunbookTemplate(r.Context(), id, in.TemplateID); err != nil {
+	if err := a.store.ApplyRunbookTemplate(r.Context(), id, in.TemplateID, auth.UserFrom(r.Context()).ID, in.TZ); err != nil {
 		respond(w, nil, err)
 		return
 	}

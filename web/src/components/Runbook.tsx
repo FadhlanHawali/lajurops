@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import { addMinutes, format, isSameDay } from 'date-fns'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Clock, FileText, ListChecks, Pencil, Plus, Save, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, CalendarDays, CalendarPlus, ChevronDown, ChevronRight, Clock, FileText, ListChecks, Pencil, Plus, Save, Trash2, Unlink, X } from 'lucide-react'
 import { useReadOnly } from '../lib/access'
 import { colorForId, dotStyle, pillStyle } from '../lib/colors'
 import { formatDuration } from '../lib/dates'
-import { useRunbook, useRunbookMutations, useRunbookTemplates, type StepInput } from '../lib/queries'
-import type { RunbookSection, RunbookStep, Task } from '../lib/types'
+import { userTimeZone, useRunbook, useRunbookMutations, useRunbookTemplates, type StepInput } from '../lib/queries'
+import { statusLabel, type RunbookSection, type RunbookStep, type Task } from '../lib/types'
 import { MarkdownEditor } from './Comments'
 import { Markdown } from './Markdown'
 import { Popover } from './Popover'
@@ -36,12 +36,17 @@ function spanOf(steps: RunbookStep[]): string {
   return isSameDay(a, b) ? format(a, 'EEE MMM d') : `${format(a, 'EEE MMM d')} – ${format(b, 'EEE MMM d')}`
 }
 
+/** The day a step falls on, as YYYY-MM-DD ('' when it has no date). */
+const dayOf = (s: RunbookStep) => (s.start_at ? format(new Date(s.start_at), 'yyyy-MM-dd') : '')
+
 /**
- * A task's runbook: named sections of steps, each step optionally with a
- * date, start time and duration. Times can be saved into a workspace template
- * relative to the task's start.
+ * An hourly task's runbook: named sections of steps, each step optionally
+ * with a date, start time and duration. Times can be saved into a workspace
+ * template relative to the task's start. A step can also be tracked as its
+ * own daily task (e.g. preparation the day before); ticking one completes
+ * the other.
  */
-export function Runbook({ task }: { task: Task }) {
+export function Runbook({ task, onOpen }: { task: Task; onOpen?: (id: string) => void }) {
   const { data: sections = [], isLoading } = useRunbook(task.id)
   const mut = useRunbookMutations(task.id, task.workspace_id)
   const readOnly = useReadOnly()
@@ -133,6 +138,9 @@ export function Runbook({ task }: { task: Task }) {
                 run(mut.deleteSection.mutateAsync(s.id))
               }}
               onAddStep={(input) => run(mut.addStep.mutateAsync({ sectionId: s.id, input }))}
+              onMakeTask={(id, day) => run(mut.makeTask.mutateAsync({ id, day }))}
+              onUnlinkTask={(id) => run(mut.unlinkTask.mutateAsync(id))}
+              onOpen={onOpen}
               onUpdateStep={(id, input) => run(mut.updateStep.mutateAsync({ id, input }))}
               onDeleteStep={(id) => run(mut.deleteStep.mutateAsync(id))}
             />
@@ -183,6 +191,9 @@ function Section({
   onAddStep,
   onUpdateStep,
   onDeleteStep,
+  onMakeTask,
+  onUnlinkTask,
+  onOpen,
 }: {
   section: RunbookSection
   task: Task
@@ -197,6 +208,9 @@ function Section({
   onAddStep: (input: StepInput) => void
   onUpdateStep: (id: string, input: StepInput) => void
   onDeleteStep: (id: string) => void
+  onMakeTask: (id: string, day: string) => void
+  onUnlinkTask: (id: string) => void
+  onOpen?: (id: string) => void
 }) {
   const readOnly = useReadOnly()
   const [renaming, setRenaming] = useState(false)
@@ -318,13 +332,28 @@ function Section({
                 />
               </li>
             ) : (
-              <StepRow key={st.id} step={st} onToggle={(v) => onUpdateStep(st.id, { done: v })} onEdit={() => setEditing(st.id)} onDelete={() => onDeleteStep(st.id)} />
+              <StepRow
+                key={st.id}
+                step={st}
+                onToggle={(v) => onUpdateStep(st.id, { done: v })}
+                onEdit={() => (st.task ? onOpen?.(st.task.id) : setEditing(st.id))}
+                onDelete={() => {
+                  if (st.task && !confirm(`Remove this step? The daily task ${st.task.workspace_key}-${st.task.number} stays.`)) return
+                  onDeleteStep(st.id)
+                }}
+                onMakeTask={() => onMakeTask(st.id, dayOf(st))}
+                onUnlinkTask={() => {
+                  if (confirm(`Make this a plain checklist item again? The daily task ${st.task!.workspace_key}-${st.task!.number} stays, but ticking one no longer ticks the other.`))
+                    onUnlinkTask(st.id)
+                }}
+                onOpen={onOpen}
+              />
             ),
           )}
           {s.steps.length === 0 && <li className="px-3 py-2 text-xs text-slate-400">No steps yet.</li>}
           {!readOnly && (
             <li>
-              <StepForm defaultStart={lastEnd} placeholder={`Add a step to ${s.name}`} submitLabel="Add" onSubmit={onAddStep} />
+              <StepForm allowTask defaultStart={lastEnd} placeholder={`Add a step to ${s.name}`} submitLabel="Add" onSubmit={onAddStep} />
             </li>
           )}
         </ul>
@@ -333,19 +362,53 @@ function Section({
   )
 }
 
-function StepRow({ step: s, onToggle, onEdit, onDelete }: { step: RunbookStep; onToggle: (done: boolean) => void; onEdit: () => void; onDelete: () => void }) {
+function StepRow({
+  step: s,
+  onToggle,
+  onEdit,
+  onDelete,
+  onMakeTask,
+  onUnlinkTask,
+  onOpen,
+}: {
+  step: RunbookStep
+  onToggle: (done: boolean) => void
+  onEdit: () => void
+  onDelete: () => void
+  onMakeTask: () => void
+  onUnlinkTask: () => void
+  onOpen?: (id: string) => void
+}) {
   const readOnly = useReadOnly()
   const [showNotes, setShowNotes] = useState(false)
   const hasNotes = !!s.notes.trim()
-  const overdue = !s.done && !!s.start_at && Date.parse(s.start_at) < Date.now()
+  const t = s.task
+  const key = t ? `${t.workspace_key}-${t.number}` : ''
+  // A daily task is overdue once its day is over; a timed step once it should have started.
+  const due = t ? t.end_at : s.start_at
+  const overdue = !s.done && !!due && Date.parse(due) < Date.now()
+  const action = 'rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700'
   return (
     <li className="group">
     <div className="grid grid-cols-[18px_128px_52px_minmax(0,1fr)_auto] items-center gap-2 px-3 py-1.5 text-sm">
-      <input type="checkbox" checked={s.done} disabled={readOnly} onChange={(e) => onToggle(e.target.checked)} aria-label={s.title} />
+      <input
+        type="checkbox"
+        checked={s.done}
+        disabled={readOnly}
+        onChange={(e) => onToggle(e.target.checked)}
+        aria-label={s.title}
+        title={t ? `Ticking this marks ${key} done` : undefined}
+      />
       <span className={clsx('text-xs tabular-nums', overdue ? 'font-medium text-red-600' : 'text-slate-500')} title={overdue ? 'Overdue' : undefined}>
-        {s.start_at ? format(new Date(s.start_at), 'EEE MMM d · HH:mm') : 'no time'}
+        {t ? (s.start_at ? format(new Date(s.start_at), 'EEE MMM d') : 'no date yet') : s.start_at ? format(new Date(s.start_at), 'EEE MMM d · HH:mm') : 'no time'}
       </span>
-      <span className="rounded bg-slate-100 px-1 text-center text-[11px] text-slate-600">{s.duration_minutes ? formatDuration(s.duration_minutes) : '—'}</span>
+      {t ? (
+        <span className="flex items-center justify-center gap-0.5 rounded bg-blue-50 px-1 text-[11px] font-medium text-blue-700" title="Tracked as a daily task">
+          <CalendarDays size={11} /> day
+        </span>
+      ) : (
+        <span className="rounded bg-slate-100 px-1 text-center text-[11px] text-slate-600">{s.duration_minutes ? formatDuration(s.duration_minutes) : '—'}</span>
+      )}
       <span className="flex min-w-0 items-center gap-1.5">
         {hasNotes ? (
           <button
@@ -371,10 +434,30 @@ function StepRow({ step: s, onToggle, onEdit, onDelete }: { step: RunbookStep; o
             <FileText size={13} />
           </button>
         )}
+        {t && (
+          <button
+            type="button"
+            className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-1.5 py-px text-[11px] text-slate-600 hover:border-blue-300 hover:text-blue-700"
+            title={`Open the daily task ${key}`}
+            onClick={() => onOpen?.(t.id)}
+          >
+            <span className="font-medium text-blue-600">{key}</span>
+            <span className={clsx(t.status === 'done' ? 'text-green-700' : t.status === 'todo' ? 'text-slate-500' : 'text-amber-700')}>{statusLabel(t.status)}</span>
+          </button>
+        )}
       </span>
       {!readOnly ? (
         <span className="flex opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
-          <button type="button" className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" title="Edit step" onClick={onEdit}>
+          {t ? (
+            <button type="button" className={action} title="Make it a plain checklist item (the daily task stays)" onClick={onUnlinkTask}>
+              <Unlink size={13} />
+            </button>
+          ) : (
+            <button type="button" className={action} title="Track as a daily task" onClick={onMakeTask}>
+              <CalendarPlus size={13} />
+            </button>
+          )}
+          <button type="button" className={action} title={t ? `Edit in ${key}` : 'Edit step'} onClick={onEdit}>
             <Pencil size={13} />
           </button>
           <button type="button" className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Remove step" onClick={onDelete}>
@@ -394,8 +477,12 @@ function StepRow({ step: s, onToggle, onEdit, onDelete }: { step: RunbookStep; o
   )
 }
 
-/** Add or edit a step: what, when (optional) and for how long (optional). */
+/**
+ * Add or edit a step: what, when (optional) and for how long (optional).
+ * With allowTask, a new step can instead be a daily task on a day.
+ */
 function StepForm({
+  allowTask,
   initial,
   defaultStart,
   placeholder = 'Step',
@@ -403,6 +490,7 @@ function StepForm({
   onSubmit,
   onCancel,
 }: {
+  allowTask?: boolean
   initial?: RunbookStep
   defaultStart: Date | null
   placeholder?: string
@@ -417,11 +505,20 @@ function StepForm({
   const [dur, setDur] = useState(initial ? String(initial.duration_minutes ?? '') : '30')
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [withNotes, setWithNotes] = useState(!!initial?.notes)
+  const [asTask, setAsTask] = useState(false) // stays on for the next step, handy for several preparations
   const [error, setError] = useState('')
 
   const submit = (e?: React.FormEvent) => {
     e?.preventDefault()
     if (!title.trim()) return setError('Enter what the step is first')
+    if (asTask) {
+      onSubmit({ title: title.trim(), notes: withNotes ? notes : '', task: { day: date, tz: userTimeZone() } })
+      setError('')
+      setTitle('')
+      setNotes('')
+      setWithNotes(false)
+      return
+    }
     if (time && !date) return setError('Pick a date for that time')
     const startAt = date ? new Date(`${date}T${time || '00:00'}`).toISOString() : null
     onSubmit({ title: title.trim(), notes: withNotes ? notes : '', start_at: startAt, duration_minutes: dur ? Number(dur) : null })
@@ -440,13 +537,31 @@ function StepForm({
   }
 
   const input = 'h-7 rounded border border-slate-200 bg-white px-1.5 text-xs focus:border-blue-500 focus:outline-none'
+  const kind = (on: boolean) =>
+    clsx('flex h-7 items-center gap-1 px-1.5 text-[11px] font-medium', on ? 'bg-blue-50 text-blue-700' : 'bg-white text-slate-500 hover:bg-slate-50')
   return (
     <form onSubmit={submit} className={clsx('px-3 py-1.5', initial && 'bg-blue-50/40')}>
       <div className="flex flex-wrap items-center gap-1.5">
+        {allowTask && (
+          <span className="flex overflow-hidden rounded border border-slate-200" role="group" aria-label="Add as">
+            <button type="button" className={kind(!asTask)} aria-pressed={!asTask} onClick={() => setAsTask(false)} title="A checklist item in this runbook">
+              <ListChecks size={12} /> Checklist
+            </button>
+            <button
+              type="button"
+              className={clsx(kind(asTask), 'border-l border-slate-200')}
+              aria-pressed={asTask}
+              onClick={() => setAsTask(true)}
+              title="Also a daily task on its day (with this task's project and owners); this task waits for it"
+            >
+              <CalendarDays size={12} /> Daily task
+            </button>
+          </span>
+        )}
         <input
           autoFocus={!!initial}
           className={clsx(input, 'min-w-40 flex-1 text-sm')}
-          placeholder={placeholder}
+          placeholder={asTask ? 'Daily task, e.g. Prepare the rollback scripts' : placeholder}
           value={title}
           onChange={(e) => {
             setTitle(e.target.value)
@@ -454,19 +569,23 @@ function StepForm({
           }}
           onKeyDown={(e) => e.key === 'Escape' && onCancel && (e.stopPropagation(), onCancel())}
         />
-        <input type="date" className={input} value={date} onChange={(e) => setDate(e.target.value)} aria-label="Date" />
-        <input type="time" className={input} value={time} onChange={(e) => setTime(e.target.value)} aria-label="Start time" />
-        <span className="flex items-center gap-1 text-slate-400">
-          <Clock size={12} />
-          <select className={input} value={dur} onChange={(e) => setDur(e.target.value)} aria-label="Duration">
-            <option value="">no duration</option>
-            {DURATIONS.map((m) => (
-              <option key={m} value={m}>
-                {m === 1440 ? '1 day' : formatDuration(m)}
-              </option>
-            ))}
-          </select>
-        </span>
+        <input type="date" className={input} value={date} onChange={(e) => setDate(e.target.value)} aria-label={asTask ? 'Day (optional)' : 'Date'} title={asTask ? 'Day of the daily task; leave empty to plan it later' : undefined} />
+        {!asTask && (
+          <>
+            <input type="time" className={input} value={time} onChange={(e) => setTime(e.target.value)} aria-label="Start time" />
+            <span className="flex items-center gap-1 text-slate-400">
+              <Clock size={12} />
+              <select className={input} value={dur} onChange={(e) => setDur(e.target.value)} aria-label="Duration">
+                <option value="">no duration</option>
+                {DURATIONS.map((m) => (
+                  <option key={m} value={m}>
+                    {m === 1440 ? '1 day' : formatDuration(m)}
+                  </option>
+                ))}
+              </select>
+            </span>
+          </>
+        )}
         {!withNotes && (
           <button type="button" className="flex items-center gap-1 px-1 text-xs font-medium text-blue-600 hover:underline" onClick={() => setWithNotes(true)}>
             <FileText size={12} /> Add notes
@@ -511,7 +630,7 @@ function TemplatePicker({ task, onApply, onDelete }: { task: Task; onApply: (id:
       )}
     >
       <div className="w-72 p-1">
-        <p className="px-2 pt-1 pb-1.5 text-[11px] text-slate-500">Add a template's sections to this runbook. Times move with the task's start.</p>
+        <p className="px-2 pt-1 pb-1.5 text-[11px] text-slate-500">Add a template's sections to this runbook. Times move with the task's start; steps saved as daily tasks create new ones.</p>
         {templates.length === 0 && <p className="px-2 py-3 text-center text-xs text-slate-400">No templates in this workspace yet. Save a runbook as one.</p>}
         {templates.map((t) => (
           <div key={t.id} className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-slate-50">
