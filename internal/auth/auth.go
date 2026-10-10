@@ -81,6 +81,8 @@ type claims struct {
 	PreferredUsername string `json:"preferred_username"`
 	Email             string `json:"email"`
 	Name              string `json:"name"`
+	// admin is from the token's roles (not a claim itself).
+	admin bool
 }
 
 type tokenClaims struct {
@@ -97,6 +99,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		if a.disabled {
 			c = claims{Sub: "dev", PreferredUsername: "dev", Name: "Local Developer", Email: "dev@localhost"}
 			isAdmin = a.devAdmin
+			c.admin = isAdmin
 		} else {
 			raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if !ok || raw == "" {
@@ -123,6 +126,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			}
 			c = tc.claims
 			isAdmin = slices.Contains(tc.RealmAccess.Roles, a.adminRole)
+			c.admin = isAdmin
 			slog.Debug("auth: token accepted", "sub", c.Sub, "username", c.PreferredUsername, "admin", isAdmin, "path", r.URL.Path)
 		}
 		if c.PreferredUsername == "" {
@@ -160,6 +164,10 @@ func (a *Authenticator) user(ctx context.Context, c claims) (store.User, error) 
 	}
 	u, err := a.store.UpsertUser(ctx, c.Sub, c.PreferredUsername, c.Email, c.Name)
 	if err != nil {
+		return u, err
+	}
+	// Remembered so @mentions can tell whether an admin can see a workspace.
+	if err := a.store.SetUserAdmin(ctx, u.ID, c.admin); err != nil {
 		return u, err
 	}
 	a.cache.Store(c.Sub, cachedUser{user: u, claims: c, expires: time.Now().Add(5 * time.Minute)})

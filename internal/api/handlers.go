@@ -285,7 +285,7 @@ func (a *API) updateTask(w http.ResponseWriter, r *http.Request) {
 	if !a.requireTask(w, r, chi.URLParam(r, "id"), levelEditor) {
 		return
 	}
-	t, err := a.store.UpdateTask(r.Context(), chi.URLParam(r, "id"), patch)
+	t, err := a.store.UpdateTaskBy(r.Context(), auth.UserFrom(r.Context()).ID, chi.URLParam(r, "id"), patch)
 	respond(w, t, err)
 }
 

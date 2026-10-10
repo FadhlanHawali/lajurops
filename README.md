@@ -66,6 +66,14 @@ type: `@alice` (owner, `@me` for you), `#prod` (environment), `is:open` / `is:do
 (inside a project) and `due:this-week` / `last-week` / `next-week` / `today` / `oct` / `2026-10-08`. With an empty
 box it lists the tasks you opened recently.
 
+### Notifications
+The bell next to the logo (with an unread count, also in the browser tab title) tells you what concerns you:
+being assigned or removed, your task rescheduled, comments and **@mentions** (type `@` in a comment to pick someone),
+a task you wait for being done, your hourly task or runbook step starting soon, a step's daily task due today, the
+Monday Weekly Commitment nudges, and a project whose tasks are all done. You're never notified about your own
+changes, bursts are grouped ("Bob made 3 changes"), and each person chooses which types they get and how early
+reminders come. Notifications are kept for 60 days.
+
 ### Creating tasks
 Pick the type, search for the project (or daily task) it belongs to, choose the environment, schedule it with the
 date/time pickers (type times like `9:30pm`, one-click durations) and assign several owners.
@@ -383,6 +391,10 @@ GET    /api/config                         runtime config for the SPA
 GET    /api/me | /api/users
 GET    /api/workspaces          POST /api/workspaces
 GET    /api/workspaces/{id}     PATCH/DELETE /api/workspaces/{id}
+GET    /api/notifications?tz=                  your notifications and unread count (tz: your browser's time zone, for reminders)
+GET    /api/notifications/count                 unread count (the bell)
+POST   /api/notifications/read                  { ids: [] } or { all: true }
+GET    /api/notifications/settings   PUT …      { disabled: [types], hourly_lead, step_lead, tz }
 GET    /api/search?q=&tz=                      tasks by title or key, with filters (@owner #env is: type: in: due:); ?ids=a,b returns those tasks
 GET    /api/tasks?workspace_id=&assignee_id=(id|none|others)&type=daily,hourly&top_level=&parent_id=&from=&to=
        &undated=open|all     with from/to, also tasks without dates (all, or not done)

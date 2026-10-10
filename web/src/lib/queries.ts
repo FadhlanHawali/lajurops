@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from './api'
-import type { AdminUser, AdminUserInput, MemberAccess, MemberRole, RunbookSection, RunbookStep, RunbookTemplate, SearchResults, Comment, Commitment, CommitmentBrief, CommitmentInput, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
+import type { AdminUser, AdminUserInput, MemberAccess, MemberRole, RunbookSection, RunbookStep, RunbookTemplate, SearchResults, AppNotification, NotificationSettings, Comment, Commitment, CommitmentBrief, CommitmentInput, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
@@ -294,6 +294,45 @@ export function useCommentMutations(taskId: string) {
       onSettled,
     }),
   }
+}
+
+// --- notifications (the bell) ---
+
+/** Unread count for the bell, checked every 30 seconds and when the tab regains focus. */
+export const useNotificationCount = () =>
+  useQuery({
+    queryKey: ['notifications', 'count'],
+    queryFn: () => api<{ unread: number }>('/notifications/count'),
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  })
+
+/** The list, loaded while the panel is open (it also records the browser's time zone). */
+export const useNotifications = (enabled: boolean) =>
+  useQuery({
+    queryKey: ['notifications', 'list'],
+    queryFn: () => api<{ items: AppNotification[]; unread: number }>('/notifications', { query: { tz: userTimeZone() } }),
+    enabled,
+    refetchInterval: enabled ? 30_000 : false,
+  })
+
+export function useMarkNotificationsRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[] | 'all') => api('/notifications/read', { method: 'POST', body: ids === 'all' ? { all: true } : { ids } }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+  })
+}
+
+export const useNotificationSettings = (enabled: boolean) =>
+  useQuery({ queryKey: ['notifications', 'settings'], queryFn: () => api<NotificationSettings>('/notifications/settings'), enabled })
+
+export function useSaveNotificationSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (s: NotificationSettings) => api<NotificationSettings>('/notifications/settings', { method: 'PUT', body: s }),
+    onSuccess: (s) => qc.setQueryData(['notifications', 'settings'], s),
+  })
 }
 
 // --- search (Ctrl+K) ---

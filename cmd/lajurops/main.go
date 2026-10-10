@@ -61,6 +61,9 @@ func run() error {
 	}
 
 	st := store.New(pool)
+	// Reminders (hourly tasks and runbook steps starting soon, Monday
+	// commitment nudges) and pruning old notifications, every minute.
+	go st.NewReminders().Run(ctx)
 	kcHTTP, err := cfg.KeycloakHTTPClient()
 	if err != nil {
 		return err

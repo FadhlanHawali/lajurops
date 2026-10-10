@@ -33,6 +33,9 @@ func (a *API) createComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, err := a.store.CreateComment(ctx, taskID, auth.UserFrom(ctx).ID, in.Body)
+	if err == nil {
+		a.store.NotifyComment(ctx, c, func(userID, workspaceID string) bool { return a.canSee(ctx, userID, workspaceID) })
+	}
 	respondStatus(w, http.StatusCreated, c, err)
 }
 

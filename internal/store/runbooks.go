@@ -333,7 +333,7 @@ func (s *Store) UpdateRunbookStep(ctx context.Context, id, userID string, in Run
 			if *in.Done {
 				status = "done"
 			}
-			if _, err := s.UpdateTask(ctx, *linked, map[string]json.RawMessage{"status": json.RawMessage(strconv.Quote(status))}); err != nil {
+			if _, err := s.UpdateTaskBy(ctx, userID, *linked, map[string]json.RawMessage{"status": json.RawMessage(strconv.Quote(status))}); err != nil {
 				return RunbookStep{}, err
 			}
 		}

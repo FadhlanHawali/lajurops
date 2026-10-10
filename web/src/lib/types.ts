@@ -386,3 +386,55 @@ export interface SearchResults {
   unknown: string[]
   more: boolean
 }
+
+export type NotificationType =
+  | 'assigned'
+  | 'unassigned'
+  | 'rescheduled'
+  | 'comment'
+  | 'mention'
+  | 'unblocked'
+  | 'hourly_soon'
+  | 'step_soon'
+  | 'step_task_due'
+  | 'commitment_unshared'
+  | 'commitment_overdue'
+  | 'project_ready'
+  /** Several rescheduled/comment events by one person on one task, grouped. */
+  | 'changes'
+
+/** One change inside a grouped notification (see the server's notice.change). */
+export type NotificationChange =
+  | { kind: 'rescheduled'; type: TaskType; from: [string | null, string | null]; to: [string | null, string | null] }
+  | { kind: 'comment'; excerpt: string; comment_id: string }
+
+export interface AppNotification {
+  id: string
+  type: NotificationType
+  /** Type-specific details: changes, excerpt, blocker, start_at, step_title, week, count, total… */
+  data: {
+    changes?: NotificationChange[]
+    excerpt?: string
+    blocker?: { id: string; key: string; title: string }
+    start_at?: string
+    step_title?: string
+    section?: string
+    week?: string
+    count?: number
+    tasks?: number
+    total?: number
+  }
+  created_at: string
+  updated_at: string
+  read: boolean
+  actor_id: string | null
+  actor_name: string | null
+  task: { id: string; key: string; title: string; type: TaskType; status: Status; path: string[] } | null
+}
+
+export interface NotificationSettings {
+  disabled: NotificationType[]
+  hourly_lead: number
+  step_lead: number
+  tz: string
+}

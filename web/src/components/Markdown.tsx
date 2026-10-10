@@ -4,6 +4,36 @@ import remarkGfm from 'remark-gfm'
 import clsx from 'clsx'
 import { Check, Copy } from 'lucide-react'
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/** Marks @username in text (not in code or links) so it can be styled. */
+function remarkMentions() {
+  const re = /(^|[^\w@./-])(@[A-Za-z0-9][A-Za-z0-9._-]*)/g
+  const walk = (node: any) => {
+    if (!Array.isArray(node.children) || node.type === 'link' || node.type === 'linkReference') return
+    const out: any[] = []
+    for (const child of node.children) {
+      if (child.type !== 'text') {
+        walk(child)
+        out.push(child)
+        continue
+      }
+      const text: string = child.value
+      let last = 0
+      for (const m of text.matchAll(re)) {
+        const name = m[2].replace(/[._-]+$/, '')
+        const at = (m.index ?? 0) + m[1].length
+        if (at > last) out.push({ type: 'text', value: text.slice(last, at) })
+        out.push({ type: 'emphasis', data: { hName: 'span', hProperties: { className: ['mention'] } }, children: [{ type: 'text', value: name }] })
+        last = at + name.length
+      }
+      if (last < text.length) out.push({ type: 'text', value: text.slice(last) })
+    }
+    node.children = out
+  }
+  return (tree: any) => walk(tree)
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 /**
  * Renders user-written Markdown (GitHub flavoured). Raw HTML in the source is
  * not rendered, so comments cannot inject markup or scripts.
@@ -20,7 +50,7 @@ export function Markdown({ children, className }: { children: string; className?
       )}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMentions]}
         components={{
           a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
           pre: ({ node: _node, children, ...props }) => <CodeBlock {...props}>{children}</CodeBlock>,

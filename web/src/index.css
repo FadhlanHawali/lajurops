@@ -86,3 +86,12 @@
 .prose blockquote p::after {
   content: none;
 }
+
+/* @mentions in comments */
+.prose .mention {
+  border-radius: 3px;
+  background: #eff6ff;
+  padding: 0 2px;
+  font-weight: 500;
+  color: #1d4ed8;
+}

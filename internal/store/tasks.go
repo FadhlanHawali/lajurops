@@ -401,7 +401,11 @@ func (s *Store) CreateTask(ctx context.Context, in TaskInput, reporterID string)
 	if err := tx.Commit(ctx); err != nil {
 		return Task{}, err
 	}
-	return s.GetTask(ctx, id)
+	t, err := s.GetTask(ctx, id)
+	if err == nil {
+		s.notifyCreated(ctx, reporterID, t)
+	}
+	return t, err
 }
 
 // UpdateTask applies a partial update. Only keys present in patch are changed;

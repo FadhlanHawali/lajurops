@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { formatISO, startOfWeek } from 'date-fns'
 import { AlertTriangle, BarChart3, CalendarDays, Eye, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Search, Settings, Target, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
 import { ImportDialog } from './components/ImportDialog'
+import { NotificationBell } from './components/NotificationBell'
 import { SearchProvider, useSearchPalette } from './components/SearchPalette'
 import { TaskModalProvider, useTaskModal } from './components/TaskModal'
 import { Avatar, Button, Field, inputCls, userName } from './components/ui'
@@ -121,6 +122,7 @@ function Sidebar() {
         <span className="text-lg font-semibold tracking-tight text-white">
           Lajur<span className="text-sky-300">Ops</span>
         </span>
+        <NotificationBell />
       </div>
       <div className="px-2 pb-2">
         <button

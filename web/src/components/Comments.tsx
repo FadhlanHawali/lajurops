@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { format, formatDistanceToNow } from 'date-fns'
 import { Bold, Code, Italic, Link2, List, ListChecks, ListOrdered, Loader2, MessageSquare, Pencil, Quote, Trash2 } from 'lucide-react'
@@ -42,7 +43,8 @@ export function Comments({ taskId }: { taskId: string }) {
           value={draft}
           onChange={setDraft}
           onSubmit={post}
-          placeholder="Add a comment… Markdown supported"
+          mentions
+          placeholder="Add a comment… Markdown supported, @name to mention someone"
           footer={
             <>
               {create.error && <span className="mr-auto text-xs text-red-600">{create.error.message}</span>}
@@ -113,6 +115,7 @@ function CommentItem({ comment: c, taskId }: { comment: Comment; taskId: string 
               value={draft}
               onChange={setDraft}
               onSubmit={save}
+              mentions
               autoFocus
               footer={
                 <>
@@ -178,6 +181,19 @@ const TOOLS: { icon: typeof Bold; title: string; key?: string; apply: (v: string
   { icon: ListChecks, title: 'Checklist', apply: (v, s, e) => prefixLines(v, s, e, () => '- [ ] ') },
 ]
 
+/** Below the text box when there's room, else above the whole editor. */
+function mentionPlace(text: HTMLTextAreaElement, editor: HTMLDivElement | null): React.CSSProperties {
+  const r = text.getBoundingClientRect()
+  if (window.innerHeight - r.bottom > 240) return { left: r.left + 8, top: r.bottom + 4 }
+  return { left: r.left + 8, bottom: window.innerHeight - (editor ?? text).getBoundingClientRect().top + 4 }
+}
+
+/** The "@name" being typed just before the caret, if any. */
+function mentionAt(value: string, caret: number): { start: number; query: string } | null {
+  const m = /(^|[^\w@./-])@([\w.-]*)$/.exec(value.slice(0, caret))
+  return m ? { start: caret - m[2].length - 1, query: m[2].toLowerCase() } : null
+}
+
 export function MarkdownEditor({
   value,
   onChange,
@@ -185,6 +201,7 @@ export function MarkdownEditor({
   placeholder,
   footer,
   autoFocus,
+  mentions,
 }: {
   value: string
   onChange: (v: string) => void
@@ -192,9 +209,48 @@ export function MarkdownEditor({
   placeholder?: string
   footer?: React.ReactNode
   autoFocus?: boolean
+  /** Suggest people while typing @name (comments; they get notified). */
+  mentions?: boolean
 }) {
   const [tab, setTab] = useState<'write' | 'preview'>('write')
   const ref = useRef<HTMLTextAreaElement>(null)
+  const box = useRef<HTMLDivElement>(null)
+  const { data: users = [] } = useUsers()
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
+  const [pick, setPick] = useState(0)
+  // Where the caret goes once an inserted mention is rendered (set before
+  // the next keystroke, so fast typing lands after the mention).
+  const caretAfter = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    if (caretAfter.current !== null && ref.current) {
+      ref.current.focus()
+      ref.current.setSelectionRange(caretAfter.current, caretAfter.current)
+      caretAfter.current = null
+    }
+  }, [value])
+  const suggestions = useMemo(() => {
+    if (!mentions || !mention) return []
+    const q = mention.query
+    return users
+      .filter((u) => u.active && !u.deleted_at)
+      .filter((u) => !q || u.username.toLowerCase().startsWith(q) || u.display_name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)))
+      .slice(0, 6)
+  }, [mentions, mention, users])
+  const track = (el: HTMLTextAreaElement) => {
+    if (!mentions) return
+    const m = mentionAt(el.value, el.selectionStart)
+    setMention(m)
+    if (m?.query !== mention?.query) setPick(0)
+  }
+  const insertMention = (username: string) => {
+    const el = ref.current
+    if (!el || !mention) return
+    const end = el.selectionStart
+    const text = value.slice(0, mention.start) + '@' + username + ' ' + value.slice(end)
+    caretAfter.current = mention.start + username.length + 2
+    onChange(text)
+    setMention(null)
+  }
 
   const apply = (tool: (typeof TOOLS)[number]) => {
     const el = ref.current
@@ -208,7 +264,7 @@ export function MarkdownEditor({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
+    <div ref={box} className="overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
       <div className="flex items-center gap-1 border-b border-slate-200 bg-slate-50 px-1.5 py-1">
         {(['write', 'preview'] as const).map((t) => (
           <button
@@ -232,6 +288,7 @@ export function MarkdownEditor({
       </div>
 
       {tab === 'write' ? (
+        <div className="relative">
         <textarea
           ref={ref}
           autoFocus={autoFocus}
@@ -239,8 +296,32 @@ export function MarkdownEditor({
           className="block w-full resize-y px-3 py-2 text-sm focus:outline-none"
           placeholder={placeholder}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value)
+            track(e.target)
+          }}
+          onClick={(e) => track(e.currentTarget)}
+          onBlur={() => setTimeout(() => setMention(null), 150)}
           onKeyDown={(e) => {
+            if (suggestions.length > 0) {
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault()
+                setPick((p) => (p + (e.key === 'ArrowDown' ? 1 : suggestions.length - 1)) % suggestions.length)
+                return
+              }
+              if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault()
+                insertMention(suggestions[pick].username)
+                return
+              }
+              if (e.key === 'Escape') {
+                // Close the suggestions only, not the dialog.
+                e.preventDefault()
+                e.stopPropagation()
+                setMention(null)
+                return
+              }
+            }
             const mod = e.ctrlKey || e.metaKey
             if (mod && e.key === 'Enter') {
               e.preventDefault()
@@ -254,14 +335,45 @@ export function MarkdownEditor({
               apply(tool)
             }
           }}
+          onKeyUp={(e) => (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') && track(e.currentTarget)}
         />
+        {suggestions.length > 0 && ref.current && createPortal(
+          // Floats below the text box (the editor clips its contents), above dialogs.
+          <ul
+            className="fixed z-[75] w-64 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+            style={mentionPlace(ref.current, box.current)}
+            role="listbox"
+            aria-label="Mention someone"
+          >
+            <li className="px-3 pt-0.5 pb-1 text-[11px] text-slate-400">Mention someone · they’ll be notified</li>
+            {suggestions.map((u, i) => (
+              <li key={u.id} role="option" aria-selected={i === pick}>
+                <button
+                  type="button"
+                  className={clsx('flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm', i === pick ? 'bg-blue-50' : 'hover:bg-slate-50')}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    insertMention(u.username)
+                  }}
+                  onMouseEnter={() => setPick(i)}
+                >
+                  <Avatar user={u} />
+                  <span className="min-w-0 flex-1 truncate">{u.display_name || u.username}</span>
+                  <span className="truncate text-xs text-slate-400">@{u.username}</span>
+                </button>
+              </li>
+            ))}
+          </ul>,
+          document.body,
+        )}
+        </div>
       ) : (
         <div className="min-h-[76px] px-3 py-2">{value.trim() ? <Markdown>{value}</Markdown> : <p className="text-sm text-slate-400">Nothing to preview</p>}</div>
       )}
 
       <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-2 py-1.5">
         <span className="mr-auto pl-1 text-[11px] text-slate-400">
-          Markdown supported · <kbd className="font-sans">Ctrl</kbd>+<kbd className="font-sans">Enter</kbd> to post
+          Markdown supported{mentions && ' · @name to mention'} · <kbd className="font-sans">Ctrl</kbd>+<kbd className="font-sans">Enter</kbd> to post
         </span>
         {footer}
       </div>

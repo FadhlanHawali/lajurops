@@ -68,6 +68,11 @@ func (a *API) routes(r chi.Router) {
 	r.Post("/import/fetch", a.fetchBackup)
 
 	r.Get("/search", a.search)
+	r.Get("/notifications", a.listNotifications)
+	r.Get("/notifications/count", a.notificationCount)
+	r.Post("/notifications/read", a.markNotificationsRead)
+	r.Get("/notifications/settings", a.getNotificationSettings)
+	r.Put("/notifications/settings", a.saveNotificationSettings)
 	r.Get("/tasks", a.listTasks)
 	r.Post("/tasks", a.createTask)
 	r.Get("/tasks/{id}", a.getTask)
