@@ -24,6 +24,7 @@ import { formatSchedule } from '../lib/dates'
 import { useMarkNotificationsRead, useNotificationCount, useNotifications, useNotificationSettings, useSaveNotificationSettings } from '../lib/queries'
 import type { AppNotification, NotificationChange, NotificationSettings, NotificationType, TaskType } from '../lib/types'
 import { Popover } from './Popover'
+import { SearchSelect } from './SearchSelect'
 import { useTaskModal } from './TaskModal'
 
 const STYLE: Record<NotificationType, { icon: LucideIcon; cls: string }> = {
@@ -350,20 +351,21 @@ function SettingsView({ onBack }: { onBack: () => void }) {
                       <span className="flex flex-1 flex-wrap items-center gap-1.5 text-sm text-slate-700">
                         {r.label}
                         {r.lead && (
-                          <select
-                            className="h-6 rounded border border-slate-200 bg-white px-1 text-xs"
-                            value={data[r.lead]}
-                            disabled={!on}
-                            onClick={(e) => e.preventDefault()}
-                            onChange={(e) => update({ [r.lead!]: Number(e.target.value) })}
-                            aria-label={`${r.label}: minutes before`}
-                          >
-                            {[...new Set([...LEADS, data[r.lead]])].sort((a, b) => a - b).map((m) => (
-                              <option key={m} value={m}>
-                                {m} min before
-                              </option>
-                            ))}
-                          </select>
+                          <span onClick={(e) => e.preventDefault()}>
+                            <SearchSelect
+                              variant="mini"
+                              search={false}
+                              width="w-36"
+                              icon={AlarmClock}
+                              noun="times"
+                              placeholder="Minutes before"
+                              label={`${r.label}: minutes before`}
+                              disabled={!on}
+                              value={String(data[r.lead])}
+                              onChange={(v) => update({ [r.lead!]: Number(v) })}
+                              options={[...new Set([...LEADS, data[r.lead]])].sort((a, b) => a - b).map((m) => ({ id: String(m), label: `${m} min before` }))}
+                            />
+                          </span>
                         )}
                       </span>
                       <input type="checkbox" className="peer sr-only" checked={on} onChange={() => toggle(r.type)} />

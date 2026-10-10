@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { addHours, differenceInMinutes, setHours, startOfDay } from 'date-fns'
-import { AlertTriangle, ArrowLeft, CalendarX, CheckCircle2, ChevronRight, CircleDot, Eye, Flag, Hourglass, Loader2, Plus, RotateCcw, Tags, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CalendarX, CheckCircle2, ChevronRight, CircleDot, Eye, Flag, FolderKanban, Hourglass, Loader2, Plus, RotateCcw, Tags, Trash2, X } from 'lucide-react'
 import { ReadOnlyContext, useAccess, useReadOnly } from '../lib/access'
 import { dotStyle } from '../lib/colors'
 import { formatCreatedFull, fromInput, toInput } from '../lib/dates'
@@ -408,14 +408,15 @@ function TaskForm({
         <fieldset disabled={readOnly} className="min-w-0 space-y-3">
           {needsWorkspace && (
             <Field label="Workspace">
-              <select className={inputCls} value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
-                <option value="">Choose a workspace…</option>
-                {workspaces.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.key} · {p.name}
-                  </option>
-                ))}
-              </select>
+              <SearchSelect
+                variant="field"
+                icon={FolderKanban}
+                noun="workspaces"
+                placeholder="Choose a workspace…"
+                value={workspaceId}
+                onChange={setWorkspaceId}
+                options={workspaces.map((p) => ({ id: p.id, label: `${p.key} · ${p.name}`, keywords: [p.key, p.name] }))}
+              />
             </Field>
           )}
           <Field label="Type">
@@ -856,25 +857,29 @@ function AddChildRow({ parent, environmentId, environmentName, compact }: { pare
     <li
       className="flex items-center gap-2 px-2 py-1.5"
       // Collapse an empty compact row only when focus leaves the whole row,
-      // so the type dropdown can be used.
-      onBlur={(e) => compact && !title.trim() && !e.currentTarget.contains(e.relatedTarget as Node | null) && setOpen(false)}
+      // so the type dropdown (which opens in a floating layer) can be used.
+      onBlur={(e) => {
+        const to = e.relatedTarget as HTMLElement | null
+        if (compact && !title.trim() && !e.currentTarget.contains(to) && !to?.closest('[data-floating-ui-portal]')) setOpen(false)
+      }}
     >
       <Plus size={14} className="text-slate-400" />
       {allowed.length > 1 && (
-        <select
-          className="rounded border border-slate-200 bg-white px-1 py-0.5 text-xs"
+        <SearchSelect
+          variant="mini"
+          search={false}
+          width="w-32"
+          icon={Plus}
+          noun="types"
+          placeholder="Type"
+          label="Type of the new task"
           value={type}
-          onChange={(e) => {
-            setType(e.target.value as TaskType)
+          onChange={(v) => {
+            setType(v as TaskType)
             inputRef.current?.focus()
           }}
-        >
-          {allowed.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.label}
-            </option>
-          ))}
-        </select>
+          options={allowed.map((t) => ({ id: t.id, label: t.label }))}
+        />
       )}
       <input
         ref={inputRef}

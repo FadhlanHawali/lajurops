@@ -2,7 +2,8 @@ import { Fragment, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { Link } from 'react-router-dom'
 import { addMonths, addWeeks, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from 'date-fns'
-import { ChevronDown, ChevronLeft, ChevronRight, Download } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Download, FolderKanban } from 'lucide-react'
+import { SearchSelect } from '../components/SearchSelect'
 import { useTaskModal } from '../components/TaskModal'
 import { EnvBadge } from '../components/Environments'
 import { Avatar, Button, Empty, StatusPill, TypeBadge, userName } from '../components/ui'
@@ -93,14 +94,14 @@ export default function Reports() {
           <ChevronRight size={16} />
         </Button>
         <Button onClick={() => setAnchor(new Date())}>This {period}</Button>
-        <select className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm" value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
-          <option value="">All workspaces</option>
-          {workspaces.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.key} · {p.name}
-            </option>
-          ))}
-        </select>
+        <SearchSelect
+          icon={FolderKanban}
+          noun="workspaces"
+          placeholder="All workspaces"
+          value={workspaceId}
+          onChange={setWorkspaceId}
+          options={[{ id: '', label: 'All workspaces', fixed: true }, ...workspaces.map((p) => ({ id: p.id, label: `${p.key} · ${p.name}`, keywords: [p.key, p.name] }))]}
+        />
         <Button className="ml-auto" onClick={exportCsv} disabled={!rows.length}>
           <Download size={14} /> CSV
         </Button>

@@ -63,6 +63,8 @@ export function SearchSelect({
   width = 'w-72',
   variant = 'filter',
   search = true,
+  disabled,
+  label,
 }: {
   value: string
   onChange: (id: string) => void
@@ -72,10 +74,14 @@ export function SearchSelect({
   /** Plural noun for the footer, e.g. "projects". */
   noun: string
   width?: string
-  /** "filter": compact filter-bar trigger; "field": full-width form input. */
-  variant?: 'filter' | 'field'
+  /** "filter": compact filter-bar trigger; "field": full-width form input;
+   *  "mini": a small inline chip (e.g. inside a row of text). */
+  variant?: 'filter' | 'field' | 'mini'
   /** Show the search box; off for short fixed lists (keyboard still works). */
   search?: boolean
+  disabled?: boolean
+  /** Accessible name for the trigger (mini triggers show only the value). */
+  label?: string
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -133,7 +139,22 @@ export function SearchSelect({
         }
       }}
       trigger={(props, isOpen) =>
-        variant === 'field' ? (
+        variant === 'mini' ? (
+          <button
+            type="button"
+            {...props}
+            disabled={disabled}
+            aria-label={label}
+            className={clsx(
+              'inline-flex items-center gap-1 rounded border bg-white px-1.5 py-0.5 text-xs text-slate-700 transition disabled:opacity-50',
+              isOpen ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200 hover:border-slate-400',
+            )}
+          >
+            {selected?.icon}
+            {selected?.label ?? placeholder}
+            <ChevronDown size={12} className="shrink-0 text-slate-400" />
+          </button>
+        ) : variant === 'field' ? (
           <button
             type="button"
             {...props}

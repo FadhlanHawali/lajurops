@@ -7,6 +7,7 @@ import { EnvBadge } from '../components/Environments'
 import { INDEPENDENT, ProjectMultiFilter } from '../components/ProjectMultiFilter'
 import { WeekPicker } from '../components/WeekPicker'
 import { Avatar, AvatarStack, Button, Empty, StatusPill, TypeBadge, inputCls, userName } from '../components/ui'
+import { SearchSelect } from '../components/SearchSelect'
 import { useAccess } from '../lib/access'
 import { formatSchedule, hoursBetween } from '../lib/dates'
 import { useCommitments, useMe, useMyCommitment, useSaveCommitment, useTasks, useUpdateTask, useUsers, useWorkspaces } from '../lib/queries'
@@ -63,14 +64,14 @@ export default function Commitments() {
         </Button>
         <Button onClick={() => go(new Date())}>This week</Button>
         {view === 'team' && (
-          <select className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm" value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
-            <option value="">All workspaces</option>
-            {workspaces.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.key} · {p.name}
-              </option>
-            ))}
-          </select>
+          <SearchSelect
+            icon={FolderKanban}
+            noun="workspaces"
+            placeholder="All workspaces"
+            value={workspaceId}
+            onChange={setWorkspaceId}
+            options={[{ id: '', label: 'All workspaces', fixed: true }, ...workspaces.map((p) => ({ id: p.id, label: `${p.key} · ${p.name}`, keywords: [p.key, p.name] }))]}
+          />
         )}
       </div>
       {view === 'mine' ? <MyWeek key={week} week={week} onDirty={setDirty} /> : <Team week={week} workspaceId={workspaceId} />}
