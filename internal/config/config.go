@@ -5,12 +5,17 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds runtime configuration, read from environment variables.
 type Config struct {
 	Addr        string
 	DatabaseURL string
+	// ShutdownDelay keeps serving this long after SIGTERM while /readyz
+	// already says "shutting down", so a load balancer (e.g. Kubernetes)
+	// stops sending traffic before in-flight requests are drained.
+	ShutdownDelay time.Duration
 
 	// AuthDisabled skips Keycloak entirely and treats every request as a
 	// single local "dev" user. Never enable this in production.
@@ -88,6 +93,13 @@ func Load() (Config, error) {
 		c.DevUserAdmin = v
 	}
 	c.ImportAllowPrivateURLs, _ = strconv.ParseBool(os.Getenv("IMPORT_ALLOW_PRIVATE_URLS"))
+	if v := os.Getenv("SHUTDOWN_DELAY"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 || d > time.Minute {
+			return c, fmt.Errorf("SHUTDOWN_DELAY must be a duration up to 1m, e.g. 5s; got %q", v)
+		}
+		c.ShutdownDelay = d
+	}
 
 	if !c.AuthDisabled {
 		if c.OIDCIssuer == "" {

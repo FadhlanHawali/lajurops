@@ -293,6 +293,7 @@ make build        # web/dist + bin/lajurops
 | `KEYCLOAK_TLS_SKIP_VERIFY` | `false` | Don't verify Keycloak's TLS certificate at all. Insecure; prefer `KEYCLOAK_CA_CERT` |
 | `IMPORT_ALLOW_PRIVATE_URLS` | `false` | Let "import from URL" fetch from private/internal addresses (e.g. an intranet file server) |
 | `DEFAULT_WORKSPACE_ROLE` | `viewer` | Role of a non-admin in a workspace nobody gave them a role in: `viewer` or `none` |
+| `SHUTDOWN_DELAY` | `0s` | After SIGTERM, keep serving this long while `/readyz` reports "shutting down", so the load balancer stops sending traffic first (e.g. `5s` on Kubernetes) |
 | `AUTH_DISABLED`  | `false` | Local development only: skip Keycloak entirely |
 | `DEV_USER_ADMIN` | `true` | With `AUTH_DISABLED`: set `false` to use the app as a non-admin member (to try roles) |
 | `LOG_LEVEL`      | `info` | `debug`, `info`, `warn` or `error`. Rejected sign-in tokens are logged at `warn` with the reason |
@@ -319,6 +320,77 @@ one build works in every environment.
 - Run Keycloak with `start` (not `start-dev`), TLS, and `KC_HOSTNAME` set to its public URL.
 - Put the app behind TLS; set `PUBLIC_KEYCLOAK_URL` and update the client's redirect URIs.
 - Change every default password in `.env` and the realm file.
+
+### Running several replicas (high availability)
+
+The app keeps no state of its own: everything lives in Postgres and sign-in is a Keycloak token checked on
+every request. So you can run several copies behind a load balancer, with no sticky sessions or shared volumes.
+
+- **Migrations** run on startup under a Postgres lock: the first replica applies them, the others wait and
+  then find nothing to do. Upgrading with a rolling update is safe.
+- **Reminders** (the time-based notifications) run on one replica at a time, under a Postgres lock; if that
+  replica stops or crashes, another takes over within a minute. Nothing is sent twice.
+- **Health checks:** `/healthz` says the process is up (use it as the liveness probe); `/readyz` also checks
+  the database and reports "shutting down" during shutdown (use it as the readiness probe).
+- **Shutdown** finishes the requests in flight before exiting. Set `SHUTDOWN_DELAY` (e.g. `5s`) on Kubernetes,
+  where a pod can still get traffic for a moment after it's told to stop.
+- **Database connections:** each replica opens up to as many Postgres connections as it has CPU cores (at least
+  4). Cap it with `pool_max_conns` in `DATABASE_URL` (e.g. `...?sslmode=require&pool_max_conns=10`) and keep
+  replicas × pool size well under Postgres's `max_connections` (100 by default).
+- **What still needs its own HA:** Postgres (e.g. CloudNativePG, Patroni or a managed database; point
+  `DATABASE_URL` at its primary) and Keycloak (several nodes sharing their database).
+
+Kubernetes (the important parts):
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: lajurops }
+spec:
+  replicas: 3
+  strategy: { rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  selector: { matchLabels: { app: lajurops } }
+  template:
+    metadata: { labels: { app: lajurops } }
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: lajurops
+          image: ghcr.io/fadhlanhawali/lajurops:latest
+          ports: [{ containerPort: 8080 }]
+          envFrom: [{ secretRef: { name: lajurops } }]   # DATABASE_URL, OIDC_ISSUER, ...
+          env: [{ name: SHUTDOWN_DELAY, value: 5s }]
+          readinessProbe: { httpGet: { path: /readyz, port: 8080 }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: 8080 }, periodSeconds: 10 }
+```
+
+Docker Compose: `deploy.replicas` alone can't share one published port, so put a reverse proxy in front.
+For example, with nginx forwarding to the `app` service (Docker's DNS spreads requests over the replicas):
+
+```yaml
+services:
+  app:
+    image: ghcr.io/fadhlanhawali/lajurops:latest
+    deploy: { replicas: 3 }
+    # no "ports:" here; the proxy publishes 8080
+  proxy:
+    image: nginx:alpine
+    ports: ["8080:80"]
+    volumes: ["./nginx.conf:/etc/nginx/conf.d/default.conf:ro"]
+```
+
+```nginx
+# nginx.conf: re-resolve "app" so replicas added or restarted are picked up
+resolver 127.0.0.11 valid=5s;
+server {
+  listen 80;
+  location / {
+    set $app http://app:8080;
+    proxy_pass $app;
+    proxy_next_upstream error timeout http_502 http_503;
+  }
+}
+```
 
 ### Troubleshooting sign-in (401 "invalid token")
 

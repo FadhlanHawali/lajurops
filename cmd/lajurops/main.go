@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 	_ "time/tzdata" // runbook step tasks are placed on days in the user's time zone
@@ -76,22 +77,39 @@ func run() error {
 		_, realm, _ := cfg.KeycloakURLAndRealm()
 		kc = keycloak.New(cfg.KeycloakAdminURL, realm, cfg.KeycloakAdminClientID, cfg.KeycloakAdminClientSecret, kcHTTP)
 	}
+	var draining atomic.Bool
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           api.Router(cfg, st, auth.New(ctx, cfg, st, kcHTTP), kc, web.Handler()),
+		Handler:           api.Router(cfg, st, auth.New(ctx, cfg, st, kcHTTP), kc, web.Handler(), &draining),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	// On SIGTERM: report not ready, optionally keep serving while the load
+	// balancer notices, then stop accepting and wait for in-flight requests
+	// (only then is the database pool closed, by the deferred Close).
+	stopped := make(chan struct{})
 	go func() {
+		defer close(stopped)
 		<-ctx.Done()
+		draining.Store(true)
+		if cfg.ShutdownDelay > 0 {
+			slog.Info("shutting down: draining", "delay", cfg.ShutdownDelay)
+			time.Sleep(cfg.ShutdownDelay)
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("shutdown: requests still running were cut off", "err", err)
+		}
 	}()
 
 	slog.Info("lajurops listening", "version", version, "addr", cfg.Addr, "auth", !cfg.AuthDisabled, "user_management", kc != nil)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	// ListenAndServe returns as soon as Shutdown starts; wait for it to
+	// finish the requests in flight before closing the database.
+	<-stopped
+	slog.Info("stopped")
 	return nil
 }

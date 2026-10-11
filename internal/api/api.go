@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -25,12 +27,28 @@ type API struct {
 }
 
 // Router mounts the JSON API under /api and serves the SPA for everything else.
-func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *keycloak.Client, spa http.Handler) http.Handler {
+// draining is set on shutdown: /readyz then reports "shutting down".
+func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *keycloak.Client, spa http.Handler, draining *atomic.Bool) http.Handler {
 	a := &API{cfg: cfg, store: st, auth: authn, kc: kc}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP, middleware.Recoverer, middleware.Compress(5))
+	// /healthz: the process is up (liveness). /readyz: it can also reach the
+	// database, so a load balancer should send it traffic (readiness).
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
+	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if draining != nil && draining.Load() {
+			http.Error(w, "shutting down", http.StatusServiceUnavailable)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := st.Ping(ctx); err != nil {
+			http.Error(w, "database unreachable", http.StatusServiceUnavailable)
+			return
+		}
+		w.Write([]byte("ok"))
+	})
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(middleware.Logger)

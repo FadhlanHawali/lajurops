@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Time-based notifications, made by RunReminders every minute: hourly tasks
@@ -21,9 +23,16 @@ const (
 	reminderRetention = time.Hour
 )
 
-// Reminders runs the time-based notifications; one per server.
+// remindersLock is the advisory lock key held by the replica running reminders.
+const remindersLock int64 = 0x6c616a7572656d64
+
+// Reminders runs the time-based notifications. With several replicas, only
+// the one holding remindersLock runs them; if it stops (or loses its
+// database connection), another takes over at its next minute.
 type Reminders struct {
 	s *Store
+	// leader is the connection holding remindersLock while this replica leads.
+	leader *pgxpool.Conn
 	// checked remembers, per person, the week whose Monday reminders were
 	// already worked out, so people with nothing due aren't recomputed every
 	// minute on Mondays.
@@ -34,18 +43,57 @@ type Reminders struct {
 
 func (s *Store) NewReminders() *Reminders { return &Reminders{s: s, checked: map[string]string{}} }
 
-// Run calls Tick every minute until ctx ends.
+// Run calls Tick every minute until ctx ends, while this replica leads.
 func (r *Reminders) Run(ctx context.Context) {
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
+	defer r.Resign()
 	for {
-		r.Tick(ctx, time.Now())
+		if r.Lead(ctx) {
+			r.Tick(ctx, time.Now())
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 		}
 	}
+}
+
+// Lead reports whether this replica runs the reminders, taking the lock
+// when nobody holds it. A lost connection gives the lock up (Postgres
+// releases it), so the check is redone each minute.
+func (r *Reminders) Lead(ctx context.Context) bool {
+	if r.leader != nil {
+		if err := r.leader.Ping(ctx); err == nil {
+			return true
+		}
+		slog.Warn("reminders: lost the lock's connection; another replica can take over")
+		r.leader.Release()
+		r.leader = nil
+	}
+	conn, err := r.s.db.Acquire(ctx)
+	if err != nil {
+		return false
+	}
+	var ok bool
+	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, remindersLock).Scan(&ok); err != nil || !ok {
+		conn.Release()
+		return false
+	}
+	slog.Info("reminders: this replica sends the time-based notifications")
+	r.leader = conn
+	return true
+}
+
+// Resign gives up leading (on shutdown), so another replica takes over.
+func (r *Reminders) Resign() {
+	if r.leader == nil {
+		return
+	}
+	_, _ = r.leader.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, remindersLock)
+	r.leader.Release()
+	r.leader = nil
 }
 
 // Tick makes the reminders due at now (errors are logged).

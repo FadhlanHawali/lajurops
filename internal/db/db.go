@@ -47,9 +47,26 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	}
 }
 
+// migrateLock is the Postgres advisory lock key that serialises migrations
+// (any fixed number; this one spells "lajurops").
+const migrateLock int64 = 0x6c616a75726f7073
+
 // Migrate applies embedded migrations in filename order, each exactly once.
+// Replicas starting at the same time take turns: the first applies what's
+// missing while the others wait for the lock, then find nothing to do.
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrateLock); err != nil {
+		return fmt.Errorf("waiting for the migration lock: %w", err)
+	}
+	// Session lock: released explicitly, or by Postgres if this connection dies.
+	defer conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, migrateLock)
+
+	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version text PRIMARY KEY,
 		applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		return err
@@ -63,7 +80,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 
 	for _, name := range names {
 		var exists bool
-		if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, name).Scan(&exists); err != nil {
+		if err := conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, name).Scan(&exists); err != nil {
 			return err
 		}
 		if exists {
@@ -73,7 +90,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		if err != nil {
 			return err
 		}
-		tx, err := pool.Begin(ctx)
+		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return err
 		}

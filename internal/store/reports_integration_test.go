@@ -23,7 +23,10 @@ func TestWorkloadUnassigned(t *testing.T) {
 	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, alice.ID) })
 
 	day := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
-	at := func(h, m int) *time.Time { v := day.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute); return &v }
+	at := func(h, m int) *time.Time {
+		v := day.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute)
+		return &v
+	}
 	mk := func(title, typ string, owners []string, start, end *time.Time) {
 		t.Helper()
 		if _, err := st.CreateTask(ctx, TaskInput{WorkspaceID: ws.ID, Title: title, Type: typ, AssigneeIDs: owners, StartAt: start, EndAt: end}, ""); err != nil {

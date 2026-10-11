@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,3 +25,6 @@ type Store struct {
 }
 
 func New(db *pgxpool.Pool) *Store { return &Store{db: db} }
+
+// Ping checks that the database answers (for /readyz).
+func (s *Store) Ping(ctx context.Context) error { return s.db.Ping(ctx) }

@@ -234,3 +234,29 @@ func TestNotifications(t *testing.T) {
 		t.Errorf("monday reminder (and nothing repeated) = %v", got)
 	}
 }
+
+// With several replicas only one runs the reminders, and another takes
+// over when it stops.
+func TestRemindersOneLeader(t *testing.T) {
+	st, _ := testStore(t)
+	ctx := context.Background()
+	a, b := st.NewReminders(), st.NewReminders()
+	defer a.Resign()
+	defer b.Resign()
+	if !a.Lead(ctx) {
+		t.Fatal("the first replica didn't take the lead")
+	}
+	if !a.Lead(ctx) {
+		t.Error("the leader lost the lead on its next minute")
+	}
+	if b.Lead(ctx) {
+		t.Fatal("two replicas lead at once")
+	}
+	a.Resign()
+	if !b.Lead(ctx) {
+		t.Error("nobody took over after the leader stopped")
+	}
+	if a.Lead(ctx) {
+		t.Error("the old leader took the lead back while another holds it")
+	}
+}
