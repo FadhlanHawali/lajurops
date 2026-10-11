@@ -96,7 +96,7 @@ toolbar, shortcuts and preview.
 ### Hourly Workload
 Per person, per week or month: time spent on **hourly tasks** (support, deployments, implementation), plus hourly/daily
 task counts and completion. Daily tasks have no hours and are planned on Weekly Commitment. Drill into a person's tasks and
-export CSV.
+export CSV. Tasks nobody owns are listed as **Unassigned** (also on the week grid), so open slots are easy to spot.
 
 <img src="docs/media/workload.gif" alt="Workload report: weekly and monthly, per-person drill-down" width="900">
 
