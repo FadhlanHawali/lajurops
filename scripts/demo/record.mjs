@@ -40,6 +40,8 @@ const browser = await chromium.launch({ channel: 'msedge', headless: true })
 async function record(name, fn) {
   if (only.length && !only.includes(name)) return
   const ctx = await browser.newContext({ viewport: SIZE, locale: 'en-US', timezoneId: 'Asia/Jakarta', acceptDownloads: true })
+  // The demo data is planned around this moment.
+  await ctx.clock.install({ time: new Date('2026-09-30T10:30:00+07:00') })
   await ctx.addInitScript(cursorScript)
   const page = await ctx.newPage()
   // Capture frames with the DevTools screencast (no extra ffmpeg download);
@@ -124,12 +126,10 @@ await record('board', async (page, { go, wait, drag, click }) => {
   const inProgress = page.locator('div.rounded-lg.bg-slate-100', { hasText: 'In Progress' }).first()
   await drag(card, inProgress.locator('.space-y-2').first())
   await wait(900)
-  const envSel = page.locator('select', { has: page.locator('option', { hasText: 'All environments' }) })
-  await click(envSel, 200)
-  await envSel.selectOption({ label: 'Production' })
-  await wait(1800)
-  await envSel.selectOption({ label: 'All environments' })
-  await wait(600)
+  await click(page.getByRole('button', { name: /All environments/ }), 500)
+  await click(page.getByRole('option', { name: /Staging/ }), 1800)
+  await click(page.getByRole('button', { name: /Staging/ }).first(), 500)
+  await click(page.getByRole('option', { name: /All environments/ }), 600)
   const typeFilter = page.getByRole('button', { name: 'Hourly', exact: true })
   await click(typeFilter, 1600)
   await click(page.getByRole('button', { name: 'All types', exact: true }), 1200)
@@ -172,15 +172,14 @@ await record('calendar', async (page, { go, wait, click }) => {
   await wait(1500)
   await click(page.getByRole('button', { name: 'Month', exact: true }), 1800)
   await click(page.getByRole('button', { name: 'Week', exact: true }), 1200)
-  // An empty afternoon (Thu Oct 1, 13:00) so the drag selects instead of moving an event.
-  const slot = page.locator('.fc-timegrid-slot-lane').nth(26)
-  const b = await slot.boundingBox()
-  const col = page.locator('.fc-timegrid-col[data-date="2026-10-01"]')
+  // An empty afternoon (Thu Oct 1, 13:00-15:30) so the drag selects instead of moving an event.
+  const col = page.locator('div.cursor-cell').nth(3)
   const cb = await col.boundingBox()
+  const hour = cb.height / 24
   const x = cb.x + cb.width / 2
-  await page.mouse.move(x, b.y + 4, { steps: 18 })
+  await page.mouse.move(x, cb.y + 13 * hour + 4, { steps: 18 })
   await page.mouse.down()
-  await page.mouse.move(x, b.y + 4 + 5 * b.height, { steps: 20 })
+  await page.mouse.move(x, cb.y + 15.5 * hour - 4, { steps: 20 })
   await page.mouse.up()
   await wait(1200)
   await page.keyboard.type('Review release notes', { delay: 40 })
@@ -218,20 +217,24 @@ await record('create-task', async (page, { go, wait, click, type }) => {
   await wait(500)
 })
 
-// 6. Markdown comments.
+// 6. Markdown comments, with an @mention.
 await record('comments', async (page, { go, wait, click, type }) => {
   await go(`/w/${W}/board`)
-  await click(page.locator('[data-card]', { hasText: 'Production release window' }), 1300)
+  await click(page.locator('[data-card]', { hasText: 'Write end-to-end tests' }), 1300)
   const dlg = page.locator('.fixed .rounded-xl:not(.hidden)')
   await dlg.getByText('Comments').first().scrollIntoViewIfNeeded()
   await page.mouse.wheel(0, 500)
   await wait(1600)
   await click(dlg.locator('textarea[placeholder^="Add a comment"]'), 300)
-  await type('Staging sign-off done. ')
+  await type('Checkout suite is green again: ')
   await page.keyboard.press('Control+b')
-  await type('All regression tests passed', 30)
+  await wait(250)
+  await type('all 214 tests passed', 30)
   await page.keyboard.press('End')
-  await type(' - release approved by `@product-team`.', 30)
+  await type('. Ready for `staging` sign-off, @may', 30)
+  await wait(900)
+  await page.keyboard.press('Enter')
+  await wait(500)
   await wait(500)
   await click(dlg.getByRole('button', { name: 'preview', exact: true }), 1400)
   await click(dlg.getByRole('button', { name: 'Comment', exact: true }), 1800)
@@ -239,16 +242,103 @@ await record('comments', async (page, { go, wait, click, type }) => {
   await wait(400)
 })
 
-// 7. Workload report.
+// 7. Hourly Workload: per person (with the Unassigned row), monthly, week grid.
 await record('workload', async (page, { go, wait, click }) => {
   await go('/reports')
   await wait(1500)
   await click(page.locator('tbody tr', { hasText: 'Leo Martins' }), 1800)
   await click(page.getByRole('button', { name: 'Monthly', exact: true }), 1600)
   await click(page.getByRole('button', { name: 'Weekly', exact: true }), 1000)
+  await click(page.getByRole('button', { name: 'Week grid', exact: true }), 2200)
 })
 
-// 8. Backup: export, then import the file as a new workspace.
+// 8. Search: typos, filters, open a result.
+await record('search', async (page, { go, wait, click, type }) => {
+  await go(`/w/${W}/board`)
+  await wait(500)
+  await page.keyboard.press('Control+k')
+  await wait(700)
+  await type('relase', 90)
+  await wait(1700)
+  await page.keyboard.press('Control+a')
+  await type('@leo is:open', 70)
+  await wait(1700)
+  await page.keyboard.press('Control+a')
+  await type('#staging type:daily', 70)
+  await wait(1700)
+  await click(page.getByRole('button', { name: 'Show filter help' }), 2200)
+  await click(page.getByRole('button', { name: 'in:portal type:daily' }), 1800)
+  await page.getByRole('textbox', { name: 'Search tasks' }).focus()
+  await page.keyboard.press('Control+a')
+  await type('release window', 70)
+  await wait(1000)
+  await page.keyboard.press('Enter')
+  await wait(1800)
+  await page.keyboard.press('Escape')
+  await wait(500)
+})
+
+// 9. Notifications: the bell, an @mention, mark all read.
+await record('notifications', async (page, { go, wait, click }) => {
+  await go(`/w/${W}/board`)
+  await wait(500)
+  await click(page.getByRole('button', { name: 'Notifications' }), 1800)
+  const panel = page.locator('div', { has: page.getByText('Mark all read') }).last()
+  await page.mouse.wheel(0, 200)
+  await wait(800)
+  await click(page.getByText(/mentioned you on/), 1800)
+  const dlg = page.locator('.fixed .rounded-xl:not(.hidden)')
+  await dlg.getByText('Comments').first().scrollIntoViewIfNeeded()
+  await page.mouse.wheel(0, 700)
+  await wait(1800)
+  await page.keyboard.press('Escape')
+  await wait(500)
+  await click(page.getByRole('button', { name: 'Notifications' }), 1000)
+  await click(page.getByText('Mark all read'), 1500)
+  await page.keyboard.press('Escape')
+  await wait(400)
+})
+
+// 10. Runbook: steps by time, a step that's a daily task, add a step, tick one off.
+await record('runbook', async (page, { go, wait, click, type }) => {
+  await go(`/w/${W}/board`)
+  await page.keyboard.press('Control+k')
+  await wait(400)
+  await type('release window', 50)
+  await wait(700)
+  await page.keyboard.press('Enter')
+  await wait(1200)
+  const dlg = page.locator('.fixed .rounded-xl:not(.hidden)')
+  await dlg.getByText('Before the window').first().scrollIntoViewIfNeeded()
+  await page.mouse.wheel(0, 250)
+  await wait(1800)
+  await click(dlg.getByRole('button', { name: 'Add step' }).last(), 900)
+  await type('Post the release summary in #releases', 40)
+  await wait(400)
+  await click(page.getByRole('button', { name: '15m', exact: true }), 600)
+  await click(page.getByRole('button', { name: 'Add', exact: true }), 1500)
+  await click(dlg.getByRole('checkbox', { name: 'Freeze merges to main' }), 1800)
+  await page.keyboard.press('Escape')
+  await wait(500)
+})
+
+// 11. Weekly Commitment: automatic daily tasks, pick one more, share.
+await record('commitment', async (page, { go, wait, click, drag, type }) => {
+  await go('/commitments')
+  await wait(1500)
+  await page.getByText('Due this week').hover()
+  await wait(1500)
+  await drag(page.getByText('Prepare Q4 roadmap').first(), page.getByText('Drag daily tasks here'), 1200)
+  await click(page.getByRole('tab', { name: /Hourly tasks/ }), 1500)
+  await click(page.getByRole('tab', { name: /Daily tasks/ }), 900)
+  await click(page.locator('textarea[placeholder^="e.g. Out Thursday"]'), 300)
+  await type('Release notes before Friday; out Thursday afternoon', 35)
+  await wait(500)
+  await click(page.getByRole('button', { name: 'Share commitment' }), 1800)
+  await click(page.getByRole('button', { name: 'Team', exact: true }), 2200)
+})
+
+// 12. Backup (last: it adds a workspace): export, then import the file as a new workspace.
 await record('backup', async (page, { go, wait, click }) => {
   await go(`/w/${W}/board`)
   const [download] = await Promise.all([
