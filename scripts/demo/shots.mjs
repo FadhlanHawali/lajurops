@@ -7,7 +7,9 @@ const opts = { viewport: { width: 1440, height: 810 }, deviceScaleFactor: 1, loc
 
 // Hero: timeline at day zoom, centred on "now", with dependency arrows.
 {
-  const p = await b.newPage(opts)
+  const ctx = await b.newContext(opts)
+  await ctx.clock.install({ time: new Date('2026-09-30T10:30:00+07:00') }) // the demo data's "now"
+  const p = await ctx.newPage()
   await p.goto(`http://localhost:8095/w/${W}/timeline`)
   await p.waitForLoadState('networkidle')
   await p.getByRole('button', { name: 'Day', exact: true }).click()
@@ -15,7 +17,7 @@ const opts = { viewport: { width: 1440, height: 810 }, deviceScaleFactor: 1, loc
   await p.getByRole('button', { name: 'Now' }).click()
   await p.waitForTimeout(800)
   await p.screenshot({ path: 'shots/hero-timeline.png' })
-  await p.close()
+  await ctx.close()
 }
 
 // Sign-in page from the real (Keycloak-enabled) instance, signed out.

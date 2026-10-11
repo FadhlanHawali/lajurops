@@ -66,6 +66,8 @@ type: `@alice` (owner, `@me` for you), `#prod` (environment), `is:open` / `is:do
 (inside a project) and `due:this-week` / `last-week` / `next-week` / `today` / `oct` / `2026-10-08`. With an empty
 box it lists the tasks you opened recently.
 
+<img src="docs/media/search.gif" alt="Search palette: typo-tolerant search, filters like @leo and #staging, filter help, opening a result" width="900">
+
 ### Notifications
 The bell next to the logo (with an unread count, also in the browser tab title) tells you what concerns you:
 being assigned or removed, your task rescheduled, comments and **@mentions** (type `@` in a comment to pick someone),
@@ -73,6 +75,8 @@ a task you wait for being done, your hourly task or runbook step starting soon, 
 Monday Weekly Commitment nudges, and a project whose tasks are all done. You're never notified about your own
 changes, bursts are grouped ("Bob made 3 changes"), and each person chooses which types they get and how early
 reminders come. Notifications are kept for 60 days.
+
+<img src="docs/media/notifications.gif" alt="Notification bell: an @mention opens the task at the comment, then mark all read" width="900">
 
 ### Creating tasks
 Pick the type, search for the project (or daily task) it belongs to, choose the environment, schedule it with the
@@ -87,18 +91,20 @@ blocks get a copy button) and a tick for who did what. A step can also be tracke
 range of days (preparation the day before, say): the hourly task then waits for it, and ticking one completes the
 other. Save a runbook as a workspace **template** and apply it to the next release; times move with the task.
 
+<img src="docs/media/runbook.gif" alt="A release runbook: timed steps, a step tracked as a daily task, adding a step, ticking one off" width="900">
+
 ### Markdown comments
 Comment on projects, daily and hourly tasks in GitHub-flavoured Markdown (checklists, tables, code) with a
 toolbar, shortcuts and preview.
 
-<img src="docs/media/comments.gif" alt="Writing and previewing a Markdown comment" width="900">
+<img src="docs/media/comments.gif" alt="Writing a Markdown comment with an @mention, previewing and posting it" width="900">
 
 ### Hourly Workload
 Per person, per week or month: time spent on **hourly tasks** (support, deployments, implementation), plus hourly/daily
 task counts and completion. Daily tasks have no hours and are planned on Weekly Commitment. Drill into a person's tasks and
 export CSV. Tasks nobody owns are listed as **Unassigned** (also on the week grid), so open slots are easy to spot.
 
-<img src="docs/media/workload.gif" alt="Workload report: weekly and monthly, per-person drill-down" width="900">
+<img src="docs/media/workload.gif" alt="Hourly Workload: per-person drill-down, the Unassigned row, monthly view and week grid" width="900">
 
 ### Weekly Commitment
 Each person picks the daily tasks they intend to finish this week: drag them from the daily tasks assigned to them
@@ -108,6 +114,8 @@ set their capacity and add a note. A picked task without dates is scheduled Mond
 them whose last day is in the week. Planned hours are the hourly time (counted
 like the workload report) plus the daily tasks' estimates, and turn red over capacity. The **Team** view shows
 everyone's commitment, progress and notes, and **last week kept** shows how many committed tasks were done in time.
+
+<img src="docs/media/commitment.gif" alt="Weekly Commitment: automatic daily tasks, dragging one more in, sharing, the Team view" width="900">
 
 ### Backup and restore
 Export a workspace to JSON (tasks, comments, runbooks and templates included) and import it (from a file or a URL)

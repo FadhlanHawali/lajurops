@@ -13,19 +13,20 @@ docker run -d --name lajurops-demo-db --network lajurops-demo -e POSTGRES_USER=p
 docker run -d --name lajurops-demo-app --network lajurops-demo -p 8095:8080 -e AUTH_DISABLED=true \
   -e "DATABASE_URL=postgres://planner:planner@lajurops-demo-db:5432/planner?sslmode=disable" ghcr.io/fadhlanhawali/lajurops:latest
 
-# 2. demo data: a product team building an app (dates are fixed around 2026-09-30; adjust seed.py for other "today"s)
+# 2. demo data: a product team building an app, planned around Wed 2026-09-30 10:30 (the browser clock is set to it)
 python seed.py > ws.txt   # prints the APP workspace id
 
-# 3. record (all scenarios, or name some: board projects timeline calendar create-task comments workload backup)
+# 3. record (all scenarios, or name some: board projects timeline calendar create-task comments workload search notifications runbook commitment backup)
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install
 node record.mjs $(cat ws.txt)
-for n in board projects timeline calendar create-task comments workload backup; do ./make-gif.sh $n; done
+for n in board projects timeline calendar create-task comments workload search notifications runbook commitment backup; do ./make-gif.sh $n; done
 node shots.mjs $(cat ws.txt)   # hero + sign-in (the sign-in page needs the Keycloak-enabled app on :8080)
 
 # 4. copy gifs/*.gif and shots/{hero-timeline,sign-in}.png into docs/media, then clean up
 docker rm -f lajurops-demo-app lajurops-demo-db && docker network rm lajurops-demo
 ```
 
-Recordings use the DevTools screencast (frame timestamps are kept, so pauses play back at real speed) and
+The browser's clock is set to the demo's "now" (2026-09-30 10:30, Asia/Jakarta), so the data looks current whenever you
+record; times the server stamps itself (e.g. "Saved" on a commitment) still show the real date. Recordings use the DevTools screencast (frame timestamps are kept, so pauses play back at real speed) and
 ffmpeg with a 128-colour palette at 960px/12 fps. Scenarios change the demo data (e.g. drag a card), so
 reset the demo database before re-recording everything.
