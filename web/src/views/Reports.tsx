@@ -10,7 +10,7 @@ import { Avatar, Button, Empty, StatusPill, TypeBadge, userName } from '../compo
 import { formatSchedule, hoursBetween } from '../lib/dates'
 import { useWorkspaces, useUsers, useWorkload, useWorkloadTasks } from '../lib/queries'
 import type { Workload } from '../lib/types'
-import WeekGrid from './WeekGrid'
+import WeekGrid, { UnassignedAvatar } from './WeekGrid'
 
 type Period = 'week' | 'month'
 
@@ -39,8 +39,10 @@ export default function Reports() {
   const toIso = to.toISOString()
 
   const { data: rows = [], isLoading } = useWorkload(fromIso, toIso, workspaceId)
-  const active = rows.filter((r) => r.total_tasks > 0)
-  const totals = rows.reduce(
+  // Team totals are the people's work; tasks nobody owns have their own row.
+  const people = rows.filter((r) => !r.unassigned)
+  const active = people.filter((r) => r.total_tasks > 0)
+  const totals = people.reduce(
     (a, r) => ({ hourly: a.hourly + r.hourly_tasks, hours: a.hours + r.hourly_hours, daily: a.daily + r.daily_tasks, done: a.done + r.done_tasks, total: a.total + r.total_tasks }),
     { hourly: 0, hours: 0, daily: 0, done: 0, total: 0 },
   )
@@ -50,7 +52,7 @@ export default function Reports() {
   const exportCsv = () => {
     const header = ['User', 'Email', 'Hourly tasks', 'Hourly hours', 'Daily tasks', 'Daily done', 'Total tasks', 'Done', 'Logged hours']
     const lines = rows.map((r) =>
-      [userName(r), r.email, r.hourly_tasks, r.hourly_hours.toFixed(2), r.daily_tasks, r.daily_done, r.total_tasks, r.done_tasks, r.logged_hours.toFixed(2)]
+      [r.unassigned ? 'Unassigned' : userName(r), r.email, r.hourly_tasks, r.hourly_hours.toFixed(2), r.daily_tasks, r.daily_done, r.total_tasks, r.done_tasks, r.logged_hours.toFixed(2)]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(','),
     )
@@ -156,7 +158,7 @@ export default function Reports() {
         <Link to="/commitments" className="font-medium text-blue-600 hover:underline">
           Weekly Commitment
         </Link>
-        . Tasks count toward the period their start date falls in ({active.length} of {rows.length} members active).
+        . Tasks count toward the period their start date falls in ({active.length} of {people.length} members active). Tasks nobody owns are listed as <b>Unassigned</b>, outside the totals.
       </p>
     </div>
   )
@@ -174,10 +176,22 @@ function Stat({ label, value, accent }: { label: string; value: string | number;
 function UserRow({ r, maxHours, open, onToggle }: { r: Workload; maxHours: number; open: boolean; onToggle: () => void }) {
   const { byId } = useUsers()
   return (
-    <tr className={clsx('cursor-pointer border-b border-slate-100 hover:bg-slate-50', r.total_tasks === 0 && 'text-slate-400')} onClick={onToggle}>
+    <tr
+      className={clsx('cursor-pointer border-b border-slate-100 hover:bg-slate-50', r.total_tasks === 0 && 'text-slate-400', r.unassigned && 'bg-amber-50/40')}
+      onClick={onToggle}
+    >
       <td className="px-4 py-2.5">
         <div className="flex items-center gap-2">
-          <Avatar user={byId.get(r.user_id)} size="md" />
+          {r.unassigned ? <UnassignedAvatar /> : <Avatar user={byId.get(r.user_id)} size="md" />}
+          {r.unassigned ? (
+            <div>
+              <div className="font-medium text-slate-800">
+                Unassigned
+                <span className="ml-1.5 rounded bg-amber-100 px-1 py-px text-[10px] font-semibold text-amber-800 uppercase">Needs an owner</span>
+              </div>
+              <div className="text-xs text-slate-500">Tasks nobody owns yet · not in the totals</div>
+            </div>
+          ) : (
           <div>
             <div className="font-medium text-slate-800">
               {userName(r)}
@@ -189,12 +203,13 @@ function UserRow({ r, maxHours, open, onToggle }: { r: Workload; maxHours: numbe
             </div>
             <div className="text-xs text-slate-500">{r.email || r.username}</div>
           </div>
+          )}
         </div>
       </td>
       <td className="px-4 py-2.5">
         <div className="flex items-center gap-2">
           <div className="h-2 w-40 overflow-hidden rounded bg-slate-100">
-            <div className="h-full rounded bg-violet-500" style={{ width: `${(r.hourly_hours / maxHours) * 100}%` }} />
+            <div className={clsx('h-full rounded', r.unassigned ? 'bg-amber-400' : 'bg-violet-500')} style={{ width: `${(r.hourly_hours / maxHours) * 100}%` }} />
           </div>
           <span className="tabular-nums font-medium">{fmtH(r.hourly_hours)}</span>
         </div>

@@ -213,6 +213,8 @@ export interface Workload {
   logged_hours: number
   deleted: boolean
   active: boolean
+  /** The extra last row for tasks nobody owns (user_id "none"). */
+  unassigned?: boolean
 }
 
 /** A committed task and the project it sits in (null for independent tasks). */

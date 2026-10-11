@@ -32,7 +32,13 @@ type Workload struct {
 	// only listed when they have tasks in the period.
 	Deleted bool `json:"deleted"`
 	Active  bool `json:"active"`
+	// Unassigned marks the extra row for tasks nobody owns (UserID is
+	// UnassignedID); it's listed last, only when there are such tasks.
+	Unassigned bool `json:"unassigned,omitempty"`
 }
+
+// UnassignedID stands for "nobody" in workload rows and WorkloadTasks.
+const UnassignedID = "none"
 
 // Scope limits a report to workspaces: nil means every workspace (admins),
 // otherwise only the listed ones (an empty list matches nothing).
@@ -88,6 +94,24 @@ func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, scope Sc
 	for i := range out {
 		out[i].HourlyHours = hours[out[i].UserID]
 	}
+
+	// Tasks nobody owns, counted the same way, as one more row.
+	none := Workload{UserID: UnassignedID, DisplayName: "Unassigned", Active: true, Unassigned: true}
+	err = s.db.QueryRow(ctx, `
+		SELECT count(*), count(*) FILTER (WHERE t.status = 'done'),
+		       count(*) FILTER (WHERE t.type = 'hourly'),
+		       count(*) FILTER (WHERE t.type = 'daily'), count(*) FILTER (WHERE t.type = 'daily' AND t.status = 'done'),
+		       coalesce(sum(t.actual_hours::float8), 0)
+		FROM tasks t
+		WHERE t.type <> 'project'
+		  AND coalesce(t.start_at, t.created_at) >= $1 AND coalesce(t.start_at, t.created_at) < $2
+		  AND ($3::text[] IS NULL OR t.workspace_id::text = ANY($3))
+		  AND NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id)`, from, to, scopeArg(scope)).
+		Scan(&none.TotalTasks, &none.DoneTasks, &none.HourlyTasks, &none.DailyTasks, &none.DailyDone, &none.LoggedHours)
+	if err != nil {
+		return nil, err
+	}
+	none.HourlyHours = hours[UnassignedID]
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.HourlyHours != b.HourlyHours {
@@ -98,6 +122,9 @@ func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, scope Sc
 		}
 		return strings.ToLower(a.Username) < strings.ToLower(b.Username)
 	})
+	if none.TotalTasks > 0 {
+		out = append(out, none)
+	}
 	return out, nil
 }
 
@@ -105,12 +132,13 @@ func (s *Store) WorkloadReport(ctx context.Context, from, to time.Time, scope Sc
 type span struct{ start, end time.Time }
 
 // hourlyHours returns each user's hourly support hours in the period, with
-// overlapping tasks merged (see Workload).
+// overlapping tasks merged (see Workload); tasks nobody owns are under
+// UnassignedID.
 func (s *Store) hourlyHours(ctx context.Context, from, to time.Time, scope Scope) (map[string]float64, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT ta.user_id::text, t.start_at, t.end_at, t.actual_hours::float8
-		FROM task_assignees ta
-		JOIN tasks t ON t.id = ta.task_id
+		SELECT coalesce(ta.user_id::text, '`+UnassignedID+`'), t.start_at, t.end_at, t.actual_hours::float8
+		FROM tasks t
+		LEFT JOIN task_assignees ta ON ta.task_id = t.id
 		WHERE t.type = 'hourly'
 		  AND coalesce(t.start_at, t.created_at) >= $1
 		  AND coalesce(t.start_at, t.created_at) <  $2
@@ -170,10 +198,15 @@ func mergedHours(spans []span) float64 {
 	return total.Hours()
 }
 
-// WorkloadTasks lists the tasks counted for a user in WorkloadReport.
+// WorkloadTasks lists the tasks counted for a user in WorkloadReport
+// (UnassignedID: the tasks nobody owns).
 func (s *Store) WorkloadTasks(ctx context.Context, userID string, from, to time.Time, scope Scope) ([]Task, error) {
+	owner := `EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id::text = $1)`
+	if userID == UnassignedID {
+		owner = `NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id) AND $1 <> ''`
+	}
 	rows, err := s.db.Query(ctx, `SELECT `+taskCols+taskFrom+`
-		WHERE EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = $1)
+		WHERE `+owner+`
 		  AND coalesce(t.start_at, t.created_at) >= $2
 		  AND coalesce(t.start_at, t.created_at) <  $3
 		  AND ($4::text[] IS NULL OR t.workspace_id::text = ANY($4))

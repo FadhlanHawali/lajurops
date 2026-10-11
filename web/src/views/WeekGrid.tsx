@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import clsx from 'clsx'
 import { addDays, differenceInCalendarDays, format, isSameDay } from 'date-fns'
 import { useTaskModal } from '../components/TaskModal'
+import { UserX } from 'lucide-react'
 import { Avatar, userName } from '../components/ui'
 import { useTasks, useUsers } from '../lib/queries'
 import { statusLabel, type Status, type Task, type Workload } from '../lib/types'
@@ -49,6 +50,15 @@ const sumHours = (spans: Span[]) => spans.reduce((a, s) => a + (s.end - s.start)
  * People × days for one week: each cell lists that person's hourly tasks
  * starting that day (a task crossing midnight stays on its start day).
  */
+/** Stands in for a person on the Unassigned row. */
+export function UnassignedAvatar() {
+  return (
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-dashed border-amber-400 bg-amber-50 text-amber-600" title="Nobody owns these tasks yet">
+      <UserX size={15} />
+    </span>
+  )
+}
+
 export default function WeekGrid({ from, rows, workspaceId }: { from: Date; rows: Workload[]; workspaceId: string }) {
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(from, i)), [from])
   const to = addDays(from, 7)
@@ -65,7 +75,8 @@ export default function WeekGrid({ from, rows, workspaceId }: { from: Date; rows
       if (start < from || start >= to) continue
       const day = differenceInCalendarDays(start, from)
       if (day < 0 || day > 6) continue
-      for (const uid of t.assignee_ids) {
+      // Tasks nobody owns go on the Unassigned row ("none").
+      for (const uid of t.assignee_ids.length ? t.assignee_ids : ['none']) {
         if (!m.has(uid)) m.set(uid, Array.from({ length: 7 }, () => []))
         m.get(uid)![day].push(t)
       }
@@ -74,11 +85,16 @@ export default function WeekGrid({ from, rows, workspaceId }: { from: Date; rows
     return m
   }, [tasks, from, to])
 
-  // Everyone in the report (active users, plus inactive ones with work), alphabetically.
-  const people = useMemo(
-    () => [...rows].filter((r) => (r.active && !r.deleted) || cells.has(r.user_id)).sort((a, b) => userName(a).localeCompare(userName(b))),
-    [rows, cells],
-  )
+  // Everyone in the report (active users, plus inactive ones with work),
+  // alphabetically, then the Unassigned row when this week has such tasks.
+  const people = useMemo(() => {
+    const list = rows
+      .filter((r) => !r.unassigned && ((r.active && !r.deleted) || cells.has(r.user_id)))
+      .sort((a, b) => userName(a).localeCompare(userName(b)))
+    const none = rows.find((r) => r.unassigned)
+    return none && cells.has('none') ? [...list, none] : list
+  }, [rows, cells])
+  const counted = people.filter((p) => !p.unassigned) // day and week totals are the people's
 
   const dayHours = (uid: string, d: number) => {
     const spans = (cells.get(uid)?.[d] ?? []).map(spanOf).filter((s): s is Span => !!s)
@@ -86,7 +102,7 @@ export default function WeekGrid({ from, rows, workspaceId }: { from: Date; rows
     return { merged, overlap: sumHours(spans) - merged > 0.001 }
   }
   const weekHours = (uid: string) => mergedHours((cells.get(uid) ?? []).flat().map(spanOf).filter((s): s is Span => !!s))
-  const dayTotals = days.map((_, d) => people.reduce((a, p) => a + dayHours(p.user_id, d).merged, 0))
+  const dayTotals = days.map((_, d) => counted.reduce((a, p) => a + dayHours(p.user_id, d).merged, 0))
   const today = new Date()
   const cols = 'grid grid-cols-[180px_repeat(7,minmax(128px,1fr))_72px]'
 
@@ -107,12 +123,12 @@ export default function WeekGrid({ from, rows, workspaceId }: { from: Date; rows
         {people.map((p) => {
           const week = weekHours(p.user_id)
           return (
-            <div key={p.user_id} className={clsx(cols, 'border-b border-slate-100')}>
+            <div key={p.user_id} className={clsx(cols, 'border-b border-slate-100', p.unassigned && 'bg-amber-50/40')}>
               <div className="flex items-start gap-2 px-3 py-2">
-                <Avatar user={byId.get(p.user_id)} size="md" />
+                {p.unassigned ? <UnassignedAvatar /> : <Avatar user={byId.get(p.user_id)} size="md" />}
                 <div className="min-w-0">
-                  <div className="truncate font-medium text-slate-800">{userName(p)}</div>
-                  <div className="text-xs text-slate-500">{week ? fmtH(week) : '—'}</div>
+                  <div className="truncate font-medium text-slate-800">{p.unassigned ? 'Unassigned' : userName(p)}</div>
+                  <div className="text-xs text-slate-500">{p.unassigned ? 'needs an owner · not in totals' : week ? fmtH(week) : '—'}</div>
                 </div>
               </div>
               {days.map((d, i) => {
@@ -163,7 +179,7 @@ export default function WeekGrid({ from, rows, workspaceId }: { from: Date; rows
               {h ? fmtH(h) : '—'}
             </div>
           ))}
-          <div className="border-l border-slate-200 px-2 py-2 text-right tabular-nums">{fmtH(people.reduce((a, p) => a + weekHours(p.user_id), 0))}</div>
+          <div className="border-l border-slate-200 px-2 py-2 text-right tabular-nums">{fmtH(counted.reduce((a, p) => a + weekHours(p.user_id), 0))}</div>
         </div>
       </div>
     </div>
