@@ -106,7 +106,9 @@ var stepTaskDueSQL = insertReminder + `
 	FROM tasks t
 	JOIN LATERAL (SELECT sec.task_id AS id FROM runbook_steps st JOIN runbook_sections sec ON sec.id = st.section_id
 	              WHERE st.task_id = t.id LIMIT 1) rb ON true` + ownerJoin + `
-	WHERE t.type = 'daily' AND t.status <> 'done' AND t.end_at IS NOT NULL AND $2::int > 0
+	WHERE t.type = 'daily' AND t.status <> 'done' AND $2::int > 0
+	  -- Ending within a day of now in any time zone (uses an index), then exactly today locally.
+	  AND t.end_at > $1::timestamptz - interval '1 day' AND t.end_at <= $1::timestamptz + interval '2 days'
 	  AND ((t.end_at - interval '1 second') AT TIME ZONE coalesce(nullif(ns.tz, ''), 'UTC'))::date
 	      = ($1::timestamptz AT TIME ZONE coalesce(nullif(ns.tz, ''), 'UTC'))::date
 	  AND extract(hour FROM $1::timestamptz AT TIME ZONE coalesce(nullif(ns.tz, ''), 'UTC')) >= ` + strconv.Itoa(stepTaskDueHour) + `
