@@ -136,6 +136,11 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		u, err := a.user(r.Context(), c)
 		if err != nil {
 			slog.Error("upsert user", "err", err)
+			if a.store.IsUnavailable(err) {
+				w.Header().Set("Content-Type", "application/json")
+				http.Error(w, `{"error":"database unavailable","code":"database_unavailable"}`, http.StatusServiceUnavailable)
+				return
+			}
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
 		}

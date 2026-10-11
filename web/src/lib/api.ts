@@ -12,6 +12,14 @@ export class ApiError extends Error {
 /** Fired on window when the server rejects our credentials (HTTP 401). */
 export const AUTH_ERROR_EVENT = 'lajurops:auth-error'
 
+/**
+ * Fired on window when the app loses its connection: detail "database" (the
+ * server answers but can't reach its database) or "server" (no answer at all).
+ */
+export const CONNECTION_EVENT = 'lajurops:connection'
+export type ConnectionProblem = 'database' | 'server'
+const connectionLost = (problem: ConnectionProblem) => window.dispatchEvent(new CustomEvent<ConnectionProblem>(CONNECTION_EVENT, { detail: problem }))
+
 type TokenProvider = () => Promise<string | undefined>
 let tokenProvider: TokenProvider | null = null
 
@@ -35,14 +43,23 @@ export async function api<T>(
   if (token) headers.Authorization = `Bearer ${token}`
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
 
-  const res = await fetch(url, {
-    method: opts.method ?? 'GET',
-    headers,
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: opts.method ?? 'GET',
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    })
+  } catch {
+    // No answer at all: the server is down or the network is.
+    connectionLost('server')
+    throw new ApiError('Can’t reach the LajurOps server', 0)
+  }
   const data = await res.json().catch(() => null)
   if (!res.ok) {
     const err = new ApiError(data?.error ?? res.statusText, res.status, data?.reason)
+    if (res.status === 503 && data?.code === 'database_unavailable') connectionLost('database')
+    else if (res.status === 502 || res.status === 504) connectionLost('server') // a proxy in front had no server to ask
     if (res.status === 401) {
       console.error(`LajurOps API rejected the sign-in token (${opts.method ?? 'GET'} ${url.pathname}): ${err.message}`)
       window.dispatchEvent(new CustomEvent(AUTH_ERROR_EVENT, { detail: err.message }))

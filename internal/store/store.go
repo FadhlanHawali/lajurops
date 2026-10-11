@@ -21,10 +21,11 @@ func (e InvalidError) Unwrap() error { return ErrInvalid }
 func invalid(msg string) error { return InvalidError{Msg: msg} }
 
 type Store struct {
-	db *pgxpool.Pool
+	db     *pgxpool.Pool
+	health *health
 }
 
-func New(db *pgxpool.Pool) *Store { return &Store{db: db} }
+func New(db *pgxpool.Pool) *Store { return &Store{db: db, health: newHealth()} }
 
 // Ping checks that the database answers (for /readyz).
 func (s *Store) Ping(ctx context.Context) error { return s.db.Ping(ctx) }

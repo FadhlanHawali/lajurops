@@ -9,9 +9,12 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: 15_000,
       refetchOnWindowFocus: true,
-      // Retry once on network or server errors; a 4xx (not found, not allowed,
-      // invalid) won't change on retry, so show it straight away.
-      retry: (failures, err) => failures < 1 && !(err instanceof ApiError && err.status >= 400 && err.status < 500),
+      // Retry once on other server errors. A 4xx (not found, not allowed,
+      // invalid) won't change on retry, and during an outage (no server, or
+      // 503 from a database that's down) the connection banner reloads
+      // everything once it's back, so show those straight away.
+      retry: (failures, err) =>
+        failures < 1 && !(err instanceof ApiError && (err.status === 0 || err.status === 503 || (err.status >= 400 && err.status < 500))),
     },
   },
 })
