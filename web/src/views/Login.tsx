@@ -1,4 +1,5 @@
-import { CalendarDays, GanttChart, Layers, LogIn, Users } from 'lucide-react'
+import { useState } from 'react'
+import { CalendarDays, GanttChart, Layers, Loader2, LogIn, Users } from 'lucide-react'
 import { login } from '../lib/auth'
 
 const FEATURES = [
@@ -17,6 +18,11 @@ function Wordmark({ className }: { className?: string }) {
 }
 
 export default function Login() {
+  const [state, setState] = useState<'idle' | 'going' | 'down'>('idle')
+  const signIn = async () => {
+    setState('going')
+    if (!(await login())) setState('down')
+  }
   return (
     <div className="flex min-h-screen bg-slate-50">
       <div className="hidden flex-1 flex-col justify-between bg-slate-900 p-12 text-white lg:flex">
@@ -49,11 +55,17 @@ export default function Login() {
           <h2 className="text-2xl font-semibold text-slate-900">Sign in</h2>
           <p className="mt-2 text-sm text-slate-500">Sign in with your organization account to continue.</p>
           <button
-            onClick={login}
-            className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+            onClick={signIn}
+            disabled={state === 'going'}
+            className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-70"
           >
-            <LogIn size={16} /> Sign in with Keycloak
+            {state === 'going' ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />} Sign in with Keycloak
           </button>
+          {state === 'down' && (
+            <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+              The sign-in service (Keycloak) isn’t answering right now. Try again in a moment; if this lasts, ask your administrator to check Keycloak.
+            </p>
+          )}
           <p className="mt-4 text-center text-xs text-slate-400">
             You'll enter your password on your organization's single sign-on page (Keycloak). Accounts are managed by your LajurOps administrator.
           </p>

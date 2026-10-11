@@ -14,11 +14,20 @@ export const AUTH_ERROR_EVENT = 'lajurops:auth-error'
 
 /**
  * Fired on window when the app loses its connection: detail "database" (the
- * server answers but can't reach its database) or "server" (no answer at all).
+ * server answers but can't reach its database), "server" (no answer at all)
+ * or "auth" (the sign-in service, Keycloak, can't be reached).
  */
 export const CONNECTION_EVENT = 'lajurops:connection'
-export type ConnectionProblem = 'database' | 'server'
-const connectionLost = (problem: ConnectionProblem) => window.dispatchEvent(new CustomEvent<ConnectionProblem>(CONNECTION_EVENT, { detail: problem }))
+export type ConnectionProblem = 'database' | 'server' | 'auth'
+let lost: ConnectionProblem | null = null
+export function connectionLost(problem: ConnectionProblem) {
+  lost = problem
+  window.dispatchEvent(new CustomEvent<ConnectionProblem>(CONNECTION_EVENT, { detail: problem }))
+}
+/** Called by the connection banner once everything answers again. */
+export function connectionRestored() {
+  lost = null
+}
 
 type TokenProvider = () => Promise<string | undefined>
 let tokenProvider: TokenProvider | null = null
@@ -59,8 +68,14 @@ export async function api<T>(
   if (!res.ok) {
     const err = new ApiError(data?.error ?? res.statusText, res.status, data?.reason)
     if (res.status === 503 && data?.code === 'database_unavailable') connectionLost('database')
+    else if (res.status === 503 && data?.code === 'auth_unavailable') {
+      console.error(`LajurOps can't check sign-ins: ${err.message}`)
+      connectionLost('auth')
+    }
     else if (res.status === 502 || res.status === 504) connectionLost('server') // a proxy in front had no server to ask
-    if (res.status === 401) {
+    // While Keycloak is down an expired session can't be renewed; that's what
+    // the connection banner explains, not a token the server got wrong.
+    if (res.status === 401 && lost !== 'auth') {
       console.error(`LajurOps API rejected the sign-in token (${opts.method ?? 'GET'} ${url.pathname}): ${err.message}`)
       window.dispatchEvent(new CustomEvent(AUTH_ERROR_EVENT, { detail: err.message }))
     }

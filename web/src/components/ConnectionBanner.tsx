@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { CircleCheck, DatabaseZap, Loader2, ServerOff } from 'lucide-react'
-import { CONNECTION_EVENT, type ConnectionProblem } from '../lib/api'
+import { CircleCheck, DatabaseZap, KeyRound, Loader2, ServerOff } from 'lucide-react'
+import { api, ApiError, CONNECTION_EVENT, connectionRestored, type ConnectionProblem } from '../lib/api'
+import { keycloakReachable } from '../lib/auth'
 
 const CHECK_EVERY = 3000
 
 /** What /readyz says: fine, the database is out, or no server answers. */
-async function check(): Promise<ConnectionProblem | null> {
+async function checkServer(): Promise<ConnectionProblem | null> {
   try {
     const res = await fetch('/readyz', { cache: 'no-store' })
     if (res.ok) return null
@@ -15,6 +16,38 @@ async function check(): Promise<ConnectionProblem | null> {
   } catch {
     return 'server'
   }
+}
+
+/**
+ * Whether Keycloak is back, for both the browser (to renew the session) and
+ * the server (to check tokens). /readyz leaves Keycloak out on purpose: a
+ * Keycloak outage shouldn't take every replica out of the load balancer.
+ */
+async function checkAuth(): Promise<ConnectionProblem | null> {
+  if (!(await keycloakReachable(true))) return 'auth'
+  try {
+    await api('/me')
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 503) return 'auth'
+  }
+  return null
+}
+
+// When several things are wrong, explain the most basic one.
+const rank: Record<ConnectionProblem, number> = { server: 3, database: 2, auth: 1 }
+
+const text: Record<ConnectionProblem, { icon: typeof ServerOff; title: string; hint: string }> = {
+  database: {
+    icon: DatabaseZap,
+    title: 'Can’t connect to the database.',
+    hint: 'The server is running but its database isn’t answering. If this lasts, ask your administrator to check the database.',
+  },
+  server: { icon: ServerOff, title: 'Can’t reach the LajurOps server.', hint: 'It may be restarting, or the network is down.' },
+  auth: {
+    icon: KeyRound,
+    title: 'Can’t reach the sign-in service (Keycloak).',
+    hint: 'Your sign-in can’t be checked or renewed right now. If this lasts, ask your administrator to check Keycloak.',
+  },
 }
 
 /**
@@ -28,11 +61,14 @@ export function ConnectionBanner() {
   const [checking, setChecking] = useState(false)
   const [restored, setRestored] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const problemRef = useRef(problem)
+  problemRef.current = problem
 
   const recheck = useCallback(async () => {
     clearTimeout(timer.current)
     setChecking(true)
-    const now = await check()
+    let now = await checkServer()
+    if (!now && problemRef.current === 'auth') now = await checkAuth()
     setChecking(false)
     if (now) {
       setProblem(now)
@@ -40,6 +76,7 @@ export function ConnectionBanner() {
       return
     }
     setProblem(null)
+    connectionRestored()
     setRestored(true)
     qc.invalidateQueries() // fetch everything on screen again
     timer.current = setTimeout(() => setRestored(false), 4000)
@@ -55,7 +92,9 @@ export function ConnectionBanner() {
           clearTimeout(timer.current)
           timer.current = setTimeout(recheck, CHECK_EVERY)
         }
-        return cur === 'server' && p === 'database' ? 'database' : (cur ?? p)
+        // A database answer replaces "no server": the server is evidently up.
+        if (cur === 'server' && p === 'database') return p
+        return !cur || rank[p] > rank[cur] ? p : cur
       })
     }
     window.addEventListener(CONNECTION_EVENT, on)
@@ -77,18 +116,14 @@ export function ConnectionBanner() {
       </div>
     )
   if (!problem) return null
-  const Icon = problem === 'database' ? DatabaseZap : ServerOff
+  const { icon: Icon, title, hint } = text[problem]
   return (
     <div className={`${box} items-start border-red-200 bg-red-50 text-red-800`} role="alert">
       <Icon size={16} className="mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1">
-        <b>{problem === 'database' ? 'Can’t connect to the database.' : 'Can’t reach the LajurOps server.'}</b>{' '}
-        What you see may be out of date or empty, and changes won’t be saved until it’s back.
+        <b>{title}</b> What you see may be out of date or empty, and changes won’t be saved until it’s back.
         <div className="text-xs text-red-700">
-          {problem === 'database'
-            ? 'The server is running but its database isn’t answering. If this lasts, ask your administrator to check the database.'
-            : 'It may be restarting, or the network is down.'}{' '}
-          Reconnecting automatically…
+          {hint} Reconnecting automatically…
         </div>
       </div>
       <button className="flex shrink-0 items-center gap-1 text-xs font-medium underline disabled:no-underline" disabled={checking} onClick={recheck}>

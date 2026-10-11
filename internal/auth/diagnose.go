@@ -52,6 +52,13 @@ func peek(raw string) (peekedToken, bool) {
 	return t, true
 }
 
+// keysUnavailable reports whether verification failed because the signing
+// keys couldn't be fetched from Keycloak.
+func keysUnavailable(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "fetching keys") || strings.Contains(msg, "get keys")
+}
+
 // explain turns a verification error into an actionable reason.
 func (a *Authenticator) explain(err error, t peekedToken, ok bool) string {
 	msg := err.Error()
@@ -68,7 +75,7 @@ func (a *Authenticator) explain(err error, t peekedToken, ok bool) string {
 	case t.Iat != 0 && time.Unix(t.Iat, 0).After(now.Add(time.Minute)):
 		return fmt.Sprintf("token issued in the future (iat %s, server time %s): the server and Keycloak clocks disagree",
 			time.Unix(t.Iat, 0).UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
-	case strings.Contains(msg, "fetching keys") || strings.Contains(msg, "get keys"):
+	case keysUnavailable(err):
 		return fmt.Sprintf("cannot fetch signing keys from OIDC_JWKS_URL %s%s%s: %s", a.jwksURL, proxyHint(a.jwksURL), tlsHint(msg), msg)
 	case strings.Contains(msg, "failed to verify signature"):
 		return fmt.Sprintf("signature does not match any key at OIDC_JWKS_URL %s (token kid %q); check it points at the same realm as OIDC_ISSUER: %s",
@@ -130,7 +137,11 @@ func (a *Authenticator) reject(w http.ResponseWriter, r *http.Request, status in
 	slog.Log(r.Context(), a.rejects.level(msg+"|"+key), "auth: "+msg, attrs...)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg, "reason": reason})
+	body := map[string]string{"error": msg, "reason": reason}
+	if status == http.StatusServiceUnavailable {
+		body["code"] = "auth_unavailable"
+	}
+	json.NewEncoder(w).Encode(body)
 }
 
 // probe checks at startup that the signing keys and the issuer's discovery
@@ -143,7 +154,7 @@ func (a *Authenticator) probe(ctx context.Context) {
 		Keys []json.RawMessage `json:"keys"`
 	}
 	if err := a.getJSON(ctx, a.jwksURL, &jwks); err != nil {
-		slog.Error("auth: cannot fetch OIDC signing keys; every API request will be rejected with 401",
+		slog.Error("auth: cannot fetch OIDC signing keys; every API request will be rejected with 503 until they are",
 			"jwks_url", a.jwksURL, "err", err, "hint", "check OIDC_JWKS_URL is reachable from this container"+proxyHint(a.jwksURL)+tlsHint(err.Error()))
 		return
 	}
