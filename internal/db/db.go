@@ -28,6 +28,11 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	if _, ok := cfg.ConnConfig.RuntimeParams["jit"]; !ok {
 		cfg.ConnConfig.RuntimeParams["jit"] = "off"
 	}
+	// Don't wait forever for a database that doesn't answer (connect_timeout
+	// in the DSN still wins).
+	if cfg.ConnConfig.ConnectTimeout == 0 {
+		cfg.ConnConfig.ConnectTimeout = 5 * time.Second
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err

@@ -54,7 +54,10 @@ func Router(cfg config.Config, st *store.Store, authn *auth.Authenticator, kc *k
 		r.Use(middleware.Logger)
 		r.Get("/config", a.getConfig)
 
+		unavailable = st.IsUnavailable
 		r.Group(func(r chi.Router) {
+			// Before sign-in, which also reads the database.
+			r.Use(a.dbGate)
 			r.Use(authn.Middleware)
 			a.routes(r)
 		})
@@ -197,11 +200,40 @@ func respond(w http.ResponseWriter, v any, err error) {
 	respondStatus(w, http.StatusOK, v, err)
 }
 
+// unavailable tells database outages apart from other errors (set by Router).
+var unavailable = func(error) bool { return false }
+
+// dbUnavailable is the answer while the database can't be reached; the app
+// shows a "can't connect to the database" banner for this code.
+func dbUnavailable(w http.ResponseWriter) {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "database unavailable", "code": "database_unavailable"})
+}
+
+// dbGate answers at once while the database is known to be down, and makes
+// requests stop waiting on it when an outage starts (a frozen database never
+// answers, so requests would otherwise hang).
+func (a *API) dbGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !a.store.DBAvailable() {
+			dbUnavailable(w)
+			return
+		}
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		stop := context.AfterFunc(a.store.DBAlive(), cancel)
+		defer stop()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func respondStatus(w http.ResponseWriter, status int, v any, err error) {
 	var inv store.InvalidError
 	switch {
 	case err == nil:
 		writeJSON(w, status, v)
+	case unavailable(err):
+		slog.Warn("request failed: database unavailable", "err", err)
+		dbUnavailable(w)
 	case errors.Is(err, store.ErrNotFound), isBadUUID(err):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	case errors.As(err, &inv):

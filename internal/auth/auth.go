@@ -109,7 +109,13 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			tok, err := a.verifier.Verify(r.Context(), raw)
 			if err != nil {
 				t, parsed := peek(raw)
-				a.reject(w, r, http.StatusUnauthorized, "invalid token", a.explain(err, t, parsed),
+				status, msg := http.StatusUnauthorized, "invalid token"
+				if keysUnavailable(err) {
+					// Not the token's fault: Keycloak can't be reached (or
+					// OIDC_JWKS_URL is wrong, which the reason says).
+					status, msg = http.StatusServiceUnavailable, "sign-in service unavailable"
+				}
+				a.reject(w, r, status, msg, a.explain(err, t, parsed),
 					"err", err, "token_iss", t.Iss, "expected_iss", a.issuer, "token_azp", t.Azp, "kid", t.Kid, "alg", t.Alg,
 					"token_exp", unixTime(t.Exp), "server_time", time.Now().UTC().Format(time.RFC3339), "jwks_url", a.jwksURL)
 				return
@@ -136,6 +142,11 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		u, err := a.user(r.Context(), c)
 		if err != nil {
 			slog.Error("upsert user", "err", err)
+			if a.store.IsUnavailable(err) {
+				w.Header().Set("Content-Type", "application/json")
+				http.Error(w, `{"error":"database unavailable","code":"database_unavailable"}`, http.StatusServiceUnavailable)
+				return
+			}
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
 		}

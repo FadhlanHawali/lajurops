@@ -3,6 +3,7 @@ import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-
 import clsx from 'clsx'
 import { formatISO, startOfWeek } from 'date-fns'
 import { AlertTriangle, BarChart3, CalendarDays, Eye, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Search, Settings, Target, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
+import { ConnectionBanner } from './components/ConnectionBanner'
 import { ImportDialog } from './components/ImportDialog'
 import { NotFound } from './components/NotFound'
 import { NotificationBell } from './components/NotificationBell'
@@ -27,6 +28,7 @@ export default function App() {
       <div className="flex h-screen bg-slate-50 text-slate-800">
         <Sidebar />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <ConnectionBanner />
           <AuthErrorBanner />
           <div className="min-h-0 flex-1">
             <Routes>

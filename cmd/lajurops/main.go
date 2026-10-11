@@ -62,6 +62,8 @@ func run() error {
 	}
 
 	st := store.New(pool)
+	// Notices database outages, so the API answers "database unavailable" at once.
+	go st.WatchDB(ctx)
 	// Reminders (hourly tasks and runbook steps starting soon, Monday
 	// commitment nudges) and pruning old notifications, every minute.
 	go st.NewReminders().Run(ctx)

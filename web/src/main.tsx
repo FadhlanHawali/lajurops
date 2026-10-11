@@ -6,6 +6,7 @@ import App from './App'
 import { initAuth } from './lib/auth'
 import { queryClient } from './lib/queries'
 import Login from './views/Login'
+import Unavailable from './views/Unavailable'
 import './index.css'
 
 const root = createRoot(document.getElementById('root')!)
@@ -28,11 +29,5 @@ initAuth()
   })
   .catch((err) => {
     console.error(err)
-    root.render(
-      <div style={{ padding: 32, fontFamily: 'system-ui' }}>
-        <h1>Could not sign in</h1>
-        <p>The identity provider is unreachable or misconfigured. Check the OIDC_* settings and try again.</p>
-        <pre style={{ color: '#b91c1c' }}>{String(err?.message ?? err)}</pre>
-      </div>,
-    )
+    root.render(<Unavailable error={err} />)
   })
