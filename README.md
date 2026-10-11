@@ -364,33 +364,25 @@ spec:
           livenessProbe: { httpGet: { path: /healthz, port: 8080 }, periodSeconds: 10 }
 ```
 
-Docker Compose: `deploy.replicas` alone can't share one published port, so put a reverse proxy in front.
-For example, with nginx forwarding to the `app` service (Docker's DNS spreads requests over the replicas):
+Docker Compose: **`docker-compose.ha.yml`** is a ready-made variant of `docker-compose.yml` with the app as
+3 replicas (`LAJUROPS_REPLICAS`) behind nginx (`deploy/nginx/lajurops-ha.conf`), each capped at
+`LAJUROPS_DB_POOL` (10) database connections. It reads the same `.env`:
 
-```yaml
-services:
-  app:
-    image: ghcr.io/fadhlanhawali/lajurops:latest
-    deploy: { replicas: 3 }
-    # no "ports:" here; the proxy publishes 8080
-  proxy:
-    image: nginx:alpine
-    ports: ["8080:80"]
-    volumes: ["./nginx.conf:/etc/nginx/conf.d/default.conf:ro"]
+```bash
+docker compose -f docker-compose.ha.yml up -d
 ```
 
-```nginx
-# nginx.conf: re-resolve "app" so replicas added or restarted are picked up
-resolver 127.0.0.11 valid=5s;
-server {
-  listen 80;
-  location / {
-    set $app http://app:8080;
-    proxy_pass $app;
-    proxy_next_upstream error timeout http_502 http_503;
-  }
-}
+Plain `up -d` with a new image recreates every replica at once. To upgrade without downtime, use the rolling
+update script: it starts the new version next to the old one, waits until each new replica is ready, then
+stops the old ones (which finish their requests first):
+
+```bash
+LAJUROPS_VERSION=0.6.0 deploy/rolling-update.sh
 ```
+
+This makes the app tier highly available on one Docker host; Postgres and Keycloak still run as single
+containers in it. In testing, replacing all 3 replicas this way under steady load (about 540 requests/s)
+failed no requests.
 
 ### Troubleshooting sign-in (401 "invalid token")
 

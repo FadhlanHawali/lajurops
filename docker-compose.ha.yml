@@ -1,0 +1,119 @@
+# High-availability variant of docker-compose.yml: the app runs as several
+# replicas behind nginx, so one replica can stop (crash, restart, upgrade)
+# without downtime. Start it with:
+#
+#   docker compose -f docker-compose.ha.yml up -d
+#
+# and upgrade the app without downtime with deploy/rolling-update.sh (plain
+# `up -d` with a new image recreates every replica at once).
+#
+# Scope: this makes the app tier highly available on one Docker host.
+# Postgres and Keycloak still run as single containers here; for a setup that
+# survives losing a host, run them HA too (see "Running several replicas" in
+# the README) and point DATABASE_URL / the Keycloak URLs at them.
+name: lajurops-ha
+
+services:
+  planner-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: planner
+      POSTGRES_PASSWORD: ${LAJUROPS_DB_PASSWORD:-planner}
+      POSTGRES_DB: planner
+    # replicas x pool_max_conns (below) must stay well under this.
+    command: ["postgres", "-c", "max_connections=200"]
+    volumes:
+      - planner-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U planner -d planner"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  keycloak-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      POSTGRES_DB: keycloak
+    volumes:
+      - keycloak-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    # For production use `start` with TLS and a real hostname (see README).
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      KC_HOSTNAME: ${PUBLIC_KEYCLOAK_URL:-http://localhost:8081}
+      KC_HEALTH_ENABLED: "true"
+      LAJUROPS_SERVICE_CLIENT_SECRET: ${LAJUROPS_SERVICE_CLIENT_SECRET:-dev-admin-secret-change-me}
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    volumes:
+      - ./deploy/keycloak/realm-lajurops.json:/opt/keycloak/data/import/realm-lajurops.json:ro
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+
+  app:
+    image: ghcr.io/fadhlanhawali/lajurops:${LAJUROPS_VERSION:-latest}
+    restart: unless-stopped
+    deploy:
+      replicas: ${LAJUROPS_REPLICAS:-3}
+    # No "ports:" here: replicas can't share one published port; the proxy
+    # publishes it. Migrations on startup are locked, so replicas starting
+    # together are safe, and reminders run on one replica at a time.
+    stop_grace_period: 15s # finish in-flight requests on stop
+    environment:
+      ADDR: ":8080"
+      # pool_max_conns caps each replica's database connections.
+      DATABASE_URL: postgres://planner:${LAJUROPS_DB_PASSWORD:-planner}@planner-db:5432/planner?sslmode=disable&pool_max_conns=${LAJUROPS_DB_POOL:-10}
+      OIDC_ISSUER: ${PUBLIC_KEYCLOAK_URL:-http://localhost:8081}/realms/lajurops
+      OIDC_JWKS_URL: http://keycloak:8080/realms/lajurops/protocol/openid-connect/certs
+      OIDC_CLIENT_ID: lajurops
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_CLIENT_ID: lajurops-service
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${LAJUROPS_SERVICE_CLIENT_SECRET:-dev-admin-secret-change-me}
+      ADMIN_ROLE: lajurops-admin
+      DEFAULT_WORKSPACE_ROLE: ${DEFAULT_WORKSPACE_ROLE:-viewer}
+      KEYCLOAK_CA_CERT: ${KEYCLOAK_CA_CERT:-}
+      KEYCLOAK_TLS_SKIP_VERIFY: ${KEYCLOAK_TLS_SKIP_VERIFY:-false}
+      IMPORT_ALLOW_PRIVATE_URLS: ${IMPORT_ALLOW_PRIVATE_URLS:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NO_PROXY: keycloak,planner-db,localhost,127.0.0.1
+      no_proxy: keycloak,planner-db,localhost,127.0.0.1
+    depends_on:
+      planner-db:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  # Spreads requests over the app replicas and retries another one when a
+  # replica is down or restarting. Put TLS here (or in front of it).
+  proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${LAJUROPS_PORT:-8080}:80"
+    volumes:
+      - ./deploy/nginx/lajurops-ha.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+volumes:
+  planner-db:
+  keycloak-db:
