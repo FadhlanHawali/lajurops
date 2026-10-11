@@ -39,6 +39,23 @@ func Handler() http.Handler {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
+		// The app shows its own "Page not found"; the status says so too, for
+		// proxies, monitoring and link checkers.
+		if !AppRoute(name) {
+			w.WriteHeader(http.StatusNotFound)
+		}
 		w.Write(index)
 	})
+}
+
+// AppRoute reports whether a path (without the leading slash) is one of the
+// frontend's pages (see the routes in web/src/App.tsx).
+func AppRoute(name string) bool {
+	switch name {
+	case "", "calendar", "reports", "commitments", "admin/users", "index.html":
+		return true
+	}
+	parts := strings.Split(name, "/")
+	// /w/<workspace> and /w/<workspace>/<view>
+	return parts[0] == "w" && (len(parts) == 2 || len(parts) == 3) && parts[1] != ""
 }

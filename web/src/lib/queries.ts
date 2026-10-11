@@ -1,11 +1,19 @@
 import { useMemo } from 'react'
 import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { api } from './api'
+import { api, ApiError } from './api'
 import type { AdminUser, AdminUserInput, MemberAccess, MemberRole, RunbookSection, RunbookStep, RunbookTemplate, SearchResults, AppNotification, NotificationSettings, Comment, Commitment, CommitmentBrief, CommitmentInput, ProjectCategory, ImportResult, WorkspaceBackup, RemovedUser, SyncResult, Environment, EnvironmentDraft, Me, Workspace, Task, TaskDetail, TaskType, User, Workload } from './types'
 
 export const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 } },
+  defaultOptions: {
+    queries: {
+      staleTime: 15_000,
+      refetchOnWindowFocus: true,
+      // Retry once on network or server errors; a 4xx (not found, not allowed,
+      // invalid) won't change on retry, so show it straight away.
+      retry: (failures, err) => failures < 1 && !(err instanceof ApiError && err.status >= 400 && err.status < 500),
+    },
+  },
 })
 
 export const useMe = () => useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me') })

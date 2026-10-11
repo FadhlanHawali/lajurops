@@ -4,12 +4,13 @@ import clsx from 'clsx'
 import { formatISO, startOfWeek } from 'date-fns'
 import { AlertTriangle, BarChart3, CalendarDays, Eye, Download, FolderKanban, GanttChart, KanbanSquare, Loader2, LogOut, Plus, Search, Settings, Target, Trash2, Upload, Users as UsersIcon } from 'lucide-react'
 import { ImportDialog } from './components/ImportDialog'
+import { NotFound } from './components/NotFound'
 import { NotificationBell } from './components/NotificationBell'
 import { SearchProvider, useSearchPalette } from './components/SearchPalette'
 import { TaskModalProvider, useTaskModal } from './components/TaskModal'
 import { Avatar, Button, Field, inputCls, userName } from './components/ui'
 import { useAccess } from './lib/access'
-import { AUTH_ERROR_EVENT } from './lib/api'
+import { ApiError, AUTH_ERROR_EVENT } from './lib/api'
 import { accountUrl, authEnabled, logout } from './lib/auth'
 import { downloadWorkspaceBackup, useCreateWorkspace, useDeleteWorkspace, useMe, useMyCommitment, useWorkspace, useWorkspaces } from './lib/queries'
 import Board from './views/Board'
@@ -70,7 +71,7 @@ export default function App() {
                   </Page>
                 }
               />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </div>
         </main>
@@ -218,6 +219,22 @@ const VIEWS = [
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
 ]
 
+/** Something other than "not found" went wrong loading a page (e.g. the server is down). */
+function LoadError({ error }: { error: Error }) {
+  return (
+    <div className="flex h-full items-center justify-center p-6">
+      <div className="w-full max-w-md rounded-xl border border-red-200 bg-white p-6 text-center shadow-sm">
+        <AlertTriangle size={22} className="mx-auto text-red-500" />
+        <h1 className="mt-2 text-lg font-semibold text-slate-800">Couldn’t load this page</h1>
+        <p className="mt-1 text-sm text-slate-500">{error.message}</p>
+        <Button className="mt-4" onClick={() => location.reload()}>
+          Try again
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function WorkspacePage() {
   const { workspaceId = '', view = 'board' } = useParams()
   const { data: workspace, error } = useWorkspace(workspaceId)
@@ -226,7 +243,9 @@ function WorkspacePage() {
   const navigate = useNavigate()
   const modal = useTaskModal()
   const canEdit = useAccess().canEdit(workspaceId)
-  if (error) return <Navigate to="/" replace />
+  if (error) return error instanceof ApiError && error.status === 404 ? <NotFound kind="workspace" /> : <LoadError error={error} />
+  // An unknown view (e.g. a mistyped link) goes to the board, and says so in the address bar.
+  if (!VIEWS.some((v) => v.id === view)) return <Navigate to={`/w/${workspaceId}/board${location.search}`} replace />
 
   return (
     <Page
