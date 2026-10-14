@@ -92,7 +92,7 @@ jobs:
             mkdir -p "build/$name"
             CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
               -ldflags="-s -w -X main.version=${VERSION}" -o "build/$name/lajurops$ext" ./cmd/lajurops
-            cp README.md LICENSE* .env.example "build/$name/" 2>/dev/null || true
+            cp README.md LICENSE* NOTICE .env.example "build/$name/" 2>/dev/null || true
             if [ "$os" = windows ]; then
               (cd build && zip -qr "../dist/$name.zip" "$name")
             else
